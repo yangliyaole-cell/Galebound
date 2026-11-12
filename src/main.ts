@@ -2,14 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HORIZON_COLOR, createSky } from './world/sky';
 import { createTerrain, heightAt } from './world/terrain';
-import {
-  createFlowers,
-  createGrass,
-  createPlaceholderPlayer,
-  createRocks,
-  createTrees,
-  windUniforms,
-} from './world/vegetation';
+import { createFlowers, createGrass, createRocks, createTrees, windUniforms } from './world/vegetation';
+import { Character } from './player/character';
+import { createPreview } from './player/preview';
 
 // Phones and tablets get lighter settings; proper quality tiers come in stage 7.
 const lowEnd = window.matchMedia('(pointer: coarse)').matches;
@@ -49,20 +44,23 @@ scene.add(createFlowers(lowEnd ? 14 : 30, 55));
 scene.add(createTrees(lowEnd ? 70 : 130));
 scene.add(createRocks(lowEnd ? 30 : 55));
 
-const player = createPlaceholderPlayer();
-const groundY = heightAt(0, 0);
-player.position.set(0, groundY, 0);
-scene.add(player);
+const character = new Character();
+scene.add(character.root, character.cloth);
 
-sun.target.position.set(0, groundY, 0);
-sun.position.add(sun.target.position);
+const windVelocity = new THREE.Vector3();
+const preview = createPreview(character, heightAt, () => {
+  const dir = windUniforms.uWindDir.value;
+  const speed = windUniforms.uWindStrength.value * 3;
+  return windVelocity.set(dir.x * speed, 0, dir.y * speed);
+});
 
-camera.position.set(9, groundY + 3.4, 15);
+const focus = character.root.position;
+camera.position.set(focus.x + 2.2, focus.y + 1.9, focus.z + 3.6);
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(0, groundY + 1.6, 0);
+controls.target.set(focus.x, focus.y + 1.05, focus.z);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.49;
-controls.minDistance = 4;
+controls.minDistance = 1.5;
 controls.maxDistance = 70;
 
 function resize(): void {
@@ -75,10 +73,25 @@ function resize(): void {
 window.addEventListener('resize', resize);
 resize();
 
+const lastFocus = focus.clone();
+const moved = new THREE.Vector3();
+let lastTime = 0;
 renderer.setAnimationLoop((ms: number) => {
   const time = ms / 1000;
+  const dt = Math.min(time - lastTime, 0.1);
+  lastTime = time;
   windUniforms.uTime.value = time;
   sky.update(time);
+
+  preview.update(dt, time);
+  // Keep the camera and the sun's shadow area centred on the character.
+  moved.copy(focus).sub(lastFocus);
+  lastFocus.copy(focus);
+  camera.position.add(moved);
+  controls.target.add(moved);
+  sun.target.position.copy(focus);
+  sun.position.copy(sunDir).multiplyScalar(120).add(focus);
+
   controls.update();
   renderer.render(scene, camera);
 });

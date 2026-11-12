@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { toon } from '../render/toon';
 import { fbm, seededRandom } from './noise';
 import { GROUND_GLSL, NOISE_GLSL, groundUniforms, heightAt, pathX } from './terrain';
 
@@ -8,16 +9,6 @@ export const windUniforms = {
   uWindDir: { value: new THREE.Vector2(0.8, 0.6).normalize() },
   uWindStrength: { value: 0.6 },
 };
-
-// Three flat tones give the hand-painted, cel-shaded look.
-const toonRamp = new THREE.DataTexture(new Uint8Array([105, 175, 230, 255]), 4, 1, THREE.RedFormat);
-toonRamp.minFilter = THREE.NearestFilter;
-toonRamp.magFilter = THREE.NearestFilter;
-toonRamp.needsUpdate = true;
-
-function toon(color: number, vertexColors = false): THREE.MeshToonMaterial {
-  return new THREE.MeshToonMaterial({ color, gradientMap: toonRamp, vertexColors });
-}
 
 /** Darkens the lower part of a foliage shape so crowns read as having depth. */
 function shadeByHeight(geo: THREE.BufferGeometry): THREE.BufferGeometry {
@@ -251,8 +242,8 @@ export function createTrees(count: number): THREE.Group {
 
   const trunks = build(spots, trunkGeo, 0x7d5d40, 0.05);
   // Same placement order as build() used, so trunks and crowns line up.
-  const crowns = new THREE.InstancedMesh(crownGeo, toon(0xffffff, true), round.length);
-  const cones = new THREE.InstancedMesh(cypressGeo, toon(0xffffff, true), tall.length);
+  const crowns = new THREE.InstancedMesh(crownGeo, toon(0xffffff, { vertexColors: true }), round.length);
+  const cones = new THREE.InstancedMesh(cypressGeo, toon(0xffffff, { vertexColors: true }), tall.length);
   const m = new THREE.Matrix4();
   let ri = 0;
   let ti = 0;
@@ -310,16 +301,4 @@ export function createRocks(count: number): THREE.InstancedMesh {
   mesh.receiveShadow = true;
   mesh.frustumCulled = false;
   return mesh;
-}
-
-export function createPlaceholderPlayer(): THREE.Group {
-  const group = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.75, 6, 12), toon(0xe9e0cc));
-  body.position.y = 0.72;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), toon(0xf1d2b4));
-  head.position.y = 1.58;
-  body.castShadow = true;
-  head.castShadow = true;
-  group.add(body, head);
-  return group;
 }
