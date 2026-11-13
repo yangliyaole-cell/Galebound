@@ -474,17 +474,21 @@ try {
     return `${orbs.length} orbs`;
   });
   check('world geometry finite, merged and bounded', () => {
-    let meshes = 0, vertices = 0;
+    let meshes = 0, detailMeshes = 0, vertices = 0;
     for (const root of [village.object, landmarks.object, city.object, abbey]) root.traverse((o) => {
       if (!o.isMesh) return;
       meshes++;
+      if (o.name.startsWith('structure-detail-')) detailMeshes++;
       const p = o.geometry.attributes.position;
       vertices += p.count;
       for (const v of p.array) assert.ok(Number.isFinite(v));
       o.geometry.computeBoundingSphere(); assert.ok(Number.isFinite(o.geometry.boundingSphere.radius));
     });
-    assert.ok(meshes < 90);
-    return `${meshes} meshes, ${vertices.toLocaleString()} vertices (includes existing structures)`;
+    // Spatially merged decorative chunks were added by the detail branch.
+    // Keep the original base-mesh budget and separately bound those chunks.
+    assert.ok(meshes - detailMeshes < 90, `${meshes - detailMeshes} base meshes`);
+    assert.ok(detailMeshes <= (low ? 0 : 256), `${detailMeshes} decorative chunks`);
+    return `${meshes} meshes (${detailMeshes} decorative chunks), ${vertices.toLocaleString()} vertices (includes existing structures)`;
   });
   check('terrain water grass crops scatter and life generate without runtime errors', () => {
     let meshes = 0, instances = 0;

@@ -14,10 +14,10 @@ function getMaterials(detail = false): Record<Mat, THREE.Material> {
   if (materialSets.has(key)) return materialSets.get(key)!;
   const range = detail ? { detailRange: STRUCTURE_DETAIL_RANGE, detailCounters } : {};
   const materials = {
-    stone: toon(0xffffff, { vertexColors: true, texture: stoneTexture(), textureSize: 2.6, relief: relief ? 0.085 : 0, ...range }),
-    plaster: toon(0xffffff, { vertexColors: true, texture: plasterTexture(), textureSize: 3.4, ...range }),
-    roof: toon(0xffffff, { vertexColors: true, texture: roofTexture(), textureSize: 2.2, relief: relief ? 0.045 : 0, ...range }),
-    wood: toon(0xffffff, { vertexColors: true, texture: woodTexture(), textureSize: 1.5, relief: relief ? 0.025 : 0, ...range }),
+    stone: toon(0xffffff, { pbr: 'masonry', vertexColors: true, texture: stoneTexture(), textureSize: 2.6, relief: relief ? 0.085 : 0, ...range }),
+    plaster: toon(0xffffff, { pbr: 'plaster', vertexColors: true, texture: plasterTexture(), textureSize: 3.4, ...range }),
+    roof: toon(0xffffff, { pbr: 'roof', vertexColors: true, texture: roofTexture(), textureSize: 2.2, relief: relief ? 0.045 : 0, ...range }),
+    wood: toon(0xffffff, { pbr: 'wood', vertexColors: true, texture: woodTexture(), textureSize: 1.5, relief: relief ? 0.025 : 0, ...range }),
     plain: toon(0xffffff, { vertexColors: true, ...range }),
     cloth: toon(0xffffff, { vertexColors: true, doubleSided: true, ...range }),
   };

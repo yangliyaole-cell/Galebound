@@ -19,6 +19,8 @@ import { createGrass } from './world/grass';
 import { createScatter } from './world/scatter';
 import { Wind, createWindFx } from './world/wind';
 import { toon } from './render/toon';
+import { configurePbr } from './render/pbr/config';
+import { createPbrLighting } from './render/pbr/lighting';
 import { groundDetailTexture } from './render/textures';
 import { createFlags } from './world/flags';
 import { Sound } from './core/audio';
@@ -45,6 +47,7 @@ const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimation
 
 async function boot(): Promise<void> {
   const quality = pickQuality();
+  configurePbr(quality.tier);
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const input = new Input(canvas);
   const hud = new Hud(input.touch, quality.tier);
@@ -200,6 +203,7 @@ async function boot(): Promise<void> {
   }
   if (!shot && params.has('gust')) wind.force(num('gust', 0));
 
+  const pbrLighting = createPbrLighting(renderer, scene, camera, sun, sunDir, sky.object, quality, heightTex);
   styles = createStyleController({ renderer, scene, camera, sun, hemisphere, sunDir, sky: sky.object,
     quality, heavy: params.get('effects') !== '0' }, (name) => hud.style(name));
   window.addEventListener('keydown', (event) => {
@@ -376,6 +380,7 @@ async function boot(): Promise<void> {
     const begin = sample ? performance.now() : 0;
     const pipeline = styles!.pipeline;
     abbeyLighting.update(shot ? 1 : dt, player.pos);
+    pbrLighting.update(styles!.current);
     try {
       if (pipeline) pipeline.render();
       else renderer.render(scene, camera);
