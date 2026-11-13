@@ -101,7 +101,7 @@ export function createOrbs(collected: Set<string>): OrbField {
         c.y += sin(uTime * 1.4 + phase) * 0.18;
         vec4 mv = viewMatrix * vec4(c, 1.0);
         // Grow with distance so far orbs still twinkle on the horizon.
-        float size = max(0.95, -mv.z * 0.011) * (0.9 + 0.12 * sin(uTime * 3.0 + phase));
+        float size = max(0.7, -mv.z * 0.011) * (0.9 + 0.12 * sin(uTime * 3.0 + phase));
         mv.xy += position.xy * size * aState.x;
         vUv = position.xy;
         vPulse = 0.5 + 0.5 * sin(uTime * 2.2 + phase);
@@ -115,7 +115,7 @@ export function createOrbs(collected: Set<string>): OrbField {
       void main() {
         float d = length(vUv);
         float core = smoothstep(0.2, 0.05, d);
-        float halo = pow(max(0.0, 1.0 - d), 2.6);
+        float halo = pow(max(0.0, 1.0 - d), 3.2) * 0.8;
         // Four thin rays, like a star seen through half-closed eyes.
         float rays = pow(max(0.0, 1.0 - abs(vUv.x) * 9.0), 2.0) * max(0.0, 1.0 - abs(vUv.y))
           + pow(max(0.0, 1.0 - abs(vUv.y) * 9.0), 2.0) * max(0.0, 1.0 - abs(vUv.x));

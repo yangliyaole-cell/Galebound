@@ -259,8 +259,8 @@ export function createGrass(
 ): THREE.Group {
   const group = new THREE.Group();
   const tuft = grassTexture();
-  group.add(createLayer(near, 46, 0.62, 0.42, 0.85, heightTex, tuft, 1));
-  group.add(createLayer(far, 170, 1.7, 0.6, 1.15, heightTex, tuft, 2));
+  group.add(createLayer(near, 46, 0.6, 0.3, 0.62, heightTex, tuft, 1));
+  group.add(createLayer(far, 170, 1.6, 0.42, 0.85, heightTex, tuft, 2));
   group.add(createFlowers(flowers, 90, heightTex));
   return group;
 }
