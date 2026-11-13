@@ -2,13 +2,13 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Quality } from '../core/quality';
 import { toon } from '../render/toon';
+import { blossomTexture, leafTexture, needleTexture } from '../render/textures';
 import { addRound, surfaceTop } from './colliders';
+import { foliageMaterial, leafCards, type Part } from './foliage';
 import { heightAt, normalAt, sstep } from './heightmap';
 import { CITY, FOREST, HALF, SIZE, START, VILLAGE } from './layout';
 import { blossomDensity, cobbleAt, fieldAt, forestDensity, roadAt } from './maps';
 import { fbm, seededRandom } from './noise';
-
-type Part = [number, number, number, number];
 
 function finish(geo: THREE.BufferGeometry, colors: number[], leaf: number): THREE.BufferGeometry {
   const g = geo.index ? geo.toNonIndexed() : geo;
@@ -20,14 +20,15 @@ function finish(geo: THREE.BufferGeometry, colors: number[], leaf: number): THRE
 }
 
 /** A cluster of lumpy spheres: the crown of a tree, or a bush. */
-function puff(parts: Part[], detail: number, seed: number, lumpiness = 0.2): THREE.BufferGeometry {
+function puff(parts: Part[], detail: number, seed: number, lumpiness = 0.2, shade = 1, shrink = 1): THREE.BufferGeometry {
   let minY = Infinity;
   let maxY = -Infinity;
   for (const [, y, , r] of parts) {
     minY = Math.min(minY, y - r);
     maxY = Math.max(maxY, y + r);
   }
-  const geos = parts.map(([x, y, z, r], pi) => {
+  const geos = parts.map(([x, y, z, radius], pi) => {
+    const r = radius * shrink;
     const g = new THREE.IcosahedronGeometry(1, detail);
     const pos = g.attributes.position;
     const nor = g.attributes.normal;
@@ -45,7 +46,7 @@ function puff(parts: Part[], detail: number, seed: number, lumpiness = 0.2): THR
       const height = (wy - minY) / (maxY - minY);
       const patch = fbm(nx * 1.2 + pi * 3.1, nz * 1.2 + ny + seed, 2);
       const v = 0.6 + 0.4 * sstep(0.1, 0.85, height * 0.55 + (ny * 0.5 + 0.5) * 0.35 + (patch - 0.5) * 0.14);
-      colors.push(v * 0.93, v, v * 0.84);
+      colors.push(v * 0.93 * shade, v * shade, v * 0.84 * shade);
     }
     return finish(g, colors, 1);
   });
@@ -103,8 +104,15 @@ function rockGeometry(detail: number, seed: number): THREE.BufferGeometry {
   return finish(g, colors, 1);
 }
 
+type Look = 'leaf' | 'blossom' | 'needle';
+
 interface Species {
+  /** Trunk plus a dark core that fills the gaps between leaves. */
   hi: THREE.BufferGeometry;
+  /** Leaf cards drawn over the core when the tree is near. */
+  cards: THREE.BufferGeometry | null;
+  look: Look;
+  /** Plain lumpy shape for the distance. */
   lo: THREE.BufferGeometry;
   /** Height of the bare trunk, for collision. */
   trunkHeight: number;
@@ -114,56 +122,99 @@ interface Species {
   tints: number[];
 }
 
+/** A bough from the trunk out into the crown. */
+function bough(from: [number, number, number], to: [number, number, number], radius: number): THREE.BufferGeometry {
+  const a = new THREE.Vector3(...from);
+  const b = new THREE.Vector3(...to);
+  const len = a.distanceTo(b);
+  const g = new THREE.CylinderGeometry(radius * 0.5, radius, len, 5).translate(0, len / 2, 0);
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()));
+  g.translate(a.x, a.y, a.z);
+  const ng = g.toNonIndexed();
+  const colors: number[] = [];
+  for (let i = 0; i < ng.attributes.position.count; i++) colors.push(0.34, 0.24, 0.17);
+  return finish(ng, colors, 0);
+}
+
 function makeSpecies(): Record<string, Species> {
   const oakParts: Part[] = [
     [0, 4.0, 0, 2.0], [1.6, 3.3, 0.4, 1.45], [-1.5, 3.4, -0.5, 1.5], [0.3, 5.3, 0.3, 1.4],
     [-0.4, 3.1, 1.5, 1.3], [0.5, 3.2, -1.6, 1.35], [-1.0, 4.7, 0.9, 1.1], [1.1, 4.6, -0.8, 1.15],
   ];
+  const greatParts: Part[] = [...oakParts, [2.0, 4.4, 1.3, 1.25], [-2.0, 4.3, 0.9, 1.3], [0.2, 4.2, -2.1, 1.25], [0.9, 2.7, 1.9, 1.0], [-1.7, 2.8, -1.6, 1.05]];
   const oakLo: Part[] = [[0, 4.1, 0, 2.3], [1.3, 3.3, 0.3, 1.5], [-1.2, 3.5, -0.3, 1.6]];
-  const cypressHi = puff([[0, 3.6, 0, 1]], 2, 5, 0.12).scale(0.62, 3.0, 0.62).translate(0, -7.0, 0);
-  const cypressLo = puff([[0, 3.6, 0, 1]], 1, 5, 0.1).scale(0.62, 3.0, 0.62).translate(0, -7.0, 0);
-  const pineTiers = (sides: number): THREE.BufferGeometry[] => [
-    cone(2.0, 2.8, 1.6, sides, 0.72), cone(1.65, 2.6, 3.2, sides, 0.82),
-    cone(1.25, 2.4, 4.7, sides, 0.92), cone(0.8, 2.2, 6.1, sides, 1.0),
+  const boughs = [
+    bough([0.15, 2.2, 0], [1.5, 3.4, 0.4], 0.16), bough([0.1, 2.4, 0], [-1.4, 3.5, -0.4], 0.16),
+    bough([0.2, 2.6, 0], [-0.3, 3.3, 1.4], 0.13), bough([0.2, 2.6, 0], [0.5, 3.4, -1.5], 0.13),
   ];
-  const greens = [0x5fb548, 0x6cc04a, 0x55a640, 0x78c552, 0x4f9e44];
+  const cypressParts: Part[] = [[0, 2.0, 0, 0.85], [0, 3.3, 0, 1.0], [0, 4.7, 0, 0.92], [0, 6.0, 0, 0.72], [0, 7.0, 0, 0.48], [0, 7.7, 0, 0.26]];
+  // A conifer is tiers of drooping boughs, widest at the bottom.
+  const pineParts: Part[] = [];
+  for (const [radius, y] of [[1.75, 2.2], [1.4, 3.6], [1.05, 4.9], [0.7, 6.1]] as const) {
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2 + y;
+      pineParts.push([Math.cos(a) * radius * 0.62, y, Math.sin(a) * radius * 0.62, radius * 0.5]);
+    }
+  }
+  pineParts.push([0, 7.2, 0, 0.45], [0, 7.9, 0, 0.25]);
+  const pineCore = (sides: number, shade: number): THREE.BufferGeometry[] => [
+    cone(1.75, 2.8, 1.5, sides, 0.72 * shade), cone(1.42, 2.6, 3.0, sides, 0.82 * shade),
+    cone(1.08, 2.4, 4.4, sides, 0.92 * shade), cone(0.7, 2.6, 5.7, sides, 1.0 * shade),
+  ];
+  const bushParts: Part[] = [[0, 0.5, 0, 0.75], [0.6, 0.4, 0.2, 0.55], [-0.5, 0.42, -0.3, 0.6]];
+  const greens = [0x4f9f3c, 0x5fae40, 0x488f3a, 0x6db648, 0x3f8a3c];
+  const core = 0.5;
   return {
     oak: {
-      hi: mergeGeometries([trunk(0.2, 0.42, 3.4, 8, 0.25), puff(oakParts, 2, 1)]),
+      hi: mergeGeometries([trunk(0.2, 0.42, 3.4, 8, 0.25), ...boughs, puff(oakParts, 1, 1, 0.15, core, 0.8)]),
+      cards: leafCards(oakParts, 9, 0.5, 1),
+      look: 'leaf',
       lo: mergeGeometries([trunk(0.2, 0.42, 3.4, 5, 0.25), puff(oakLo, 1, 1)]),
       trunkHeight: 2.6, trunkRadius: 0.4, sway: true, shadow: true, tints: greens,
     },
     great: {
-      hi: mergeGeometries([trunk(0.26, 0.5, 3.6, 12, 0.3), puff([...oakParts, [1.9, 4.4, 1.2, 1.2], [-1.9, 4.3, 0.9, 1.25], [0.2, 4.2, -2.0, 1.2]], 3, 4, 0.16)]),
+      hi: mergeGeometries([trunk(0.26, 0.5, 3.6, 12, 0.3), ...boughs, puff(greatParts, 2, 4, 0.15, core, 0.8)]),
+      cards: leafCards(greatParts, 22, 0.34, 4),
+      look: 'leaf',
       lo: mergeGeometries([trunk(0.26, 0.5, 3.6, 6, 0.3), puff(oakParts, 2, 4)]),
-      trunkHeight: 2.6, trunkRadius: 0.48, sway: true, shadow: true, tints: [0x62b84a],
+      trunkHeight: 2.6, trunkRadius: 0.48, sway: true, shadow: true, tints: [0x58a83e],
     },
     blossom: {
-      hi: mergeGeometries([trunk(0.18, 0.36, 3.2, 8, -0.3), puff(oakParts, 2, 9)]),
+      hi: mergeGeometries([trunk(0.18, 0.36, 3.2, 8, -0.3), ...boughs, puff(oakParts, 1, 9, 0.15, 0.72, 0.8)]),
+      cards: leafCards(oakParts, 9, 0.5, 9),
+      look: 'blossom',
       lo: mergeGeometries([trunk(0.18, 0.36, 3.2, 5, -0.3), puff(oakLo, 1, 9)]),
       trunkHeight: 2.5, trunkRadius: 0.36, sway: true, shadow: true,
-      tints: [0xf7a9c4, 0xf9bdd2, 0xf48fb1, 0xfbd0de],
+      tints: [0xf29bbb, 0xf5aec8, 0xee86aa, 0xf8c2d6],
     },
     cypress: {
-      hi: mergeGeometries([trunk(0.14, 0.2, 1.4, 6), cypressHi.translate(0, 0.6, 0)]),
-      lo: mergeGeometries([trunk(0.14, 0.2, 1.4, 4), cypressLo.translate(0, 0.6, 0)]),
+      hi: mergeGeometries([trunk(0.14, 0.2, 2.0, 6), puff(cypressParts, 1, 5, 0.1, core, 0.82)]),
+      cards: leafCards(cypressParts, 13, 0.56, 5),
+      look: 'leaf',
+      lo: mergeGeometries([trunk(0.14, 0.2, 2.0, 4), puff([[0, 3.2, 0, 1.05], [0, 5.4, 0, 0.9], [0, 7.0, 0, 0.5]], 1, 5, 0.1)]),
       trunkHeight: 6, trunkRadius: 0.45, sway: true, shadow: true,
-      tints: [0x356f42, 0x2f6a45, 0x3c7a48],
+      tints: [0x2f6a3e, 0x2a6240, 0x367344],
     },
     pine: {
-      hi: mergeGeometries([trunk(0.12, 0.3, 3, 7), ...pineTiers(9)]),
+      hi: mergeGeometries([trunk(0.12, 0.3, 3, 7), ...pineCore(8, core)]),
+      cards: leafCards(pineParts, 16, 0.92, 6),
+      look: 'needle',
       lo: mergeGeometries([trunk(0.12, 0.3, 3, 4), cone(1.9, 6.6, 1.6, 6, 0.85)]),
       trunkHeight: 6, trunkRadius: 0.4, sway: true, shadow: true,
-      tints: [0x2f6b4f, 0x35755a, 0x2a6148, 0x3d7f5c],
+      tints: [0x2c6a4c, 0x327456, 0x275f46, 0x3a7c58],
     },
     bush: {
-      hi: puff([[0, 0.5, 0, 0.75], [0.6, 0.4, 0.2, 0.55], [-0.5, 0.42, -0.3, 0.6]], 1, 3, 0.25),
+      hi: puff(bushParts, 1, 3, 0.2, core, 0.8),
+      cards: leafCards(bushParts, 14, 0.62, 3),
+      look: 'leaf',
       lo: puff([[0, 0.5, 0, 0.9]], 0, 3, 0.2),
       trunkHeight: 0, trunkRadius: 0, sway: true, shadow: false,
-      tints: [0x4f9e44, 0x5fb548, 0x468f3f, 0x6aa84a],
+      tints: [0x488f3a, 0x5fae40, 0x3f8a3c, 0x6aa84a],
     },
     rock: {
       hi: rockGeometry(1, 2),
+      cards: null,
+      look: 'leaf',
       lo: rockGeometry(0, 2),
       trunkHeight: 0, trunkRadius: 0, sway: false, shadow: true,
       tints: [0xb3b0a4, 0xa5a297, 0xc0bcae, 0x9a988f],
@@ -186,12 +237,13 @@ const REGIONS = SIZE / REGION;
 interface RegionMeshes {
   cx: number;
   cz: number;
-  hi: THREE.InstancedMesh[];
+  /** Meshes shown when near: trunk, core and leaf cards. */
+  hi: THREE.InstancedMesh[][];
   lo: THREE.InstancedMesh[];
   props: boolean[];
 }
 
-export function createScatter(quality: Quality): {
+export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
   object: THREE.Group;
   update: (camera: THREE.Vector3) => void;
 } {
@@ -291,6 +343,11 @@ export function createScatter(quality: Quality): {
   }
 
   const leafMat = toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.022 });
+  const looks: Record<Look, THREE.ShaderMaterial> = {
+    leaf: foliageMaterial({ texture: leafTexture(), dark: [0.4, 0.58, 0.66], light: [1.4, 1.3, 0.7] }, sunDir),
+    blossom: foliageMaterial({ texture: blossomTexture(), dark: [0.7, 0.5, 0.62], light: [1.1, 1.2, 1.2] }, sunDir),
+    needle: foliageMaterial({ texture: needleTexture(), dark: [0.48, 0.62, 0.72], light: [1.25, 1.3, 0.85] }, sunDir),
+  };
   const stillMat = toon(0xffffff, { vertexColors: true, leafTint: true });
   const group = new THREE.Group();
   const regions: RegionMeshes[] = [];
@@ -312,6 +369,7 @@ export function createScatter(quality: Quality): {
         const mat = s.sway ? leafMat : stillMat;
         const hi = new THREE.InstancedMesh(s.hi, mat, list.length);
         const lo = new THREE.InstancedMesh(s.lo, mat, list.length);
+        const cards = s.cards ? new THREE.InstancedMesh(s.cards, looks[s.look], list.length) : null;
         list.forEach((inst, i) => {
           dummy.position.set(inst.x, inst.y, inst.z);
           dummy.rotation.set(0, spin() * Math.PI * 2, 0);
@@ -319,18 +377,21 @@ export function createScatter(quality: Quality): {
           dummy.updateMatrix();
           hi.setMatrixAt(i, dummy.matrix);
           lo.setMatrixAt(i, dummy.matrix);
-          color.set(inst.tint).offsetHSL((spin() - 0.5) * 0.03, 0, (spin() - 0.5) * 0.07);
+          cards?.setMatrixAt(i, dummy.matrix);
+          color.set(inst.tint).offsetHSL((spin() - 0.5) * 0.035, 0, (spin() - 0.5) * 0.07);
           hi.setColorAt(i, color);
           lo.setColorAt(i, color);
+          cards?.setColorAt(i, color);
         });
         hi.castShadow = s.shadow;
         hi.receiveShadow = name === 'rock';
-        for (const m of [hi, lo]) {
+        const near = cards ? [hi, cards] : [hi];
+        for (const m of [...near, lo]) {
           m.matrixAutoUpdate = false;
           m.computeBoundingSphere();
           group.add(m);
         }
-        region.hi.push(hi);
+        region.hi.push(near);
         region.lo.push(lo);
         region.props.push(name === 'bush' || name === 'rock');
       }
@@ -347,7 +408,7 @@ export function createScatter(quality: Quality): {
         const detailed = d < quality.treeDetailRange;
         for (let i = 0; i < r.hi.length; i++) {
           const shown = !r.props[i] || d < quality.propRange;
-          r.hi[i].visible = shown && detailed;
+          for (const m of r.hi[i]) m.visible = shown && detailed;
           r.lo[i].visible = shown && !detailed;
         }
       }

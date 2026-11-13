@@ -16,6 +16,7 @@ import { createGrass } from './world/grass';
 import { createScatter } from './world/scatter';
 import { Wind, createWindFx } from './world/wind';
 import { toon } from './render/toon';
+import { groundDetailTexture } from './render/textures';
 import { createFlags } from './world/flags';
 import { buildCity } from './world/structures/city';
 import { buildLandmarks } from './world/structures/landmarks';
@@ -64,6 +65,7 @@ async function boot(): Promise<void> {
   const heightTex = createHeightTexture();
   groundUniforms.uSplat.value = buildSplat(quality.splatSize);
   groundUniforms.uBiome.value = buildBiome();
+  groundUniforms.uDetail.value = groundDetailTexture();
 
   const sunDir = new THREE.Vector3(0.42, 0.72, 0.55).normalize();
   const sky = createSky(sunDir);
@@ -100,7 +102,7 @@ async function boot(): Promise<void> {
 
   hud.loading('正在种树…');
   await nextFrame();
-  const scatter = createScatter(quality);
+  const scatter = createScatter(quality, sunDir);
   scene.add(scatter.object);
 
   const wind = new Wind();

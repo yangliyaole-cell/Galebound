@@ -1,20 +1,20 @@
 import * as THREE from 'three';
+import { grassTexture } from '../render/textures';
 import { shared } from '../render/uniforms';
 import { seededRandom } from './noise';
 import { GROUND_GLSL, groundUniforms } from './terrain';
 import { SIZE } from './layout';
 
+/** An upright card three rows tall, so it can bend. The tuft is painted on it. */
 function bladeGeometry(width: number): THREE.BufferGeometry {
-  const rows: [number, number][] = [[0, 0.5], [0.45, 0.38], [0.8, 0.2]];
   const positions: number[] = [];
-  for (const [y, half] of rows) positions.push(-half * width, y, 0, half * width, y, 0);
-  positions.push(0, 1, 0);
+  for (const y of [0, 0.5, 1]) positions.push(-0.5 * width, y, 0, 0.5 * width, y, 0);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   // Placeholder: the shader takes the real normal from the terrain. Without
   // this attribute three.js falls back to flat shading.
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(21).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
-  geo.setIndex([0, 1, 3, 0, 3, 2, 2, 3, 5, 2, 5, 4, 4, 5, 6]);
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+  geo.setIndex([0, 1, 3, 0, 3, 2, 2, 3, 5, 2, 5, 4]);
   return geo;
 }
 
@@ -30,6 +30,7 @@ function createLayer(
   minH: number,
   maxH: number,
   heightTex: THREE.Texture,
+  tuft: THREE.Texture,
   seed: number,
 ): THREE.Mesh {
   const geo = new THREE.InstancedBufferGeometry();
@@ -47,10 +48,11 @@ function createLayer(
 
   const mat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
   // Programs are cached by shader text; the tile size is baked in, so key on it.
-  mat.customProgramCacheKey = () => `grass-${tile}`;
+  mat.customProgramCacheKey = () => `grass-${tile}-${width}`;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, groundUniforms, {
       uHeight: { value: heightTex },
+      uTuft: { value: tuft },
       uTime: shared.uTime,
       uWindDir: shared.uWindDir,
       uWindStrength: shared.uWindStrength,
@@ -71,6 +73,7 @@ function createLayer(
         uniform vec2 uWindTravel;
         uniform vec3 uPlayer;
         varying vec3 vBlade;
+        varying vec2 vTuftUv;
         ${GROUND_GLSL}
         float terrainHeight(vec2 xz) { return texture2D(uHeight, worldUv(xz)).r; }`,
       )
@@ -106,13 +109,20 @@ function createLayer(
         float push = (1.0 - smoothstep(0.2, 1.1, length(away))) * step(abs(uPlayer.y - ground), 1.2);
         transformed.xz += uWindDir * bend + normalize(away + 0.001) * push * 0.45 * tip;
         transformed.y -= (bend * bend * 0.6 + push * 0.3 * tip) * step(0.01, bladeHeight);
-        vBlade = grassTint * mix(0.74, 1.3, tip) + vec3(0.02, 0.035, 0.0) * tip
-          + vec3(0.1, 0.11, 0.04) * roll * uGust * tip;
+        // Mirror half the tufts so they do not all look alike.
+        vTuftUv = vec2(aCell.z > 1.57 ? 0.5 - position.x / ${width.toFixed(3)} : 0.5 + position.x / ${width.toFixed(3)}, tip);
+        vBlade = grassTint + vec3(0.1, 0.11, 0.04) * roll * uGust * tip;
         vBlade *= cloudShadow(root);`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vBlade;')
-      .replace('#include <color_fragment>', 'diffuseColor.rgb = vBlade;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBlade;\nvarying vec2 vTuftUv;\nuniform sampler2D uTuft;')
+      .replace(
+        '#include <color_fragment>',
+        `vec4 tuft = texture2D(uTuft, vTuftUv);
+        if (tuft.a < 0.38) discard;
+        // The painting carries the shading: dark roots, sunlit tips.
+        diffuseColor.rgb = vBlade * (0.42 + 1.0 * tuft.r) + vec3(0.03, 0.05, 0.0) * tuft.r * tuft.r;`,
+      )
       .replace(
         '#include <normal_fragment_begin>',
         `float faceDirection = 1.0;
@@ -248,8 +258,9 @@ export function createGrass(
   heightTex: THREE.Texture,
 ): THREE.Group {
   const group = new THREE.Group();
-  group.add(createLayer(near, 46, 0.11, 0.3, 0.62, heightTex, 1));
-  group.add(createLayer(far, 170, 0.34, 0.42, 0.85, heightTex, 2));
+  const tuft = grassTexture();
+  group.add(createLayer(near, 46, 0.62, 0.42, 0.85, heightTex, tuft, 1));
+  group.add(createLayer(far, 170, 1.7, 0.6, 1.15, heightTex, tuft, 2));
   group.add(createFlowers(flowers, 90, heightTex));
   return group;
 }

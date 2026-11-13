@@ -8,6 +8,7 @@ import { HALF, SIZE } from './layout';
 export const GROUND_GLSL = /* glsl */ `
   uniform sampler2D uSplat;
   uniform sampler2D uBiome;
+  uniform sampler2D uDetail;
   uniform vec3 uGrassDark;
   uniform vec3 uGrassMid;
   uniform vec3 uGrassLight;
@@ -42,16 +43,33 @@ export const GROUND_GLSL = /* glsl */ `
     grass = grassColor(wp.xz, biome.rgb, broad, fine);
     vec3 col = grass;
 
+    // Brushwork: dabs on turf, pebbles on paths, cracks on rock. Skipped where
+    // the caller only wants the flat colour (grass blades pass a huge distance).
+    vec3 near = vec3(0.5);
+    vec3 wide = vec3(0.5);
+    float cliff = 0.5;
+    if (dist < 900.0) {
+      near = texture2D(uDetail, wp.xz * 0.15).rgb;
+      wide = texture2D(uDetail, wp.xz * 0.034 + 0.37).rgb;
+      cliff = texture2D(uDetail, vec2(wp.x + wp.z, wp.y * 1.6) * 0.09).b;
+    }
+    float dab = (near.r - 0.5) * 0.8 + (wide.r - 0.5) * 0.9;
+    col *= 1.0 + dab * 0.42;
+    col += vec3(0.05, 0.045, -0.02) * max(dab, 0.0);
+    // Clover and flower meadows are a touch lighter and yellower.
+    col = mix(col, col * vec3(1.08, 1.06, 0.86), biome.g * 0.35);
+
     float alpine = smoothstep(95.0, 150.0, wp.y + (fine - 0.5) * 30.0);
     col = mix(col, uRock, alpine * 0.7);
 
     float sand = 1.0 - smoothstep(0.9, 2.1, wp.y + (fine - 0.5) * 1.2);
-    col = mix(col, uSand, sand);
+    col = mix(col, uSand * (0.9 + 0.2 * wide.r), sand);
     col = mix(col, uSand * vec3(0.5, 0.68, 0.72), smoothstep(-0.2, -3.5, wp.y) * 0.85);
 
     float rock = smoothstep(0.8, 0.62, ny + (fine - 0.5) * 0.14);
     vec3 rockCol = mix(uRockDark, uRock, smoothstep(0.3, 0.7, gFbm3(wp.xz * 0.07 + wp.y * 0.11)));
     rockCol *= 0.92 + 0.16 * step(0.5, fract(wp.y * 0.21 + fine * 1.5)) * (1.0 - smoothstep(80.0, 260.0, dist));
+    rockCol *= 0.72 + 0.56 * mix(cliff, wide.b, smoothstep(0.55, 0.85, ny));
     col = mix(col, rockCol, rock);
 
     float snow = smoothstep(150.0, 190.0, wp.y + (broad - 0.5) * 60.0) * smoothstep(0.35, 0.62, ny);
@@ -72,7 +90,7 @@ export const GROUND_GLSL = /* glsl */ `
     col = mix(col, cobbleCol, cobble);
 
     float road = smoothstep(0.3, 0.6, splat.r + (fine - 0.5) * 0.4);
-    col = mix(col, mix(uDirtDark, uDirtLight, smoothstep(0.3, 0.7, fine)), road);
+    col = mix(col, mix(uDirtDark, uDirtLight, smoothstep(0.3, 0.7, fine)) * (0.8 + 0.42 * near.g) * (0.92 + 0.16 * wide.r), road);
 
     grassAmount = (1.0 - road) * (1.0 - cobble) * (1.0 - field) * (1.0 - sand) *
       (1.0 - rock) * (1.0 - snow) * (1.0 - alpine * 0.85);
@@ -83,6 +101,7 @@ export const GROUND_GLSL = /* glsl */ `
 export const groundUniforms = {
   uSplat: { value: null as THREE.Texture | null },
   uBiome: { value: null as THREE.Texture | null },
+  uDetail: { value: null as THREE.Texture | null },
   uGrassDark: { value: new THREE.Color(0x3d8c37) },
   uGrassMid: { value: new THREE.Color(0x6ab846) },
   uGrassLight: { value: new THREE.Color(0xaed657) },
