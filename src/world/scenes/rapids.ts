@@ -16,12 +16,12 @@ export function addRapids(b: Builder, group: THREE.Group, detail: number, count:
     const off = (rand() < 0.5 ? -1 : 1) * (5 + rand() * 10), x = p.x - dz / len * off, z = p.z + dx / len * off;
     const r = 1.2 + rand() * 3.2, ground = heightAt(x, z);
     if (roadClearance(x, z) < r + 3 || ground > p.y + 8 || Math.hypot(x + 600, z + 495) < 45) continue;
-    landscapeRock(b, x, Math.max(ground - r * 0.3, p.y - r * 0.8), z, r, detail, true); rocks++;
+    landscapeRock(b, x, ground - r * 0.3, z, r, detail, true); rocks++;
   }
   if (detail === 0) return rocks;
-  for (const f of WATERFALLS) for (let k = 0; k < (detail === 2 ? 20 : 7); k++) {
-    mist.push([f.bx + (rand() - 0.5) * f.width * 1.5, f.bottom + 1 + rand() * 6,
-      f.bz + (rand() - 0.5) * 14, 4 + rand() * 4]);
+  for (const f of WATERFALLS) for (let k = 0; k < (detail === 2 ? 7 : 3); k++) {
+    mist.push([f.bx + (rand() - 0.5) * f.width * 1.1, f.bottom + 0.6 + rand() * 1.2,
+      f.bz + 3 + rand() * 7, 1.9 + rand() * 1.6]);
   }
   const geo = ribbon(ALPINE_STREAM, ALPINE_STREAM.map((_, i) => 5.1 + Math.sin(i * 0.3) * 0.5), detail === 2 ? 8 : 3,
     (_x, _z, t) => ALPINE_STREAM[Math.round(t * (ALPINE_STREAM.length - 1))].y + 0.12);

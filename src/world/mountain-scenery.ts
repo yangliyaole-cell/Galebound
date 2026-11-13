@@ -10,6 +10,9 @@ import { addHouse } from './structures/house';
 import { structureDetail } from './structure-detail';
 import { buildReferenceScenes } from './scenes';
 import { batchSettlementDetails } from './scenes/batch-details';
+import { installShotCapture } from './scenes/shot-capture';
+
+installShotCapture();
 
 /** One merged waterfall mesh and one instanced mist/smoke mesh. No lights or shadows. */
 export function buildMountainScenery(): THREE.Group {
@@ -54,7 +57,6 @@ export function buildMountainScenery(): THREE.Group {
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); falls.push(g);
-    if (structureDetail() > 0) for (let k = 0; k < 7; k++) smoke.push([f.bx + (rand() - 0.5) * f.width * 1.5, f.bottom + 1 + rand() * 3, f.bz + (rand() - 0.5) * 8, 3.5 + rand() * 2]);
   }
   const fallMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
@@ -79,8 +81,8 @@ export function buildMountainScenery(): THREE.Group {
   });
   fallMat.uniforms.uTime = shared.uTime;
   const waterfall = new THREE.Mesh(mergeGeometries(falls), fallMat); waterfall.renderOrder = 2; group.add(waterfall);
-  // Slow, broad mountain wisps, plus the cottage chimneys and cascade spray.
-  if (structureDetail() > 0) for (let k = 0; k < 13; k++) smoke.push([-800 + rand() * 310, 80 + rand() * 50, -760 + rand() * 340, 13 + rand() * 13]);
+  // This legacy batch now owns cottage smoke only. Valley clouds and spray are
+  // authored once in scenes/atmosphere, avoiding two overlapping opaque fog banks.
   const quad = new THREE.PlaneGeometry(2, 2), mistGeo = new THREE.InstancedBufferGeometry();
   mistGeo.setAttribute('position', quad.attributes.position); mistGeo.setAttribute('uv', quad.attributes.uv); mistGeo.setIndex(quad.index);
   mistGeo.setAttribute('aBase', new THREE.InstancedBufferAttribute(new Float32Array(smoke.flat()), 4)); mistGeo.instanceCount = smoke.length;

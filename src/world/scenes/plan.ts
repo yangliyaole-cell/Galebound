@@ -5,11 +5,11 @@ export const GLACIAL_HORNS = [
   { x: -405, z: -994, radius: 112, rise: 215 },
 ] as const;
 export const GLACIER_SPINE = [
-  [-791, -955, 24], [-778, -925, 34], [-795, -895, 29],
-  [-804, -871, 23], [-789, -850, 18], [-780, -836, 13],
+  [-791, -955, 24, 450], [-778, -925, 34, 342], [-795, -895, 29, 274],
+  [-804, -871, 23, 242], [-789, -850, 18, 224], [-780, -836, 13, 216],
 ] as const;
 export const GREAT_FALL = { x: -780, z: -836, y: 216, bx: -750, bz: -792, bottom: 116, width: 21 };
-export const VIADUCT = { ax: -770, az: -778, bx: -358, bz: -748, bays: 15, deck: 130, width: 5.8 };
+export const VIADUCT = { ax: -770, az: -778, bx: -358, bz: -748, bays: 15, deck: 130, width: 7.6, pierWidth: 8.4, lowerDeck: 66 };
 export const WAYGATE = { x: -39, z: 70, width: 7.6, height: 10.8 };
 export const MEADOW_ROCKS = [
   [-48, 89, 4.6], [-57, 64, 3.2], [31, 64, 4.3], [-71, 45, 2.6], [49, 31, 3.7],

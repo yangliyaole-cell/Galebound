@@ -1,135 +1,171 @@
-# Galebound 线 D：参考图场景结构与地形
+# Galebound 线 D：第 2 轮场景与捕获修复
 
-工作树 `/workspace/galebound-scenes`，分支 `detail-scenes-codex`，对比基线 `bc34fa7`。本线完成程序化场景接入及 CPU 验收；画面是否达到三张参考图的艺术标准，仍由操作员在沙箱外截图确认。没有启动 Chrome，没有修改、提交、合并或推送 Git 引用。
+基线 `70cc57a`（第 1 轮成果），工作树 `/workspace/galebound-scenes`。已读取操作员实拍 `scene-02.jpg`、`scene-03.jpg`、`scene-04.jpg` 并逐项修正。没有启动 Chrome、拍摄新截图、修改禁改文件或执行 Git 提交/合并/推送。**scene-02 的城堡、修道院、田野布局及相机参数保留。**
 
-## 逐项对照三张参考图
+本轮交付是已接入、可构建且通过 CPU 检查的代码；最终画质和出生点 240 秒现象仍需操作员在浏览器中复拍确认。
 
-| 差距项 | 开工时判断 | 本线结果 | 留给其他线 / 截图验收 |
+## 本轮五项验收对照
+
+| 目标 | 原有 / 问题 | 已补 | 没做 / 外部验收 |
 | --- | --- | --- | --- |
-| 1. 高崖上的高城、密集红瓦、最高处城堡、沿崖城墙及旁侧渡槽 | **已有** 360 栋城内住宅、五级居住台地、不规则城墙、宫殿和东侧渡槽；**需补** 出生点可见的大面积岩壁，原坡面过缓 | **已补** 城外南侧及两翼切坡，29 条断面形成陡壁，25m 水平距离内最大落差 medium/high 69.0m、low 67.5m。岩壁石材表皮沿实际高度图铺设，正面向外；道路留缝、再由原有道路整坡压平通路。城内 360 栋住宅、32.6m 居住台地高差、109m 宫殿地坪和既有渡槽保留 | 城墙/建筑高模归 B+C；石材与地形着色归 A。图 1 验证岩壁面积、城墙沿崖与城堡剪影 |
-| 2. 雪山冰舌、大瀑布、云层、林崖峡谷与巨石急流 | **已有** 西部雪峰、四级高山湖和瀑布链；**需补** 具宽度和体积起伏的冰舌、主瀑布落差与峡谷两岸层次 | **已补** 北侧三座冰川角峰；地形最高 574.46m。蓝白冰舌横断面全宽 48/68/58/46/36/26m，沿地形起伏，含程序化裂隙顶点色。新增 216→116m 主瀑布，接回原水道及四级高山湖。新增圆润巨石急流、白浪、水雾、山腰云带与针叶林；low 去掉新增雾、白浪覆盖层和细碎花草 | 不改天空、灯光或风格预设。图 3 验证积雪边缘、冰体与瀑布的连续视觉、云带透明排序及岩林比例 |
-| 3. 远峡谷长高架桥、左侧崖顶修道院与脚下瀑布 | **已有** 可进入修道院、64m 地坪和约 50m 的西侧瀑布；**需补** 峡谷长桥及更明确的修道院岩台 | **已补** 约 413m 的 15 跨高架桥，14 个真实拱洞，一跨作为实体接山桥台；桥面 130m，两端接入地形岩肩，桥墩落地。修道院西侧岩台/陡壁增强、瀑布口留缝，原脚下瀑布保留。桥墩、桥面、护栏和拱洞上缘注册碰撞 | 高架桥为远景结构，没有新增通往桥面的任务或道路。`abbey-space.ts` / `abbey-light.ts` / 教堂室内均未改。图 2 验证桥与修道院同框、拱列可读及桥台不悬空 |
-| 4. 古拱门红纹章旗、苔石、矮墙、花丛、木栅栏、车辙路 | **已有** 普通旗布系统、出生点树木、散布小石和土路；**需补** 可构图的近景组合 | **已补** `(-39,70)` 道旁古石拱门，环拱楔石、苔色石材、藤叶、挂式红旗/金色纹章及缓动旗布。独立景观巨石使用连续坐标噪声位移的二十面体球、光滑椭球法线和朝上苔色，脚部埋入地形。补圆石干垒矮墙、随坡木栅栏、羽扇豆与雏菊。原土路两侧加入细微车辙土埂，保留原有道路数据和可走坡面 | 道路颜色/细纹理由 A 接管；未改 B+C 的石头散布。低档保留拱门、大石、矮墙与栅栏轮廓，去掉花瓣/藤叶/车辙细节。近景机位检查石头圆润度和土埂是否过于线性 |
-| 5. 红瓦村、风车、烟囱、绿黄田块与树篱 | **已有** 河谷村、风车丘、四处山地石村与 12 块田；**需补** 全景里的村田层次及田界 | **已补** 两处小村共 11 栋红瓦房、一座额外风车及烟囱烟。新增 6 块外谷绿黄田块，复用 `FIELDS` 的着色、作物、围栏系统；按同一田块多边形放置有入口间隙的树篱。新增风车叶片随共享时钟旋转。low 保留田块涂层和村庄轮廓，省掉新增田块逐株作物 | 高档保留全部新增植物与细节。截图验证田块与村庄比例、风车完整叶片和烟源位置 |
+| 1. 锐利冰川山脊、坡度雪线、有体积的冰舌与裂缝 | 已有三座新增主峰与冰舌，但峰体使用径向圆滑轮廓，冰纹由周期正弦产生，积雪片没有充分表达陡坡露岩 | 原始西部三座角峰及新增三峰改用不对称分片山脊；高度图加入倾斜岩层和不规则裂隙。冰川谷按纵断面刻入，保留冰斗上方尖峰；冰体呈凸起横断面，中央厚度约 8.5m，19 条独立裂缝具有不同长度、偏转和间距，最大凹入约 3.55m，蓝色随裂缝深度变化。删除原有周期人字纹。连续岩雪壳层按坡度和不规则雪线着色：陡面露岩、缓坡积雪 | 没有改地形材质或风格系统。实际岩雪对比、轮廓和裂隙可读性需 scene-03/04 复拍 |
+| 2. 分层岩壁、垂直裂隙、棱角、坡脚碎石；石头贴地 | 已有随高度图铺设的薄岩壁表皮和河道圆石；原崖面呈圆滑湖盆壁，部分巨石被水位托在空中，共享散布的小石头铺满雪坡 | 湖盆/水道切削后增加岩层断阶与裂隙，保留水床和道路权威。新增 high 58 / medium 18 / low 5 处连入山体的分层岩柱及坡脚碎石。景观石按下半球多点地形求接触并埋入；急流石不再按水面抬高。岩雪壳层同时注册相应地表支持面，让原 scatter 的既有 surfaceTop 排除逻辑避开该壳层上的悬散小石；原 scatter 源码与 LOD 均未改 | 共享散布其他区域的几何仍归 B+C；本轮只处理冰川壳层和峡谷岩面覆盖区域。复拍检查碎石确实在坡脚、岩柱不呈孤立漂浮块 |
+| 3. 粗壮石砌多拱桥 | 已有约 413m / 15 跨长桥，但 5.4m 桥墩承托近 120m 高差，单层拱列像细长柱 | 桥墩扩大到 **8.4m**，约为 27.54m 跨距的 **30.5%**；桥身深度增至 7.6m。低谷跨新增 **66m 标高的下层拱列和贯通腰带**；桥墩有加宽基座、高档错缝倒角石块和压顶，护栏补压顶。上层仍有 14 个开放拱洞、15 跨总轮廓，桥台位置和桥面 130m 标高保持 | 未新增通向高架桥的步行任务/道路。scene-04 检查上下拱列与墩体比例；scene-02 保持原机位作全景复核 |
+| 4. 山腰云保留但主体清楚 | 原 mountain-scenery 和新 atmosphere 两套云雾叠加；high 的 110 个大卡片叠在中央，产生白色遮挡 | 旧批次仅保留山村烟囱烟，删除重复云/水雾。新云带分布到峡谷两翼，避开主瀑布中轴；云心降到 70–90m，卡片缩薄，按采样数归一化光学密度。瀑脚雾降到水面以上约 0.6–1.8m，每张半径 1.9–3.5m，high 35 张、medium 15 张，避免向上填满画幅。烟、雾、云使用显式种类属性 | 没有改全局雾和天空。复拍检查山腰云仍可见、冰舌和上层拱列清楚 |
+| 5. 出生点 shot ready 超时 | 主循环先完成 90 次固定模拟，再等待 24 次完整冻结重绘才写 ready；仅 shader 回调写错误，boot Promise / 普通帧异常未覆盖。出生点高精度近景重复提交，是可疑耗时路径 | 从本线拥有的模块接入 capture-only 边界：保留原 90 次模拟和 high 配置，在 **2 次完整输出帧结束、GPU finish 成功后** 写 ready；构建用 RAF 不计入。捕获帧异常、资源 Promise 拒绝和 context lost，均写 `__galeShotError`。新增 `__galeShotStatus` 阶段/完成帧数、180 秒诊断看门狗，以及可选 `shotwarmup=24` 对照模式。普通游戏模式使用原 RAF。额外冻结风车原始 shader 钩子的引用，避免运行时风格包装被重复套用 | **没有实测 GPU，也不能在本沙箱确认原 240 秒事件的唯一根因或修复后实际秒数。** 已修复冗余等待和漏报异常路径；实际同机位复拍是最终验收。无需操作员向 main.ts 手工接入代码 |
 
-本线没有完成材质/照明重制、建筑高模重制、逐像素参考图匹配或 GPU 帧时间实测；前两项属于其他线，后两项需要沙箱外浏览器。
+### shot 修复依据与边界
 
-## 改动文件与实现
+已检查当前后处理：`RenderPass → ShaderPass → OutputPass`，没有 TAA、历史缓冲或跨帧积累。世界时间在 shot 中固定为 12 秒，90 次玩家/相机准备早于第一次绘制。因此没有图像算法要求必须重复绘制 24 次。当前改为等待两次完整最终输出，仍等待真实 `gl.finish()`，没有通过超时直接置位 ready，也没有关闭阴影、降分辨率或降低 high 几何。
 
-既有文件仅做本线接入和局部数据修改：
+该边界仅在 `shot=1` 时安装，捕获原 RAF 回调的结束点；只有本线场景实际进入绘制后才累计帧。完成后恢复原 RAF。主循环、渲染风格和质量档位文件均未修改。截图若失败，可直接读取：
 
-- `src/world/heightmap.ts`：在湖盆/河槽切削之前调用 `referenceLandform`，随后继续原有道路整坡；扩大冰川水道塑形的查询范围。
-- `src/world/layout.ts`：添加 6 块田地及可选 `Field.scenic` 标记，坐标均在地图内。
-- `src/world/mountain-layout.ts`：将主瀑布与上游控制点接入现有 `ALPINE_STREAM` / `WATERFALLS`，扩大本地水位查询范围，保留全部原湖盆水位。
-- `src/world/mountain-scenery.ts`：移除原窄冰线，接入完整参考图场景；低档去掉旧系统中的水雾/山腰小云，保留山村烟；局部合批山村细节。
-- `src/world/flags.ts`：为旗布新增可选挂式布局、朝向和纹章图案；旧旗位默认行为保持。
-- `src/world/structures/city.ts`：新增一个 import 和一个返回值包裹调用，合批城市细节。
-- `src/world/structures/village.ts`：同样局部接入细节合批；low 省掉 `scenic` 田块的逐株作物。
+```js
+window.__galeShotReady
+window.__galeShotError
+window.__galeShotStatus // phase: building/rendering/ready/error; completedFrames; error
+```
 
-新增场景文件（全部位于 `src/world/scenes/`）：
+`shotwarmup=24` 可用于沙箱外比较长短预热的截图输出；默认值为 2。若未来后处理加入跨帧积累，应同步调整此预热约定。
 
-| 文件 | 用途 |
+## 改动文件与接入
+
+| 文件 | 本轮工作 |
 | --- | --- |
-| `plan.ts` | 雪峰、冰舌、主瀑布、长桥、拱门、巨石与小村的共用坐标和分档数量 |
-| `landform.ts` | 城外陡壁、修道院岩台、冰川峰、瀑布悬谷及桥台山体塑形 |
-| `geometry.ts` | 圆润苔石、地表条带、占位检查数据 |
-| `cliffs.ts` | 随高度图铺设的城外和修道院石材岩壁表皮 |
-| `glacier.ts` | 起伏蓝白冰舌、裂隙顶点色与雪峰积雪面 |
-| `viaduct.ts` | 参数化多拱桥、楔石、桥墩、护栏及碰撞 |
-| `conifers.ts` | 独立的峡谷针叶林，不改共享 scatter/LOD；避开道路、水体、房屋和修道院 |
-| `rapids.ts` | 急流巨石、流动白浪及瀑脚水雾种子 |
-| `atmosphere.ts` | 合为一个实例批次的山腰云、水雾和新村烟囱烟 |
-| `waygate.ts` | 古拱门、红旗、藤蔓、近景苔石、圆石矮墙、木栏和车辙土埂 |
-| `meadow.ts` | 羽扇豆花序、雏菊花瓣与花茎 |
-| `farmland.ts` | 田界树篱、两处红瓦小村、带动画的额外风车及烟源 |
-| `batch-details.ts` | 以聚落和材质合并细节几何，保留所有顶点、原材质与距离渐隐；释放被替换几何的数据，保留旧注册项所需的包围球 |
-| `index.ts` | 场景装配；远景与近景分批，以便近景花丛在朝城方向离开视锥时不继续提交 |
+| `src/world/heightmap.ts` | 原西部角峰轮廓改为不对称棱脊；在湖盆切削后塑出岩层、裂隙，原道路整坡流程保留 |
+| `src/world/mountain-scenery.ts` | 删除重复云/喷雾；导入并安装 capture-only 捕获边界 |
+| `src/world/scenes/plan.ts` | 冰川纵断面标高；桥墩宽度、桥身深度、下层拱列标高 |
+| `src/world/scenes/landform.ts` | 棱脊、冰斗、冰川谷刻入和岩层塑形 |
+| `src/world/scenes/glacier.ts` | 连续岩雪壳层、坡度积雪、体积冰体、凹入裂缝；注册壳层地表支持面 |
+| `src/world/scenes/geometry.ts` | 景观巨石多点贴地、埋入及接触数值记录 |
+| `src/world/scenes/rapids.ts` | 急流石去掉水位托举；喷雾数量、尺寸、高度收紧 |
+| `src/world/scenes/atmosphere.ts` | 云带移到两翼、降低高度和密度，按数量归一化；显式区分烟/雾/云 |
+| `src/world/scenes/viaduct.ts` | 加粗桥墩、加宽桥身、下层拱列、腰带、基座、错缝倒角石块及护栏压顶 |
+| `src/world/scenes/farmland.ts` | 固定风车材质原始编译钩子与缓存键，保留风格切换和转动 |
+| `src/world/scenes/index.ts` | 接入岩柱/碎石和 shot 绘制观察，登记新增统计 |
+| `scripts/check-scenes.mjs` | 补岩雪/裂缝/贴地/桥墩比例/雾位置检查；生产玩家和相机的 90 帧复演；新 scene-03 三座峰顶入画检查 |
+| `SCENES_REPORT.md` | 本轮验收、性能、限制和重拍机位 |
 
-新增脚本：
+新增文件：
 
-- `scripts/check-scenes.mjs`：生产 TS/Three 几何和碰撞的 CPU 数值验收；仅对已有画布纹理绘制提供 Canvas 替身，不创建浏览器/WebGL。
-- `scripts/scenes-metrics.mjs`：以实际档位的草、花、作物和散布密度计算视锥内主通道几何提交量；正确计入自定义 `InstancedBufferGeometry.instanceCount`。支持 `--root=/基线目录`、`--low`、`--high`、`--output=/输出.json`。
+- `src/world/scenes/geology.ts`：不对称峰体度量、岩层起伏、冰川纵断面、独立裂缝、雪线/坡度函数。
+- `src/world/scenes/outcrops.ts`：连入崖体的层状岩柱、角砾碎石和碰撞。
+- `src/world/scenes/shot-capture.ts`：可独立验证的捕获状态和 capture-only RAF 边界。
+- `scripts/check-scene-shot.mjs`：无需 Chrome/WebGL 的生产捕获边界测试。
 
-报告文件：`SCENES_REPORT.md`。
+接入链仍是 `buildLandmarks → buildMountainScenery → buildReferenceScenes`。shot 边界从 `mountain-scenery.ts` 模块导入阶段安装，从新增场景网格观察实际绘制；**没有待手工合并进禁改文件的接入行**。
 
-## 接入点与文件归属
+未改 `main.ts`、`render/styles/*`、`render/pbr/*`、`terrain.ts`、`grass.ts`、`core/quality.ts`、`build.ts`、`scatter.ts`、`foliage.ts`、`structures/common.ts`、`house.ts`、`landmarks.ts`、`palace.ts`、`render/lod.ts`、`render/toon.ts`、`textures.ts`、`check-layout.mjs`、`detail-metrics.mjs` 或 `artifacts/`。没有 npm 依赖或静态资产增长。新增几何继续通过 Builder 的既有材质名合批。
 
-场景调用链已经接通：原有 `buildLandmarks()` → `buildMountainScenery()` → `buildReferenceScenes(structureDetail())`。高度图则在 `analyticHeight()` 内调用 `referenceLandform()`。
+第 1 轮的城外高崖、360 栋高城住宅、城门/楼梯、修道院内部、近景古拱门红旗、木栏、花丛、田块和两处小村保留。本轮没有改城堡、修道院、村田和道路的总布局。
 
-**没有需要操作员手工补入禁改文件的接入行。** 未改 `main.ts`、`build.ts`、`scatter.ts`、`foliage.ts`、`structures/common.ts`、`house.ts`、`landmarks.ts`、`palace.ts`、`render/lod.ts`、`render/toon.ts`、`render/styles/*`、`render/pbr/*`、`textures.ts`、`terrain.ts`、`grass.ts`、`core/quality.ts`、`check-layout.mjs`、`detail-metrics.mjs` 或 `artifacts/`。使用已有 Builder、房屋、碰撞、旗布及共享时钟接口；没有新依赖或外部静态资产。
+## 验证结果
 
-所有新增静态实体均通过 Builder 的既有材质名合批。流水和雾使用单独的透明批次；旗布复用既有旗布系统。medium/high 新增主体接收和投射阴影。high 的几何密度不受 medium/low 的三角形预算检查限制。
-
-## 验收结果
-
-| 检查 | 结果 |
+| 命令 / 检查 | 结果 |
 | --- | --- |
-| `npm run build` | PASS；TypeScript 与 Vite 均通过 |
-| `node scripts/check-layout.mjs` | PASS，0 failed checks |
-| `node scripts/check-layout.mjs --low` | PASS，0 failed checks |
-| `node scripts/check-layout.mjs --high` | PASS，0 failed checks |
-| `node scripts/check-scenes.mjs` | PASS，0 failed scene checks |
-| `node scripts/check-scenes.mjs --low` | PASS，0 failed scene checks |
-| `node scripts/check-scenes.mjs --high` | PASS，0 failed scene checks |
+| `npm run build` | PASS：TypeScript 与 Vite 构建通过 |
+| `node scripts/check-layout.mjs` | PASS |
+| `node scripts/check-layout.mjs --low` | PASS |
+| `node scripts/check-layout.mjs --high` | PASS |
+| `node scripts/check-scenes.mjs` | PASS |
+| `node scripts/check-scenes.mjs --low` | PASS |
+| `node scripts/check-scenes.mjs --high` | PASS |
+| `node scripts/check-scene-shot.mjs` | PASS：6 项 |
 | `git diff --check` | PASS |
 
-原有验收覆盖：出生点实际玩家起飞、两座城门及全部非桥道路、宫殿/瞭望塔/城墙楼梯、教堂门厅/中殿/横厅、出生点至修道院连续干路、桥梁/码头、四级湖水位、81 个光点、住宅避让、地形确定性。现最大道路中心线坡度约 0.735；宫殿楼梯最高支持面仍为 147m，修道院地坪仍为 64m。
+原有布局检查覆盖：出生点真实玩家起飞、两城门、全部非桥道路、宫殿/城墙/瞭望塔楼梯、修道院入口/中殿/横厅、出生点至修道院干燥通路、桥/码头、四级湖本地水位、81 个光点、住宅避让、确定性。最大道路中心线坡度仍约 **0.735**；宫殿地坪 **109m**、修道院地坪 **64m**、宫殿楼梯顶面 **147m** 保持。
 
-新增验收覆盖：三档地形范围（low -14..568.62m；medium/high -14..574.46m）、150/310/880 处新增实体占位、地形边界内几何、主瀑布与水道相接、桥台落地、14 个开放拱洞、蓝白冰体颜色与向上三角面、拱门净空及近景拍照落脚点、分档数量和 medium/low 几何上限。
+新增检查记录：
 
-两次独立进程的 medium 新场景几何 SHA256 一致：`222b88cc6876b039983de44959bdf4e7436b3539afd28cd7917bb10b1c6d33d3`。
+- 三座主峰均有明显法线转折；high 岩雪壳层有 **213,612** 个露岩顶点、**13,472** 个主要积雪顶点，陡面积雪违规顶点为 0。颜色统计仅针对岩雪壳层，不把冰体计为积雪。
+- 19 条裂缝长度不等，数值最大凹入约 **3.55m**，不是只有颜色变化。
+- high 记录 **647** 处景观石/碎石接触，均有埋入；新增实体足迹避开道路、出生点和修道院内部。
+- 桥墩宽/跨距 **0.305**，下层拱列 **66m**，上层桥面 **130m**；桥台落地，上层 14 个开放拱洞。
+- 云心不高于 **90m**、位于两翼；high **35** 张低位喷雾；没有中央巨幅云雾叠层。
+- 出生点 90 帧生产物理/相机复演有限且不滑入几何：high/medium 玩家约 `(0,37.54,100)`，相机约 `(-1.35,39.16,108.38)`。
+- 新 scene-03 机位复演后相机约 `(-415.69,108.67,-242.81)`，三座主峰尖顶均在投影视锥内。
+- 捕获边界测试覆盖：构建 RAF 不误触 ready、两个完整输出帧后才 GPU flush/ready、24 帧对照选项、普通渲染异常、shader 回调错误、资源 Promise 拒绝、context lost、普通 autostart 不改 RAF。
 
-基线 medium 原有结构网格数量已超过 `check-layout` 的 90 个上限。聚落细节合批后，当前四类结构合计 low 51、medium/high 87 个网格；没有删掉细节顶点，也没有修改检查阈值。
+两次独立进程的 medium 新场景几何 SHA256 相同：`13b984d79e719d4b7c01997c270d18ad0c72638d5ef86fc6a1fe9118e3c68892`。地形自身确定性同时由原布局脚本复建比较验证。
 
-## 性能与包体
+medium/low 预算没有放宽：本线场景网格上限仍为 **17 / 10**，三角形上限仍为 **320,000 / 30,000**；当前结构总网格 medium/high **87**、low **51**，原检查的 `<90` 上限保持。high 不做三角形预算裁剪。
 
-| 档位 | 机位 | draw calls：基线 → 当前（变化） | 三角形：基线 → 当前（变化） |
+## 性能和包体
+
+| 档位 | 机位 | draw calls：第 1 轮 → 本轮（变化） | 三角形：第 1 轮 → 本轮（变化） |
 | --- | --- | ---: | ---: |
-| medium | spawn | 240 → 256（+16） | 1,181,216 → 1,674,644（+493,428） |
-| medium | city | 127 → 150（+23） | 769,586 → 1,180,378（+410,792） |
-| medium | aerial | 162 → 180（+18） | 904,974 → 1,495,272（+590,298） |
-| low | spawn | 211 → 220（+9） | 728,748 → 760,406（+31,658） |
-| low | city | 124 → 133（+9） | 498,774 → 525,688（+26,914） |
-| low | aerial | 162 → 168（+6） | 581,924 → 608,294（+26,370） |
+| medium | spawn | 256 → 256（+0） | 1,674,644 → 1,714,626（+39,982） |
+| medium | city | 150 → 150（+0） | 1,180,378 → 1,220,732（+40,354） |
+| medium | aerial | 180 → 181（+1） | 1,495,272 → 1,537,374（+42,102） |
+| low | spawn | 220 → 220（+0） | 760,406 → 763,788（+3,382） |
+| low | city | 133 → 133（+0） | 525,688 → 529,442（+3,754） |
+| low | aerial | 168 → 168（+0） | 608,294 → 611,784（+3,490） |
 
-主 JS：**861,908 → 882,559 bytes（+20,651 bytes，约 +2.40%）**，远低于 3,000,000 bytes。独立 pipeline chunk 为 30,768 bytes。新增内容全部程序化生成，没有 public 资产增长或 npm 依赖增长。
+统计使用 `scripts/scenes-metrics.mjs`，与 `70cc57a` 的 `/tmp` 源码快照对比；没有切换或改写 Git 工作树。表为 **CPU 视锥内主通道几何提交估算**，包括结构、城旗、地形、水、草花、作物、树石散布和生活角色，正确计入自定义实例的 primitive 数。它不等于 GPU 时间或完整 renderer.info；不包含天空、玩家模型、风粒子、阴影重复绘制和后处理。草花/作物使用实际档位参数，保持第 1 轮统计口径。
 
-分档新增场景规模：
+三个统计机位是：spawn `(0,40,100)→(0,85,-400)`、city `(25,120,-245)→(0,145,-430)`、aerial `(0,430,-160)→(0,100,-430)`；60° 垂直 FOV、16:9、0.1..1800 视距。
 
-| 档位 | 新针叶树 | 急流巨石 | 新花株 | 新房屋 | 新云/雾/烟实例 | 新场景网格 | 全部新增场景三角形 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| low | 48 | 22 | 0 | 11 | 0 | 10 | 21,054 |
-| medium | 165 | 65 | 170 | 11 | 82 | 17 | 262,560 |
-| high | 620 | 180 | 780 | 11 | 221 | 17 | 2,196,394 |
+| 档位 | 新增参考场景网格 | 场景三角形总量 | 针叶树 / 花株 | 层状岩柱 / 坡脚碎石 | 新云雾烟实例 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| low | 10 | 25,288 | 48 / 0 | 5 / 10 | 0 |
+| medium | 17 | 303,334 | 165 / 170 | 18 / 72 | 62 |
+| high | 17 | 2,523,620 | 620 / 780 | 58 / 463 | 156 |
 
-表中树、巨石和花通过合批几何构建，并非每株一条 draw call。low 另外省掉 6 块新增外谷田地的逐株作物，保留着色田块和围栏，避免低档作物实例膨胀。medium 启用花、树篱、完整外谷作物和水雾；high 使用更密的针叶林、花瓣、巨石及冰体网格，保持完整画质路径。
+所有档位保留 11 栋新增村屋和完整桥梁轮廓。high 使用最高岩雪网格密度、裂缝采样、错缝倒角石块、完整花瓣与岩柱碎石；medium 保留关键几何并使用较稀细节，low 保留轮廓和主要岩块、去掉新增雾/花/外谷逐株作物。减少 high 云层叠加是构图和光学密度修正，云采样数量仍为 110。
 
-性能表为 **CPU 视锥内主通道提交估算**，不是 GPU 计时或最终 renderer.info：包括结构、城旗、地形、水、草花、作物、树石散布和生活角色；不包括天空、风粒子、阴影重复绘制和后处理。使用真实档位参数：low 草/花 7000/9000/1200、作物密度 0.4；medium 14000/20000/3000、作物密度 1。相机统一为 60° 竖直 FOV、16:9、0.1..1800 视距；三个视点依次为 `(0,40,100)→(0,85,-400)`、`(25,120,-245)→(0,145,-430)`、`(0,430,-160)→(0,100,-430)`。
+主 JS：**882,559 → 891,337 bytes（+8,778 bytes，约 +0.99%）**，小于 3,000,000 bytes。独立 pipeline chunk 仍为 30,768 bytes。
 
-基线在 `/tmp` 中按 `bc34fa7` 恢复原源文件，使用同一依赖和同一统计脚本；没有切换或改写工作树。统计复现：
+可复现性能统计：
 
 ```sh
 node scripts/scenes-metrics.mjs
 node scripts/scenes-metrics.mjs --low
-node scripts/scenes-metrics.mjs --root=/path/to/bc34fa7-checkout
-node scripts/scenes-metrics.mjs --low --root=/path/to/bc34fa7-checkout
+node scripts/scenes-metrics.mjs --root=/path/to/70cc57a-checkout
+node scripts/scenes-metrics.mjs --low --root=/path/to/70cc57a-checkout
 ```
 
-## 沙箱外建议截图
+## 沙箱外重拍 URL
 
-以下均在运行站点根 URL 后添加参数；北为 -Z。`camyaw=0` 看北，正值转向西北，负值转向东北。`campitch` 负值抬头、正值俯视。`up` 是玩家初始抬升，截图模式会先固定模拟 90 帧，故实际冻结高度会下降一些。所有主图先用 high，再将 `q=high` 换为 medium/low 对照；画质判断以 high 为准。
+以下都是相对于运行站点根地址的 URL；以 **q=high + cinematic** 为画质验收依据。`up` 是玩家初始抬升，截图冻结前仍会模拟 90 帧。默认 shot 预热 2 帧，可追加 `&shotwarmup=24` 做外部对照。
 
-| 对照 / 检查 | 玩家平面机位、朝向 | URL 参数 |
-| --- | --- | --- |
-| Image 1：出生点望城堡 | `(0,100)`，向东北偏北约 9° | `?autostart=1&shot=1&style=cinematic&q=high&x=0&z=100&camyaw=-0.16&campitch=0.02&dist=8.5&dr=0` |
-| Image 2：城堡、修道院与长桥全景 | `(-130,80)`，向西北偏北约 12°，抬升俯瞰 | `?autostart=1&shot=1&style=cinematic&q=high&x=-130&z=80&up=100&camyaw=0.21&campitch=0.05&dist=8.5&dr=0` |
-| Image 3：冰川峡谷主视图 | `(-480,-520)`，向西北约 40°，抬头看雪峰 | `?autostart=1&shot=1&style=cinematic&q=high&x=-480&z=-520&up=90&camyaw=0.70&campitch=-0.12&dist=8.5&dr=0` |
-| 主瀑布与拱列近一些 | `(-590,-655)`，向西北约 52° | `?autostart=1&shot=1&style=cinematic&q=high&x=-590&z=-655&up=55&camyaw=0.90&campitch=-0.13&dist=6&dr=0` |
-| 拱门红纹章旗、藤蔓、苔石 | `(-22,87)`，向西北 45° | `?autostart=1&shot=1&style=cinematic&q=high&x=-22&z=87&camyaw=0.785&campitch=-0.10&dist=6&dr=0` |
-| 圆苔石、干垒矮墙、木栏和花 | `(75,70)`，向西北偏北约 32° | `?autostart=1&shot=1&style=cinematic&q=high&x=75&z=70&camyaw=0.55&campitch=0.14&dist=6&dr=0` |
-| 西侧红瓦小村 | `(-220,-45)`，向西北约 47° | `?autostart=1&shot=1&style=cinematic&q=high&x=-220&z=-45&camyaw=0.82&campitch=0.04&dist=6&dr=0` |
-| 东侧村庄、风车和烟 | `(367,-244)`，向东北约 40° | `?autostart=1&shot=1&style=cinematic&q=high&x=367&z=-244&camyaw=-0.70&campitch=-0.04&dist=6&dr=0` |
-| 田块与有入口的树篱 | `(275,-210)`，向东北偏东约 69°，抬升俯视 | `?autostart=1&shot=1&style=cinematic&q=high&x=275&z=-210&up=65&camyaw=-1.20&campitch=0.18&dist=6&dr=0` |
-| 修道院崖壁与脚下瀑布 | `(-700,-430)`，向东北约 45° | `?autostart=1&shot=1&style=cinematic&q=high&x=-700&z=-430&up=50&camyaw=-0.78&campitch=-0.20&dist=6&dr=0` |
+### 必拍
 
-外部截图重点：城前岩壁与道路接合处是否露缝；冰舌积雪是否出现地表穿插；远桥桥台/桥墩和水流是否连贯；透明水雾与山腰云排序；风车转动和旗布波动是否平滑；近景苔石是否圆润、花丛和干垒墙是否有足够体积。`shot=1` 冻结在共享时钟 12 秒，观察动画时去掉该参数并保留 `autostart=1`。
+**scene-01：出生点 ready 回归、望向城堡**。原机位与朝向保持。记录 ready 用时，并在失败时附上 `__galeShotError` 和 `__galeShotStatus`。
+
+```text
+/?autostart=1&shot=1&style=cinematic&q=high&x=0&z=100&camyaw=-0.16&campitch=0.02&dist=8.5&dr=0
+```
+
+**scene-03：冰川峡谷全貌**。本轮后退到 `(-420,-250)` 并抬升，使主峰尖顶、冰川和桥梁同时入画，避免旧近机位裁掉峰顶。
+
+```text
+/?autostart=1&shot=1&style=cinematic&q=high&x=-420&z=-250&up=140&camyaw=0.54&campitch=-0.16&dist=8.5&dr=0
+```
+
+**scene-04：主瀑布、岩层和高架桥近景**。保留原机位，便于与问题截图直接对照，检查桥墩/腰带/上下拱列和谷底喷雾。
+
+```text
+/?autostart=1&shot=1&style=cinematic&q=high&x=-590&z=-655&up=55&camyaw=0.90&campitch=-0.13&dist=6&dr=0
+```
+
+### 同机位复核
+
+**scene-02：已认可的全景构图**。参数不变，复核新桥和山脊放回全景后的比例。
+
+```text
+/?autostart=1&shot=1&style=cinematic&q=high&x=-130&z=80&up=100&camyaw=0.21&campitch=0.05&dist=8.5&dr=0
+```
+
+旧 scene-03 机位仍可作为材质/岩壁近距离对照：
+
+```text
+/?autostart=1&shot=1&style=cinematic&q=high&x=-480&z=-520&up=90&camyaw=0.70&campitch=-0.12&dist=8.5&dr=0
+```
+
+近景苔石贴地复核：
+
+```text
+/?autostart=1&shot=1&style=cinematic&q=high&x=75&z=70&camyaw=0.55&campitch=0.14&dist=6&dr=0
+```
+
+对 scene-03/04 各补 medium/low 一张（只替换 `q`），确认轮廓保留及无悬空几何。外拍尚未完成，不能把 CPU PASS 当作已经达到 3A 艺术验收。

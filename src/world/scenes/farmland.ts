@@ -71,15 +71,16 @@ function addFieldMill(b: Builder, group: THREE.Group, x: number, z: number, deta
   // Shared clock freezes consistently in shot mode; no new frame-loop integration required.
   for (const child of rotor.children) {
     const mesh = child as THREE.Mesh, original = mesh.material as THREE.Material;
+    const compile = original.onBeforeCompile, baseKey = original.customProgramCacheKey();
     mesh.material = original.clone();
     mesh.material.onBeforeCompile = (shader, renderer) => {
-      original.onBeforeCompile(shader, renderer);
+      compile.call(original, shader, renderer);
       shader.uniforms.uSceneTime = shared.uTime;
       shader.vertexShader = 'uniform float uSceneTime;\n' + shader.vertexShader.replace('#include <begin_vertex>',
         `#include <begin_vertex>\nfloat a=uSceneTime*.12; mat2 r=mat2(cos(a),sin(a),-sin(a),cos(a)); transformed.xy=r*transformed.xy;`)
         .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>\nfloat na=uSceneTime*.12; objectNormal.xy=mat2(cos(na),sin(na),-sin(na),cos(na))*objectNormal.xy;`);
     };
-    mesh.material.customProgramCacheKey = () => original.customProgramCacheKey() + '-scene-field-mill-rotation-v1';
+    mesh.material.customProgramCacheKey = () => baseKey + '-scene-field-mill-rotation-v2';
     mesh.frustumCulled = false;
   }
   group.add(rotor);

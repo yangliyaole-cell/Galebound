@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { Builder, place } from '../build';
 import { addRound } from '../colliders';
 import { fbm } from '../noise';
+import { heightAt } from '../heightmap';
 
 export const sceneSolids: { kind: string; x: number; z: number; radius: number }[] = [];
+export const rockContacts: { x: number; z: number; gap: number }[] = [];
 
 /** Continuous coordinate displacement keeps shared vertices watertight and smooth. */
 export function landscapeRock(b: Builder, x: number, y: number, z: number, radius: number, detail: number, collider = true): void {
@@ -21,7 +23,21 @@ export function landscapeRock(b: Builder, x: number, y: number, z: number, radiu
     const n = new THREE.Vector3(p.getX(i), p.getY(i) / (0.78 * 0.78), p.getZ(i)).normalize();
     normal.setXYZ(i, n.x, n.y, n.z);
   }
-  b.add('stone', g, 0xa3a99c, place(x, y + radius * 0.3, z), 0.18);
+  // Solve against the terrain under every lower-hemisphere vertex, not only
+  // the centre sample. A sphere centred on a steep bank otherwise floats.
+  let centreY = y + radius * 0.3;
+  if (collider) {
+    let touch = -Infinity;
+    for (let i = 0; i < p.count; i++) if (normal.getY(i) < -0.2) {
+      touch = Math.max(touch, heightAt(x + p.getX(i), z + p.getZ(i)) - p.getY(i));
+    }
+    centreY = touch - radius * 0.32;
+    let gap = Infinity;
+    for (let i = 0; i < p.count; i++) if (normal.getY(i) < -0.2) gap = Math.min(gap,
+      centreY + p.getY(i) - heightAt(x + p.getX(i), z + p.getZ(i)));
+    rockContacts.push({ x, z, gap });
+  }
+  b.add('stone', g, 0xa3a99c, place(x, centreY, z), 0.18);
   const colors = g.attributes.color, moss = new THREE.Color(0x667d42), stone = new THREE.Color();
   for (let i = 0; i < p.count; i++) {
     const amount = THREE.MathUtils.smoothstep(normal.getY(i) + (fbm(p.getX(i) + x, p.getZ(i) + z, 2) - 0.5) * 0.8, 0.18, 0.85);
@@ -29,7 +45,7 @@ export function landscapeRock(b: Builder, x: number, y: number, z: number, radiu
     colors.setXYZ(i, stone.r, stone.g, stone.b);
   }
   if (collider) {
-    addRound(x, z, radius * 0.95, (lx, lz) => y + radius * 0.3 + radius * 0.78 *
+    addRound(x, z, radius * 0.95, (lx, lz) => centreY + radius * 0.78 *
       Math.sqrt(Math.max(0, 0.95 ** 2 - (lx * lx + lz * lz) / (radius * radius))));
     sceneSolids.push({ kind: 'boulder', x, z, radius });
   }

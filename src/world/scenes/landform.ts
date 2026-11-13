@@ -1,6 +1,7 @@
 import { CITY, ABBEY, cityRadiusAt } from '../layout';
 import { fbm } from '../noise';
-import { GLACIAL_HORNS, GREAT_FALL, VIADUCT } from './plan';
+import { GLACIAL_HORNS, GLACIER_SPINE, GREAT_FALL, VIADUCT } from './plan';
+import { hornMetric, rockRelief, glacierSurvey } from './geology';
 
 const ease = (a: number, b: number, v: number): number => {
   const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t);
@@ -27,15 +28,24 @@ export function referenceLandform(x: number, z: number, h: number): number {
   }
   if (z < -805 && x > -970 && x < -275) {
     for (const horn of GLACIAL_HORNS) {
-      const r = Math.hypot(x - horn.x, (z - horn.z) * 1.12) / horn.radius;
+      const r = hornMetric(x, z, horn.x, horn.z, horn.radius);
       if (r < 1) {
-        const rib = 0.93 + 0.07 * Math.cos(Math.atan2(z - horn.z, x - horn.x) * 7);
-        h += horn.rise * Math.pow(1 - r, 1.3) * rib;
+        h += horn.rise * Math.pow(1 - r, 0.92);
       }
     }
     // Glacial hanging shelf: its end is the continuous head of the 100m cascade.
     const r = Math.hypot((x - GREAT_FALL.x) / 55, (z - (GREAT_FALL.z - 24)) / 61);
     if (r < 1.35) h = Math.max(h, GREAT_FALL.y * (1 - ease(0.65, 1.35, r)));
+    if (x < -730) {
+      const flow = glacierSurvey(x, z);
+      const first = GLACIER_SPINE[0], second = GLACIER_SPINE[1], dx = second[0] - first[0], dz = second[1] - first[1];
+      const head = ((x - first[0]) * dx + (z - first[1]) * dz) / Math.hypot(dx, dz);
+      const blend = (1 - ease(flow.width * 0.9, flow.width * 1.6, flow.distance)) * ease(-8, 0, head);
+      const bed = flow.level - 5 + 14 * Math.min(1, (flow.distance / flow.width) ** 2);
+      h += (bed - h) * blend;
+    }
   }
+  // Angular joints and ledges are below the grid's collision surface too.
+  if (x < -340 && z < -745 && h > 160) h += rockRelief(x, h, z) * 1.6;
   return h;
 }

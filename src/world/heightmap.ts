@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { fbm } from './noise';
 import { referenceLandform } from './scenes/landform';
+import { hornMetric, rockRelief } from './scenes/geology';
 import { ALPINE_LAKES, alpineLakeMetric, alpineChannel, waterLevelAt } from './mountain-layout';
 import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, ROADS, SIZE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
 
@@ -81,8 +82,8 @@ function analyticHeight(x: number, z: number): number {
   }
   // A few dominant glacial horns break the broad mountain rim into distinct peaks.
   for (const [px, pz, radius, rise] of [[-939, -775, 145, 210], [-900, -972, 122, 175], [-736, -988, 103, 145]]) {
-    const d = Math.hypot(x - px, z - pz) / radius;
-    if (d < 1) h += rise * Math.pow(1 - d, 1.45) * (0.9 + 0.1 * Math.sin(Math.atan2(z - pz, x - px) * 5));
+    const d = hornMetric(x, z, px, pz, radius);
+    if (d < 1) h += rise * Math.pow(1 - d, 0.94);
   }
   // Preserve the palace silhouette while breaking the outer town into inhabited
   // contour shelves. Override the mountain rim here so the palace remains highest.
@@ -112,6 +113,13 @@ function analyticHeight(x: number, z: number): number {
     }
     const stream = alpineChannel(x, z);
     if (stream.distance < 17) h = lerp(stream.level - 2.2, h, sstep(3.5, 17, stream.distance));
+  }
+  // Fracture exposed canyon shoulders after basin/stream incision. Keep the
+  // open water bed, abbey footprint and road grading as their own authorities.
+  if (x > -855 && x < -635 && z > -820 && z < -452) {
+    const stream = alpineChannel(x, z);
+    const lakeRim = Math.min(...ALPINE_LAKES.map((lake) => alpineLakeMetric(x, z, lake)));
+    if (stream.distance > 12 && lakeRim > 1.13 && h > 22) h += rockRelief(x, h, z) * 2.1;
   }
   return h;
 }

@@ -31,6 +31,8 @@ try {
   const abbey = (await load('world/structures/abbey')).buildAbbey();
   const scenes = landmarks.object.getObjectByName('Reference landscape scenes');
   const M = await load('world/mountain-layout');
+  const geology = await load('world/scenes/geology');
+  const glacier = await load('world/scenes/glacier');
   assert.ok(scenes, 'production mountain scenery did not register the new scenes');
   const counts = scenes.userData.sceneCounts, solids = G.sceneSolids;
   const fingerprint = createHash('sha256');
@@ -123,6 +125,43 @@ try {
     }
     return `${blue} blue / ${white} white vertices`;
   });
+  check('sharp ridge normals, slope-dependent snow and nonperiodic recessed ice fractures', () => {
+    const stats=glacier.alpineSurfaceStats;
+    assert.ok(stats.rockVertices>100&&stats.snowVertices>30,JSON.stringify(stats));
+    assert.equal(stats.steepSnowVertices,0,'snow blankets steep rock faces');
+    let ridges=0;
+    for(const peak of P.GLACIAL_HORNS){
+      const left=H.normalAt(peak.x-12,peak.z,new THREE.Vector3()),right=H.normalAt(peak.x+12,peak.z,new THREE.Vector3());
+      if(left.dot(right)<.8)ridges++;
+    }
+    assert.ok(ridges>=2,`${ridges} sharp ridge crests`);
+    let deepest=0;
+    for(const f of geology.ICE_FRACTURES){const result=geology.iceFracture((f.ax+f.bx)/2,(f.az+f.bz)/2);deepest=Math.max(deepest,result.depth);}
+    assert.ok(deepest>2,'fractures have colour but no geometric depth');
+    const widths=geology.ICE_FRACTURES.map(f=>Math.hypot(f.bx-f.ax,f.bz-f.az));
+    assert.ok(Math.max(...widths)>Math.min(...widths)*1.5,'repeated equal-width crevasses');
+    return `${ridges} crests; ${stats.rockVertices} exposed rock / ${stats.snowVertices} snow vertices; cracks ${deepest.toFixed(2)}m deep`;
+  });
+  check('bedrock buttresses and talus are grounded, bridge piers meet masonry proportions', () => {
+    assert.ok(counts.buttresses>0&&counts.talus>0);
+    assert.ok(G.rockContacts.length>=counts.rocks);
+    for(const p of G.rockContacts)assert.ok(Number.isFinite(p.gap)&&p.gap<.05,`floating rock at ${p.x},${p.z}`);
+    const v=P.VIADUCT,bay=Math.hypot(v.bx-v.ax,v.bz-v.az)/v.bays;
+    assert.ok(v.pierWidth/bay>=.25&&v.lowerDeck>35&&v.lowerDeck<v.deck-30);
+    assert.ok(C.surfaceTop(-803,-971)>=H.heightAt(-803,-971)+.2,'snow mantle does not exclude shared floating pebbles');
+    return `${G.rockContacts.length} rock contacts; pier/bay ${(v.pierWidth/bay).toFixed(3)}, lower arcade ${v.lowerDeck}m`;
+  });
+  check('valley mist stays below the subject and cloud optical density is normalized', () => {
+    const mesh=scenes.getObjectByName('Valley clouds spray and cottage smoke');if(!detail){assert.equal(mesh,undefined);return;}
+    const seeds=mesh.geometry.attributes.aSeed,kind=mesh.geometry.attributes.aKind;
+    let cloud=0,spray=0;
+    for(let i=0;i<seeds.count;i++){
+      if(kind.getX(i)===2){cloud++;assert.ok(seeds.getY(i)<=90);assert.ok(seeds.getX(i)<-845||seeds.getX(i)>-470,'cloud in main waterfall sightline');}
+      if(kind.getX(i)===0){spray++;assert.ok(seeds.getW(i)<=3.5);}
+    }
+    assert.ok(cloud>0&&spray<=35);assert.ok(mesh.material.uniforms.uCloudWeight.value<=1);
+    return `${cloud} small cloud puffs on valley flanks; ${spray} low spray cards`;
+  });
   check('waygate opening and meadow photo stances clear solid geometry', () => {
     for(let z=P.WAYGATE.z+7;z>P.WAYGATE.z-7;z-=.12){
       const x=P.WAYGATE.x,y=H.heightAt(x,z),p={x,z};C.resolveWalls(p,.32,y,y+1.7,.5);
@@ -147,6 +186,31 @@ try {
   const scatter = (await load('world/scatter')).createScatter({ tier: ['low', 'medium', 'high'][detail], treeDetailRange: [90,170,260][detail], propRange: [260,420,600][detail] }, sun);
   const life = (await load('world/life')).createLife(village.info, city.info, 7);
   life.update(1/60, 0, new THREE.Vector3(L.START.x, 40, L.START.z));
+  const {Player}=await load('player/controller'),{FollowCamera}=await load('player/camera');
+  const replayShot=(x,z,up,yaw,pitch)=>{
+    const player=Object.assign(Object.create(Player.prototype),{
+      pos:new THREE.Vector3(x,C.supportHeight(x,z,Infinity,0)+up,z),vel:new THREE.Vector3(),yaw:Math.PI,mode:up>.5?'air':'ground',
+      coyote:0,landTimer:0,glideLock:0,glideSpeed:0,glideTime:0,turn:0,dive:0,lift:0,normal:new THREE.Vector3(),state:{wind:new THREE.Vector3()},
+      character:{root:new THREE.Object3D(),update(){}},onJump(){},onLand(){},onGlide(){},onSplash(){},
+    });
+    const camera=new THREE.PerspectiveCamera(55,16/9,.3,7000),follow=new FollowCamera(camera,false);
+    follow.yaw=yaw;follow.pitch=pitch;follow.distance=8.5;
+    const idle={moveX:0,moveY:0,run:false,takeJump:()=>false},wind={gust:0,dir:new THREE.Vector2(0,-1),velocity:new THREE.Vector3()};
+    for(let i=0;i<90;i++){player.update(1/60,12,idle,follow.yaw,wind);follow.update(1/60,player);}
+    camera.updateMatrixWorld(true);return {player,camera};
+  };
+  check('spawn shot executes the production 90-step player and camera preparation',()=>{
+    const {player,camera}=replayShot(0,100,0,-.16,.02);
+    assert.ok([...player.pos.toArray(),...camera.position.toArray(),...camera.matrixWorld.elements].every(Number.isFinite));
+    assert.ok(Math.hypot(player.pos.x,player.pos.z-100)<.5,'spawn shot slides into a collider');
+    return `player (${player.pos.toArray().map(x=>x.toFixed(2)).join(',')}), camera (${camera.position.toArray().map(x=>x.toFixed(2)).join(',')})`;
+  });
+  check('reframed glacier photo includes all three principal peak tips',()=>{
+    const {camera}=replayShot(-420,-250,140,.54,-.16);
+    for(const peak of P.GLACIAL_HORNS){const p=new THREE.Vector3(peak.x,H.heightAt(peak.x,peak.z)+.24,peak.z).project(camera);
+      assert.ok(Math.abs(p.x)<1&&Math.abs(p.y)<1&&p.z<1,`peak outside shot (${p.toArray()})`);}
+    return `eye (${camera.position.toArray().map(x=>x.toFixed(2)).join(',')})`;
+  });
   const roots = [village.object, landmarks.object, city.object, abbey, terrain, water, grass, crops, life.object];
   const after = measure(roots, scatter, D.updateStructureDetails);
   scenes.visible = false; const withoutScenes = measure(roots, scatter, D.updateStructureDetails); scenes.visible = true;
