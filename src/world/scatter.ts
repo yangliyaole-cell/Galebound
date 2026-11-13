@@ -67,7 +67,7 @@ function trunk(top: number, bottom: number, height: number, sides: number, lean 
   const np = ng.attributes.position;
   for (let i = 0; i < np.count; i++) {
     const v = 0.75 + 0.25 * (np.getY(i) / height);
-    colors.push(0.38 * v, 0.27 * v, 0.19 * v);
+    colors.push(0.3 * v, 0.2 * v, 0.14 * v);
   }
   return finish(ng, colors, 0);
 }
@@ -132,7 +132,7 @@ function bough(from: [number, number, number], to: [number, number, number], rad
   g.translate(a.x, a.y, a.z);
   const ng = g.toNonIndexed();
   const colors: number[] = [];
-  for (let i = 0; i < ng.attributes.position.count; i++) colors.push(0.34, 0.24, 0.17);
+  for (let i = 0; i < ng.attributes.position.count; i++) colors.push(0.27, 0.18, 0.13);
   return finish(ng, colors, 0);
 }
 
