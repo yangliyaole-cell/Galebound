@@ -24,6 +24,7 @@ import { Sound } from './core/audio';
 import { createLife } from './world/life';
 import { createOrbs } from './world/orbs';
 import { buildCity } from './world/structures/city';
+import { buildAbbey } from './world/structures/abbey';
 import { buildLandmarks } from './world/structures/landmarks';
 import { buildCrops, buildVillage } from './world/structures/village';
 
@@ -111,7 +112,7 @@ async function boot(): Promise<void> {
   scene.add(village.object, landmarks.object);
   await nextFrame();
   const city = buildCity(detail);
-  scene.add(city.object, createFlags(city.flags));
+  scene.add(city.object, createFlags(city.flags), buildAbbey());
   scene.add(buildCrops(detail === 0 ? 0.4 : 1, toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.05, doubleSided: true })));
 
   hud.loading('正在种树…');
