@@ -14,7 +14,9 @@ import { lowpolyDusk } from './lowpoly-dusk';
 import { createMaterialStyles } from './materials';
 import { fragmentShader, vertexShader } from './effects';
 
-const HERO_ENVIRONMENT_INTENSITY = 1.8;
+const HERO_ENVIRONMENT_INTENSITY = 0.3;
+/** Light-albedo hero parts (face, shirt, sash) would otherwise glow under the lifted fill. */
+const HERO_ALBEDO = 0.75;
 const presets = { ghibli, cinematic, watercolor, 'lowpoly-dusk': lowpolyDusk };
 
 function paperTexture(): THREE.DataTexture {
@@ -47,18 +49,21 @@ function paperTexture(): THREE.DataTexture {
 
 /** Soft sky / horizon / ground-bounce dome, prefiltered once. It supplies natural fill for PBR
  * materials (the hero) and carries no sun disc: the shadow-casting sun is the only key light. */
-function skyEnvironment(renderer: THREE.WebGLRenderer, sky: [number, number, number]): THREE.Texture {
+function skyEnvironment(renderer: THREE.WebGLRenderer, sky: [number, number, number], sunDir: THREE.Vector3): THREE.Texture {
   const dome = new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
     uniforms: {
       uZenith: { value: new THREE.Color(sky[0]) }, uHorizon: { value: new THREE.Color(sky[1]) },
       uGround: { value: new THREE.Color(sky[2]) },
+      uSun: { value: sunDir.clone().normalize() }, uWarm: { value: new THREE.Color(0xffdcae) },
     },
     vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `varying vec3 vDir; uniform vec3 uZenith, uHorizon, uGround;
+    fragmentShader: `varying vec3 vDir; uniform vec3 uZenith, uHorizon, uGround, uSun, uWarm;
       void main() {
         float h = vDir.y;
         vec3 c = h > 0.0 ? mix(uHorizon, uZenith, pow(h, 0.55)) : mix(uHorizon, uGround, smoothstep(0.0, 0.45, -h));
+        // A broad warm lobe toward the sun gives the hero a lit side and a shaded side.
+        c += uWarm * 1.1 * pow(max(dot(normalize(vDir), uSun), 0.0), 3.0);
         gl_FragColor = vec4(c, 1.0);
       }`,
   }));
@@ -87,10 +92,11 @@ export function createPipeline(context: StyleContext): StylePipeline {
   const applyMaterials = createMaterialStyles(context);
   let environment: THREE.Texture | undefined;
   const heroMaterials = new Set<THREE.MeshStandardMaterial>();
+  const heroColors = new Map<THREE.MeshStandardMaterial, THREE.Color>();
   scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh) || !object.name.startsWith('Traveler_')) return;
     for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-      if (material instanceof THREE.MeshStandardMaterial) heroMaterials.add(material);
+      if (material instanceof THREE.MeshStandardMaterial) { heroMaterials.add(material); heroColors.set(material, material.color.clone()); }
     }
   });
   const target = new THREE.WebGLRenderTarget(1, 1, {
@@ -154,7 +160,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
     apply(name: StyleName): void {
       const preset = name === 'default' ? undefined : presets[name];
       scene.fog = baseline.fog;
-      for (const material of heroMaterials) material.envMap = null;
+      for (const material of heroMaterials) { material.envMap = null; material.color.copy(heroColors.get(material)!); }
       renderer.toneMapping = baseline.toneMapping;
       renderer.toneMappingExposure = baseline.exposure;
       renderer.shadowMap.type = baseline.shadowType;
@@ -178,10 +184,11 @@ export function createPipeline(context: StyleContext): StylePipeline {
         sun.shadow.radius = 2;
         // Image-based fill for the hero only: the world's toon/shader materials stay on the
         // hemisphere light, so distant terrain keeps its look.
-        environment ??= skyEnvironment(renderer, [0x5f95d4, 0xc9d6dc, 0x7a9468]);
+        environment ??= skyEnvironment(renderer, [0x4f86c8, 0x9fb2bb, 0x4a5c44], new THREE.Vector3(...preset.direction));
         for (const material of heroMaterials) {
           material.envMap = environment;
           material.envMapIntensity = HERO_ENVIRONMENT_INTENSITY;
+          material.color.copy(heroColors.get(material)!).multiplyScalar(HERO_ALBEDO);
         }
       }
       sun.color.set(preset.sun[0]);
