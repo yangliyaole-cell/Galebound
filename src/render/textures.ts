@@ -29,8 +29,8 @@ function speckle(ctx: CanvasRenderingContext2D, s: number, rand: () => number, n
 }
 
 /** Courses of cut stone, every other course offset by half a block. */
-export const stoneTexture = (): THREE.CanvasTexture =>
-  make(256, (ctx, s) => {
+export const stoneTexture = (size = 256): THREE.CanvasTexture =>
+  make(size, (ctx, s) => {
     const rand = seededRandom(21);
     ctx.fillStyle = grey(150, 6);
     ctx.fillRect(0, 0, s, s);
@@ -58,8 +58,8 @@ export const stoneTexture = (): THREE.CanvasTexture =>
   });
 
 /** Lime plaster: almost flat, with faint blotches and a few hairline cracks. */
-export const plasterTexture = (): THREE.CanvasTexture =>
-  make(256, (ctx, s) => {
+export const plasterTexture = (size = 256): THREE.CanvasTexture =>
+  make(size, (ctx, s) => {
     const rand = seededRandom(22);
     ctx.fillStyle = grey(244, 2);
     ctx.fillRect(0, 0, s, s);
@@ -88,8 +88,8 @@ export const plasterTexture = (): THREE.CanvasTexture =>
   });
 
 /** Overlapping rows of rounded clay tiles. */
-export const roofTexture = (): THREE.CanvasTexture =>
-  make(256, (ctx, s) => {
+export const roofTexture = (size = 256): THREE.CanvasTexture =>
+  make(size, (ctx, s) => {
     const rand = seededRandom(23);
     ctx.fillStyle = grey(150);
     ctx.fillRect(0, 0, s, s);
@@ -121,8 +121,8 @@ export const roofTexture = (): THREE.CanvasTexture =>
   });
 
 /** Upright planks with grain. */
-export const woodTexture = (): THREE.CanvasTexture =>
-  make(256, (ctx, s) => {
+export const woodTexture = (size = 256): THREE.CanvasTexture =>
+  make(size, (ctx, s) => {
     const rand = seededRandom(24);
     const planks = 5;
     const pw = s / planks;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from '../render/glsl';
+import { LOD_VERTEX, LOD_FRAGMENT, LOD_DISCARD } from '../render/lod';
 import { shared } from '../render/uniforms';
 import { seededRandom } from './noise';
 
@@ -24,6 +25,7 @@ export function foliageMaterial(look: FoliageLook, sunDir: THREE.Vector3): THREE
     vertexShader: /* glsl */ `
       #include <common>
       #include <fog_pars_vertex>
+      ${LOD_VERTEX}
       attribute vec2 aCorner;
       attribute vec2 aCard;
       uniform float uTime;
@@ -37,6 +39,7 @@ export function foliageMaterial(look: FoliageLook, sunDir: THREE.Vector3): THREE
       varying float vRand;
       ${NOISE_GLSL}
       void main() {
+        vLodBand = aLodBand;
         mat4 world = modelMatrix * instanceMatrix;
         vec4 wp = world * vec4(position, 1.0);
         vec3 origin = world[3].xyz;
@@ -65,6 +68,7 @@ export function foliageMaterial(look: FoliageLook, sunDir: THREE.Vector3): THREE
     fragmentShader: /* glsl */ `
       #include <common>
       #include <fog_pars_fragment>
+      ${LOD_FRAGMENT}
       uniform sampler2D uLeaf;
       uniform vec3 uSunDir;
       uniform vec3 uDark;
@@ -77,6 +81,7 @@ export function foliageMaterial(look: FoliageLook, sunDir: THREE.Vector3): THREE
       ${NOISE_GLSL}
       ${CLOUD_GLSL}
       void main() {
+        ${LOD_DISCARD}
         vec4 t = texture2D(uLeaf, vUv);
         if (t.a < 0.45) discard;
         vec3 n = normalize(vN);
@@ -109,8 +114,9 @@ export function foliageMaterial(look: FoliageLook, sunDir: THREE.Vector3): THREE
  * Scatters cards over the surface of a cluster of spheres.
  * @param density cards per square metre of sphere radius squared
  * @param size half-width of a card, as a fraction of its sphere's radius
+ * @param radiusScale outer-shell lift for small near leaves to clear the solid crown
  */
-export function leafCards(parts: Part[], density: number, size: number, seed: number): THREE.BufferGeometry {
+export function leafCards(parts: Part[], density: number, size: number, seed: number, radiusScale = 1, coverage = 1.72): THREE.BufferGeometry {
   const rand = seededRandom(seed);
   const centre = new THREE.Vector3();
   let weight = 0;
@@ -134,11 +140,11 @@ export function leafCards(parts: Part[], density: number, size: number, seed: nu
     for (let i = 0; i < count; i++) {
       // Evenly spread directions, skipping most of the underside.
       const t = (i + 0.5) / count;
-      const dy = 1 - t * 1.72;
+      const dy = 1 - t * coverage;
       const ring = Math.sqrt(Math.max(0, 1 - dy * dy));
       const a = i * 2.39996 + pi;
       n.set(Math.cos(a) * ring, dy, Math.sin(a) * ring);
-      p.set(x, y, z).addScaledVector(n, r * (0.86 + rand() * 0.14));
+      p.set(x, y, z).addScaledVector(n, r * radiusScale * (0.86 + rand() * 0.14));
       // A card buried inside a neighbouring sphere would never be seen.
       if (parts.some(([ox, oy, oz, or], oi) => oi !== pi && p.distanceTo(out.set(ox, oy, oz)) < or * 0.72)) continue;
       out.copy(p).sub(centre).normalize();
