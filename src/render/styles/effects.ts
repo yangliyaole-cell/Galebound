@@ -17,6 +17,7 @@ export const fragmentShader = /* glsl */ `
   uniform vec2 uClip;
   uniform vec4 uGrade;
   uniform float uContrast;
+  uniform float uToe;
   uniform vec3 uInk;
   uniform vec2 uEdge;
   #if STYLE == 1
@@ -149,7 +150,9 @@ export const fragmentShader = /* glsl */ `
     // Contrast and saturation operate on positive luminance; never round individual channels.
     col = max(col, vec3(0.0));
     float y = max(luma(col), 0.00001);
-    float contrastY = 0.22 * pow(y / 0.22, uContrast);
+    // uToe > 0 relaxes the contrast curve below mid-grey, so shadows keep detail instead of being crushed.
+    float contrastExp = mix(mix(1.0, uContrast, 1.0 - uToe), uContrast, smoothstep(0.02, 0.26, y));
+    float contrastY = 0.22 * pow(y / 0.22, contrastExp);
     col *= contrastY / y;
     col = max(mix(vec3(luma(col)), col, uGrade.x), vec3(0.0)) * uGrade.y;
     col = mix(col, uInk, clamp(lineMask * uGrade.z, 0.0, 1.0));
