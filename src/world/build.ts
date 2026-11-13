@@ -6,7 +6,7 @@ import { structureDetail, registerStructureDetail, structureDetailRange, detailC
 import { toon } from '../render/toon';
 import { plasterTexture, roofTexture, stoneTexture, woodTexture } from '../render/textures';
 
-export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'cloth';
+export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'rock' | 'cloth';
 
 const textureSets = new Map<number, Record<'stone' | 'plaster' | 'roof' | 'wood', THREE.Texture>>();
 const materialSets = new Map<string, Record<Mat, THREE.Material>>();
@@ -26,6 +26,8 @@ function getMaterials(detail = false): Record<Mat, THREE.Material> {
     roof: toon(0xffffff, { pbr: 'roof', vertexColors: true, texture: textures.roof, textureSize: 2.2, relief: relief ? 0.045 : 0, ...range }),
     wood: toon(0xffffff, { pbr: 'wood', vertexColors: true, texture: textures.wood, textureSize: 1.5, relief: relief ? 0.025 : 0, ...range }),
     plain: toon(0xffffff, { vertexColors: true, ...range }),
+    // Fractured rubble/wall stones: vertex colour (grain, moss) over the procedural rough-stone PBR (high/medium).
+    rock: toon(0xffffff, { pbr: 'stone', vertexColors: true, ...range }),
     cloth: toon(0xffffff, { vertexColors: true, doubleSided: true, ...range }),
   };
   materialSets.set(key, materials);
@@ -70,7 +72,7 @@ export class Builder {
   /** Fractured, bevelled stone. It uses unpatterned vertex color, never brick UVs. */
   rock(x: number, y: number, z: number, w: number, h: number, d: number, rot: number, color: number, seed: number, detail = 1, profile: 'rubble' | 'wall' = 'rubble'): THREE.BufferGeometry {
     const g = fracturedRock(w, h, d, seed, structureDetail(), detail, profile);
-    this.add('plain', g, color, place(x, y, z, rot), 0.16);
+    this.add('rock', g, color, place(x, y, z, rot), 0.16);
     const colors = g.attributes.color, pos = g.attributes.position, normal = g.attributes.normal;
     for (let i = 0; i < colors.count; i++) {
       const grain = 0.87 + fbm(pos.getX(i) * 8 + seed, pos.getZ(i) * 8 + pos.getY(i), 2) * 0.17;

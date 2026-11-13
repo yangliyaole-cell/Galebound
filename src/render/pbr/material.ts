@@ -88,7 +88,10 @@ export function registerSceneRocks(scene: THREE.Scene): void {
   const byOriginal = new Map<THREE.Material, THREE.Material>();
   scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh) || Array.isArray(object.material)) return;
-    if (pbrAlternative(object.material)?.name.startsWith('pbr-masonry-')) classifyNaturalStone(object.geometry);
+    const alternative = pbrAlternative(object.material)?.name ?? '';
+    if (alternative.startsWith('pbr-masonry-')) classifyNaturalStone(object.geometry);
+    // Builder.rock() fractured rubble/wall stones: every component is a natural rock.
+    else if (alternative.startsWith('pbr-stone-')) classifyNaturalStone(object.geometry, true);
     if (!object.name.startsWith('rock-lod')) return;
     classifyNaturalStone(object.geometry, true);
     const legacy = object.material;
