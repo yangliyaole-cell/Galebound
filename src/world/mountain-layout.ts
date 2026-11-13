@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GREAT_FALL } from './scenes/plan';
 
 /** Separate local levels keep the alpine basins above sea level. */
 export const ALPINE_LAKES = [
@@ -17,6 +18,7 @@ export const alpineLakeMetric = (x: number, z: number, l: typeof ALPINE_LAKES[nu
 };
 // Slow reaches spill over three rock steps, then curve round the abbey cliff into Mirror Lake.
 const controls = [
+  [GREAT_FALL.x, GREAT_FALL.y, GREAT_FALL.z - 18], [GREAT_FALL.x, GREAT_FALL.y, GREAT_FALL.z],
   [-750, 116, -792], [-745, 94, -745], [-744, 94, -722], [-731, 94, -694],
   [-730, 63, -670], [-710, 62, -639], [-699, 62, -615], [-694, 33, -594],
   [-674, 32, -561], [-692, 31, -521], [-696, 26, -487], [-683, 14, -469],
@@ -25,7 +27,7 @@ const controls = [
 export const ALPINE_STREAM = new THREE.CatmullRomCurve3(controls.map(([x, y, z]) => new THREE.Vector3(x, y, z)), false, 'centripetal').getPoints(130);
 export function alpineChannel(x: number, z: number): { distance: number; level: number } {
   let best = Infinity, level = 0;
-  if (x < -800 || x > -480 || z < -820 || z > -310) return { distance: best, level };
+  if (x < -835 || x > -480 || z < -870 || z > -310) return { distance: best, level };
   for (let i = 0; i < ALPINE_STREAM.length - 1; i++) {
     const a = ALPINE_STREAM[i], b = ALPINE_STREAM[i + 1], dx = b.x - a.x, dz = b.z - a.z;
     const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1)));
@@ -36,12 +38,13 @@ export function alpineChannel(x: number, z: number): { distance: number; level: 
 }
 /** Local water level is also consumed by the player; alpine swimming works normally. */
 export function waterLevelAt(x: number, z: number): number {
-  if (x > -480 || x < -810 || z > -310 || z < -820) return 0;
+  if (x > -480 || x < -835 || z > -310 || z < -870) return 0;
   for (const l of ALPINE_LAKES) if (alpineLakeMetric(x, z, l) < 1.12) return l.level;
   const channel = alpineChannel(x, z);
   return channel.distance < 7 ? channel.level : 0;
 }
 export const WATERFALLS = [
+  GREAT_FALL,
   { x: -731, z: -684, y: 94, bx: -729, bz: -667, bottom: 63, width: 12 },
   { x: -699, z: -609, y: 62, bx: -691, bz: -587, bottom: 33, width: 10 },
   { x: -696, z: -493, y: 27, bx: -683, bz: -466, bottom: 14, width: 8 },

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { fbm } from './noise';
+import { referenceLandform } from './scenes/landform';
 import { ALPINE_LAKES, alpineLakeMetric, alpineChannel, waterLevelAt } from './mountain-layout';
 import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, ROADS, SIZE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
 
@@ -99,8 +100,9 @@ function analyticHeight(x: number, z: number): number {
     (1 - sstep(-445, -285, z)) * sstep(-550, -475, z);
   if (approach > 0) h = Math.max(h, ABBEY.floor * approach);
   h = lerp(h, ABBEY.floor, 1 - sstep(0.82, 1.3, abbeyD));
+  h = referenceLandform(x, z, h);
   // Nested glacial basins and their descending stream cut into the western foothills.
-  if (x > -810 && x < -480 && z > -825 && z < -305) {
+  if (x > -835 && x < -480 && z > -870 && z < -305) {
     for (const lake of ALPINE_LAKES) {
       const d = alpineLakeMetric(x, z, lake);
       if (d < 1.6) {

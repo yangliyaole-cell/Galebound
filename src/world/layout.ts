@@ -177,6 +177,8 @@ export const PLAZAS: [number, number, number][] = [
 export interface Field {
   x: number; z: number; w: number; d: number; rot: number;
   crop: 'wheat' | 'tilled' | 'cabbage' | 'lavender';
+  /** Outer parcels keep painted field colour but omit individual crop geometry on low. */
+  scenic?: boolean;
 }
 export const FIELDS: Field[] = [
   { x: -115, z: -157, w: 43, d: 26, rot: 0.19, crop: 'wheat' },
@@ -191,6 +193,12 @@ export const FIELDS: Field[] = [
   { x: -200, z: -119, w: 38, d: 25, rot: -0.31, crop: 'lavender' },
   { x: 159, z: -332, w: 36, d: 26, rot: 0.32, crop: 'tilled' },
   { x: 219, z: -308, w: 42, d: 29, rot: -0.18, crop: 'wheat' },
+  { x: -278, z: -474, w: 64, d: 39, rot: -0.16, crop: 'wheat', scenic: true },
+  { x: -196, z: -439, w: 54, d: 36, rot: 0.21, crop: 'cabbage', scenic: true },
+  { x: -76, z: -416, w: 58, d: 35, rot: -0.28, crop: 'wheat', scenic: true },
+  { x: 483, z: -291, w: 59, d: 42, rot: 0.19, crop: 'cabbage', scenic: true },
+  { x: 552, z: -256, w: 54, d: 35, rot: -0.27, crop: 'wheat', scenic: true },
+  { x: 324, z: -364, w: 51, d: 30, rot: 0.08, crop: 'wheat', scenic: true },
 ];
 /** Deliberately skewed parcels, shared by splat painting, crops and fences. */
 export function fieldPolygon(f: Field): Pt[] {

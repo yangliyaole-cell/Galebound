@@ -1,0 +1,54 @@
+import * as THREE from 'three';
+import { Builder } from '../build';
+import { heightAt } from '../heightmap';
+import { ALPINE_STREAM, WATERFALLS } from '../mountain-layout';
+import { roadClearance } from '../layout';
+import { seededRandom } from '../noise';
+import { shared } from '../../render/uniforms';
+import { landscapeRock, ribbon } from './geometry';
+import type { AtmosphereSeed } from './farmland';
+
+export function addRapids(b: Builder, group: THREE.Group, detail: number, count: number, mist: AtmosphereSeed[]): number {
+  const rand = seededRandom(5521); let rocks = 0;
+  for (let attempt = 0; rocks < count && attempt < count * 18; attempt++) {
+    const i = Math.floor(rand() * (ALPINE_STREAM.length - 2)) + 1, a = ALPINE_STREAM[i - 1], c = ALPINE_STREAM[i + 1];
+    const p = ALPINE_STREAM[i], dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz) || 1;
+    const off = (rand() < 0.5 ? -1 : 1) * (5 + rand() * 10), x = p.x - dz / len * off, z = p.z + dx / len * off;
+    const r = 1.2 + rand() * 3.2, ground = heightAt(x, z);
+    if (roadClearance(x, z) < r + 3 || ground > p.y + 8 || Math.hypot(x + 600, z + 495) < 45) continue;
+    landscapeRock(b, x, Math.max(ground - r * 0.3, p.y - r * 0.8), z, r, detail, true); rocks++;
+  }
+  if (detail === 0) return rocks;
+  for (const f of WATERFALLS) for (let k = 0; k < (detail === 2 ? 20 : 7); k++) {
+    mist.push([f.bx + (rand() - 0.5) * f.width * 1.5, f.bottom + 1 + rand() * 6,
+      f.bz + (rand() - 0.5) * 14, 4 + rand() * 4]);
+  }
+  const geo = ribbon(ALPINE_STREAM, ALPINE_STREAM.map((_, i) => 5.1 + Math.sin(i * 0.3) * 0.5), detail === 2 ? 8 : 3,
+    (_x, _z, t) => ALPINE_STREAM[Math.round(t * (ALPINE_STREAM.length - 1))].y + 0.12);
+  const material = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]),
+    vertexShader: `#include <common>
+      #include <fog_pars_vertex>
+      varying vec2 vUv; varying vec3 vWorld;
+      void main(){vUv=uv;vWorld=position;vec4 mvPosition=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*mvPosition;
+      #include <fog_vertex>
+      }`,
+    fragmentShader: `#include <common>
+      #include <fog_pars_fragment>
+      uniform float uTime; varying vec2 vUv; varying vec3 vWorld;
+      void main(){float flow=vUv.y*280.-uTime*2.2;
+        float bands=sin(flow+sin(vUv.x*21.+flow*.2)*2.);
+        float foam=smoothstep(.35,.95,bands)*(.5+.5*sin(vUv.x*43.+flow*.7));
+        float edge=smoothstep(0.,.1,vUv.x)*smoothstep(1.,.9,vUv.x);
+        vec3 color=mix(vec3(.37,.72,.78),vec3(.96,.985,.97),foam);
+        gl_FragColor=vec4(color,edge*(.18+foam*.7));
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+        #include <fog_fragment>
+      }`,
+  });
+  material.uniforms.uTime = shared.uTime;
+  const mesh = new THREE.Mesh(geo, material); mesh.name = 'Glacial whitewater'; mesh.renderOrder = 2; group.add(mesh);
+  return rocks;
+}
