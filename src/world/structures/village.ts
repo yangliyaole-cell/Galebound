@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Builder, orbAt, place } from '../build';
+import { Builder, archedProfile, orbAt, place } from '../build';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
 import { BRIDGE, FIELDS, PIER, RIVER, ROADS, VILLAGE, WATER_LEVEL, distToPolyline } from '../layout';
@@ -89,25 +89,11 @@ function bridge(b: Builder): void {
   const rise = 2.5;
   const bottom = -3.5;
   const top = (u: number): number => bank + rise * (0.5 + 0.5 * Math.cos((2 * Math.PI * u) / L));
-  const shape = new THREE.Shape();
-  shape.moveTo(-L / 2, bottom);
-  shape.lineTo(L / 2, bottom);
-  for (let i = 0; i <= 24; i++) {
-    const u = L / 2 - (L * i) / 24;
-    shape.lineTo(u, top(u));
-  }
-  shape.closePath();
-  for (const [cx, w] of [[0, 11], [-12.4, 7.6], [12.4, 7.6]]) {
-    const crown = top(Math.abs(cx) + w / 2) - 0.9;
-    const r = w / 2;
-    const hole = new THREE.Path();
-    hole.moveTo(cx - r, bottom - 0.5);
-    hole.lineTo(cx - r, crown - r);
-    hole.absarc(cx, crown - r, r, Math.PI, 0, true);
-    hole.lineTo(cx + r, bottom - 0.5);
-    hole.closePath();
-    shape.holes.push(hole);
-  }
+  const shape = archedProfile(
+    -L / 2, L / 2, bottom, top,
+    [[0, 11], [-12.4, 7.6], [12.4, 7.6]].map(([cx, w]) => ({ x: cx, w, crown: top(Math.abs(cx) + w / 2) - 0.9 })),
+    24,
+  );
   // The profile is drawn along local X; turn it to run north-south.
   const turn = place(x, 0, z, Math.PI / 2);
   b.shape('stone', shape, W, turn, 0xd3ccbc);

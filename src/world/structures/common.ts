@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Builder, place, type Mat } from '../build';
+import { Builder, archedProfile, place, type Mat } from '../build';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
 
@@ -145,22 +145,13 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
 
     const midAngle = Math.atan2(cz - o.z, cx - o.x);
     const gate = o.gates.find((g) => Math.abs(Math.atan2(Math.sin(g.angle - midAngle), Math.cos(g.angle - midAngle))) < step * 0.3);
-    const shape = new THREE.Shape();
-    shape.moveTo(-L / 2, base);
-    shape.lineTo(L / 2, base);
-    shape.lineTo(L / 2, top(L / 2));
-    shape.lineTo(-L / 2, top(-L / 2));
-    shape.closePath();
+    const shape = archedProfile(
+      -L / 2, L / 2, base, top,
+      gate ? [{ x: 0, w: gate.width, crown: heightAt(cx, cz) + gate.height }] : [],
+    );
     if (gate) {
       const ground = heightAt(cx, cz);
       const r = gate.width / 2;
-      const hole = new THREE.Path();
-      hole.moveTo(-r, base - 0.5);
-      hole.lineTo(-r, ground + gate.height - r);
-      hole.absarc(0, ground + gate.height - r, r, Math.PI, 0, true);
-      hole.lineTo(r, base - 0.5);
-      hole.closePath();
-      shape.holes.push(hole);
       const side = (L / 2 - r) / 2;
       for (const sgn of [1, -1]) {
         const off = (r + side) * sgn;

@@ -166,10 +166,10 @@ function makeSpecies(): Record<string, Species> {
   const core = 0.5;
   return {
     oak: {
-      hi: mergeGeometries([trunk(0.2, 0.42, 3.4, 8, 0.25), ...boughs, puff(oakParts, 1, 1, 0.15, core, 0.8)]),
+      hi: mergeGeometries([trunk(0.2, 0.42, 3.4, 8, 0.25), ...boughs, puff(oakParts, 0, 1, 0.1, core, 0.8)]),
       cards: leafCards(oakParts, 9, 0.5, 1),
       look: 'leaf',
-      lo: mergeGeometries([trunk(0.2, 0.42, 3.4, 5, 0.25), puff(oakLo, 1, 1)]),
+      lo: mergeGeometries([trunk(0.2, 0.42, 3.4, 4, 0.25), puff(oakLo, 0, 1, 0.12)]),
       trunkHeight: 2.6, trunkRadius: 0.4, sway: true, shadow: true, tints: greens,
     },
     great: {
@@ -180,23 +180,23 @@ function makeSpecies(): Record<string, Species> {
       trunkHeight: 2.6, trunkRadius: 0.48, sway: true, shadow: true, tints: [0x58a83e],
     },
     blossom: {
-      hi: mergeGeometries([trunk(0.18, 0.36, 3.2, 8, -0.3), ...boughs, puff(oakParts, 1, 9, 0.15, 0.72, 0.8)]),
+      hi: mergeGeometries([trunk(0.18, 0.36, 3.2, 8, -0.3), ...boughs, puff(oakParts, 0, 9, 0.1, 0.72, 0.8)]),
       cards: leafCards(oakParts, 9, 0.5, 9),
       look: 'blossom',
-      lo: mergeGeometries([trunk(0.18, 0.36, 3.2, 5, -0.3), puff(oakLo, 1, 9)]),
+      lo: mergeGeometries([trunk(0.18, 0.36, 3.2, 4, -0.3), puff(oakLo, 0, 9, 0.12)]),
       trunkHeight: 2.5, trunkRadius: 0.36, sway: true, shadow: true,
       tints: [0xf29bbb, 0xf5aec8, 0xee86aa, 0xf8c2d6],
     },
     cypress: {
-      hi: mergeGeometries([trunk(0.14, 0.2, 2.0, 6), puff(cypressParts, 1, 5, 0.1, core, 0.82)]),
+      hi: mergeGeometries([trunk(0.14, 0.2, 2.0, 6), puff(cypressParts, 0, 5, 0.08, core, 0.82)]),
       cards: leafCards(cypressParts, 13, 0.56, 5),
       look: 'leaf',
-      lo: mergeGeometries([trunk(0.14, 0.2, 2.0, 4), puff([[0, 3.2, 0, 1.05], [0, 5.4, 0, 0.9], [0, 7.0, 0, 0.5]], 1, 5, 0.1)]),
+      lo: mergeGeometries([trunk(0.14, 0.2, 2.0, 4), puff([[0, 3.2, 0, 1.05], [0, 5.4, 0, 0.9], [0, 7.0, 0, 0.5]], 0, 5, 0.08)]),
       trunkHeight: 6, trunkRadius: 0.45, sway: true, shadow: true,
       tints: [0x2f6a3e, 0x2a6240, 0x367344],
     },
     pine: {
-      hi: mergeGeometries([trunk(0.12, 0.3, 3, 7), ...pineCore(8, core)]),
+      hi: mergeGeometries([trunk(0.12, 0.3, 3, 7), ...pineCore(6, core)]),
       cards: leafCards(pineParts, 16, 0.92, 6),
       look: 'needle',
       lo: mergeGeometries([trunk(0.12, 0.3, 3, 4), cone(1.9, 6.6, 1.6, 6, 0.85)]),
@@ -204,7 +204,7 @@ function makeSpecies(): Record<string, Species> {
       tints: [0x2c6a4c, 0x327456, 0x275f46, 0x3a7c58],
     },
     bush: {
-      hi: puff(bushParts, 1, 3, 0.2, core, 0.8),
+      hi: puff(bushParts, 0, 3, 0.15, core, 0.8),
       cards: leafCards(bushParts, 14, 0.62, 3),
       look: 'leaf',
       lo: puff([[0, 0.5, 0, 0.9]], 0, 3, 0.2),

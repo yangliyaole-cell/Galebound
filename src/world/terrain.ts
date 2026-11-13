@@ -70,9 +70,11 @@ export const GROUND_GLSL = /* glsl */ `
     vec3 rockCol = mix(uRockDark, uRock, smoothstep(0.3, 0.7, gFbm3(wp.xz * 0.07 + wp.y * 0.11)));
     rockCol *= 0.92 + 0.16 * step(0.5, fract(wp.y * 0.21 + fine * 1.5)) * (1.0 - smoothstep(80.0, 260.0, dist));
     rockCol *= 0.72 + 0.56 * mix(cliff, wide.b, smoothstep(0.55, 0.85, ny));
+    // High peaks cool toward blue, as they do in the distance.
+    rockCol = mix(rockCol, vec3(0.5, 0.58, 0.75), smoothstep(50.0, 230.0, wp.y) * 0.55);
     col = mix(col, rockCol, rock);
 
-    float snow = smoothstep(150.0, 190.0, wp.y + (broad - 0.5) * 60.0) * smoothstep(0.35, 0.62, ny);
+    float snow = smoothstep(150.0, 185.0, wp.y + (broad - 0.5) * 26.0) * smoothstep(0.3, 0.58, ny);
     col = mix(col, uSnow, snow);
 
     float field = smoothstep(0.35, 0.6, splat.b);

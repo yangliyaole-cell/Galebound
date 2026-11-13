@@ -22,17 +22,17 @@ export interface Quality {
 const TIERS: Record<Tier, Quality> = {
   low: {
     tier: 'low', pixelRatio: 1, antialias: false, terrainCell: 8, splatSize: 1024, shadowSize: 0,
-    shadowRange: 0, grassNear: 7000, grassFar: 9000, flowers: 1200, treeDetailRange: 120,
+    shadowRange: 0, grassNear: 7000, grassFar: 9000, flowers: 1200, treeDetailRange: 90,
     propRange: 260, viewRange: 1100, outline: false, particles: 60,
   },
   medium: {
     tier: 'medium', pixelRatio: 1.5, antialias: true, terrainCell: 4, splatSize: 2048, shadowSize: 1024,
-    shadowRange: 55, grassNear: 14000, grassFar: 20000, flowers: 3000, treeDetailRange: 220,
+    shadowRange: 55, grassNear: 14000, grassFar: 20000, flowers: 3000, treeDetailRange: 170,
     propRange: 420, viewRange: 1500, outline: true, particles: 110,
   },
   high: {
     tier: 'high', pixelRatio: 2, antialias: true, terrainCell: 4, splatSize: 2048, shadowSize: 2048,
-    shadowRange: 75, grassNear: 24000, grassFar: 36000, flowers: 6000, treeDetailRange: 340,
+    shadowRange: 75, grassNear: 24000, grassFar: 36000, flowers: 6000, treeDetailRange: 260,
     propRange: 600, viewRange: 1800, outline: true, particles: 180,
   },
 };

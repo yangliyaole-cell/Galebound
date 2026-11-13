@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Builder, orbAt, place } from '../build';
+import { Builder, archedProfile, orbAt, place } from '../build';
 import { addBox, addRound } from '../colliders';
 import type { FlagSpot } from '../flags';
 import { heightAt } from '../heightmap';
@@ -62,23 +62,10 @@ function aqueduct(b: Builder): Line {
     let ground = Infinity;
     for (let k = 0; k <= 4; k++) ground = Math.min(ground, heightAt(start.x + dx * (i + k / 4) * bay, start.z + dz * (i + k / 4) * bay));
     const base = ground - 2.5;
-    const shape = new THREE.Shape();
-    shape.moveTo(-bay / 2, base);
-    shape.lineTo(bay / 2, base);
-    shape.lineTo(bay / 2, level);
-    shape.lineTo(-bay / 2, level);
-    shape.closePath();
-    if (level - ground > 7) {
-      const r = (bay - 3.4) / 2;
-      const crown = level - 2.2;
-      const hole = new THREE.Path();
-      hole.moveTo(-r, base - 0.5);
-      hole.lineTo(-r, crown - r);
-      hole.absarc(0, crown - r, r, Math.PI, 0, true);
-      hole.lineTo(r, base - 0.5);
-      hole.closePath();
-      shape.holes.push(hole);
-    }
+    const shape = archedProfile(
+      -bay / 2, bay / 2, base, () => level,
+      level - ground > 7 ? [{ x: 0, w: bay - 3.4, crown: level - 2.2 }] : [],
+    );
     b.shape('stone', shape, width, place(mx, 0, mz, theta), i % 2 ? STONE : PALE);
     // Piers stop anyone walking through the masonry.
     const px = start.x + dx * i * bay;

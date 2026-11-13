@@ -136,33 +136,36 @@ export class Builder {
   }
 }
 
-/** A wall in the XY plane with a round-headed opening, for gates and bridges. */
-export function archedWall(width: number, height: number, openings: { x: number; w: number; h: number; base?: number }[], top?: (x: number) => number): THREE.Shape {
+export interface Opening {
+  x: number;
+  w: number;
+  /** Height of the top of the arch. */
+  crown: number;
+}
+
+/**
+ * Outline of a wall seen side-on, with round-headed openings cut up from its
+ * foot. The arches are part of the outline itself, not holes, so the shape
+ * always triangulates.
+ */
+export function archedProfile(
+  left: number, right: number, bottom: number, top: (x: number) => number, openings: Opening[], steps = 1,
+): THREE.Shape {
   const shape = new THREE.Shape();
-  shape.moveTo(-width / 2, 0);
-  shape.lineTo(width / 2, 0);
-  if (top) {
-    const steps = 16;
-    for (let i = 0; i <= steps; i++) {
-      const x = width / 2 - (width * i) / steps;
-      shape.lineTo(x, top(x));
-    }
-  } else {
-    shape.lineTo(width / 2, height);
-    shape.lineTo(-width / 2, height);
+  shape.moveTo(left, bottom);
+  for (const o of [...openings].sort((p, q) => p.x - q.x)) {
+    const r = o.w / 2;
+    shape.lineTo(o.x - r, bottom);
+    shape.lineTo(o.x - r, o.crown - r);
+    shape.absarc(o.x, o.crown - r, r, Math.PI, 0, true);
+    shape.lineTo(o.x + r, bottom);
+  }
+  shape.lineTo(right, bottom);
+  for (let i = 0; i <= steps; i++) {
+    const x = right + ((left - right) * i) / steps;
+    shape.lineTo(x, top(x));
   }
   shape.closePath();
-  for (const o of openings) {
-    const base = o.base ?? -0.01;
-    const r = o.w / 2;
-    const hole = new THREE.Path();
-    hole.moveTo(o.x - r, base);
-    hole.lineTo(o.x - r, o.h - r);
-    hole.absarc(o.x, o.h - r, r, Math.PI, 0, true);
-    hole.lineTo(o.x + r, base);
-    hole.closePath();
-    shape.holes.push(hole);
-  }
   return shape;
 }
 
