@@ -102,6 +102,12 @@ export interface Rig {
   chest: THREE.Group;
   head: THREE.Group;
   eyes: THREE.Mesh | null;
+  /** Optional morph-driven blink for imported, skinned characters. */
+  setBlink?: (closed: boolean) => void;
+  /** Optional removable Blender mask and its straps/inlays. */
+  setMaskVisible?: (visible: boolean) => void;
+  /** Reference cloak: blend the hanging panels into flight wings and flutter. */
+  setCapeState?: (glide: number, trail: number, time: number, wind: number) => void;
   armL: THREE.Group;
   armR: THREE.Group;
   foreL: THREE.Group;

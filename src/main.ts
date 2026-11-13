@@ -122,6 +122,12 @@ async function boot(): Promise<void> {
   scene.add(createWindFx(quality.particles, wind));
 
   const player = new Player(quality.outline);
+  if (params.get('hero') !== 'classic') {
+    hud.loading('正在整理旅人的行装…');
+    await nextFrame();
+    await player.character.loadModel();
+    player.character.rig.setMaskVisible?.(params.get('mask') !== 'off');
+  }
   scene.add(player.character.root, player.character.cloth);
   if (save.pos && !params.has('x')) {
     player.pos.set(save.pos[0], save.pos[1], save.pos[2]);

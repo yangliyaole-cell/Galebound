@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ClothStrip } from './cloth';
 import { HERO_STYLE, REST, applyPose, blendPose, buildRig, type Pose, type Rig } from './rig';
+import { disposeProceduralHero, loadHeroRig } from './hero-model';
 
 export type Motion = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'glide' | 'land' | 'swim';
 
@@ -175,7 +176,8 @@ export class Character {
   readonly root: THREE.Group;
   /** Cloth lives in world space; add this to the scene, not to the character. */
   readonly cloth = new THREE.Group();
-  readonly rig: Rig;
+  rig: Rig;
+  private modelLoad: Promise<void> | null = null;
 
   private readonly stripL = new ClothStrip(0.22, 0.105, 12, stripColor, 0);
   private readonly stripR = new ClothStrip(0.22, 0.105, 12, stripColor, 2.1);
@@ -183,6 +185,7 @@ export class Character {
   private readonly pose: Pose = { ...REST };
   private phase = 0;
   private blink = 2;
+  private capeGlide = 0;
 
   private readonly pinA = new THREE.Vector3();
   private readonly pinB = new THREE.Vector3();
@@ -194,6 +197,26 @@ export class Character {
     this.cloth.add(this.stripL.mesh, this.stripR.mesh, this.scarf.mesh);
   }
 
+  /** Preserve the controller's root object, pose state and world-space cloth. */
+  loadModel(): Promise<void> {
+    return this.modelLoad ??= this.installModel();
+  }
+
+  private async installModel(): Promise<void> {
+    try {
+      const rig = await loadHeroRig();
+      disposeProceduralHero(this.root);
+      this.root.clear();
+      this.root.add(...rig.root.children);
+      this.rig = { ...rig, root: this.root };
+      this.cloth.visible = !this.rig.setCapeState;
+      applyPose(this.rig, this.pose);
+    } catch (error) {
+      // The locally generated character remains playable if the asset is missing.
+      console.warn('Could not load the detailed traveler; using the procedural hero.', error);
+    }
+  }
+
   update(dt: number, time: number, state: CharacterState, groundAt: (x: number, z: number) => number): void {
     // Stride follows distance covered, so the feet do not slide.
     const stride = 1.45 + (3.5 - 1.45) * Math.min(1, Math.max(0, (state.speed - 2.6) / 4.4));
@@ -202,17 +225,33 @@ export class Character {
     }
 
     const target = poseFor(state.motion, this.phase, time, state.turn, state.dive);
+    if (state.motion === 'idle' && this.rig.setMaskVisible) {
+      // Relax the new anatomy into a small weight shift, with shoulders back
+      // and unequal elbow flexion, rather than a symmetric mannequin stance.
+      target.bodyRoll += 0.015;
+      target.spineZ -= 0.012;
+      target.chestX -= 0.025;
+      target.armLZ = 0.075;
+      target.armRZ = -0.105;
+      target.elbowL = -0.08;
+      target.elbowR = -0.16;
+    }
     const rate = state.motion === 'land' ? 22 : state.motion === 'glide' ? 7 : 12;
     blendPose(this.pose, target, 1 - Math.exp(-dt * rate));
     applyPose(this.rig, this.pose);
+    this.capeGlide += ((state.motion === 'glide' ? 1 : 0) - this.capeGlide) * (1 - Math.exp(-dt * 6));
+    this.rig.setCapeState?.(this.capeGlide, state.speed / 9, time, state.wind.length());
 
     this.blink -= dt;
+    const closed = this.blink < 0.1;
     if (this.rig.eyes) {
-      this.rig.eyes.scale.y = this.blink < 0.1 ? 0.12 : 1;
-      if (this.blink < 0) this.blink = 2.5 + Math.random() * 3;
+      this.rig.eyes.scale.y = closed ? 0.12 : 1;
     }
+    this.rig.setBlink?.(closed);
+    if (this.blink < 0) this.blink = 2.5 + Math.random() * 3;
 
     this.root.updateMatrixWorld(true);
+    if (this.rig.setCapeState) return;
     this.air.copy(state.wind).sub(state.velocity);
     const rp = this.root.position;
     // The body cylinder only makes sense while upright.
