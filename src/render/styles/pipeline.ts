@@ -14,6 +14,7 @@ import { lowpolyDusk } from './lowpoly-dusk';
 import { createMaterialStyles } from './materials';
 import { fragmentShader, vertexShader } from './effects';
 
+const HERO_ENVIRONMENT_INTENSITY = 1.8;
 const presets = { ghibli, cinematic, watercolor, 'lowpoly-dusk': lowpolyDusk };
 
 function paperTexture(): THREE.DataTexture {
@@ -44,6 +45,33 @@ function paperTexture(): THREE.DataTexture {
   return tex;
 }
 
+/** Soft sky / horizon / ground-bounce dome, prefiltered once. It supplies natural fill for PBR
+ * materials (the hero) and carries no sun disc: the shadow-casting sun is the only key light. */
+function skyEnvironment(renderer: THREE.WebGLRenderer, sky: [number, number, number]): THREE.Texture {
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: {
+      uZenith: { value: new THREE.Color(sky[0]) }, uHorizon: { value: new THREE.Color(sky[1]) },
+      uGround: { value: new THREE.Color(sky[2]) },
+    },
+    vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `varying vec3 vDir; uniform vec3 uZenith, uHorizon, uGround;
+      void main() {
+        float h = vDir.y;
+        vec3 c = h > 0.0 ? mix(uHorizon, uZenith, pow(h, 0.55)) : mix(uHorizon, uGround, smoothstep(0.0, 0.45, -h));
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  }));
+  const envScene = new THREE.Scene();
+  envScene.add(dome);
+  const generator = new THREE.PMREMGenerator(renderer);
+  const target = generator.fromScene(envScene, 0.02);
+  generator.dispose();
+  dome.geometry.dispose();
+  (dome.material as THREE.Material).dispose();
+  return target.texture;
+}
+
 /** This entire module, including Three's postprocessing, is loaded on first use. */
 export function createPipeline(context: StyleContext): StylePipeline {
   const { renderer, scene, camera, sun, hemisphere, sunDir, quality } = context;
@@ -57,6 +85,14 @@ export function createPipeline(context: StyleContext): StylePipeline {
     direction: sunDir.clone(), radius: sun.shadow.radius,
   };
   const applyMaterials = createMaterialStyles(context);
+  let environment: THREE.Texture | undefined;
+  const heroMaterials = new Set<THREE.MeshStandardMaterial>();
+  scene.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) || !object.name.startsWith('Traveler_')) return;
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      if (material instanceof THREE.MeshStandardMaterial) heroMaterials.add(material);
+    }
+  });
   const target = new THREE.WebGLRenderTarget(1, 1, {
     type: THREE.HalfFloatType,
     // MSAA resolves both colour and depth; the canvas's AA cannot cover an offscreen target.
@@ -76,7 +112,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
       uPixel: { value: new THREE.Vector2() }, uResolution: { value: new THREE.Vector2() },
       uClip: { value: new THREE.Vector2(camera.near, camera.far) },
       uGrade: { value: new THREE.Vector4() }, uTime: shared.uTime,
-      uPixelRatio: { value: renderer.getPixelRatio() }, uContrast: { value: 1 },
+      uPixelRatio: { value: renderer.getPixelRatio() }, uContrast: { value: 1 }, uToe: { value: 0 },
       uInk: { value: new THREE.Color() }, uEdge: { value: new THREE.Vector2() },
       uLuminanceEdge: { value: new THREE.Vector2() }, uPaperQuiet: { value: new THREE.Vector3() },
       uPaper: { value: new THREE.Vector4() }, uBloom: { value: new THREE.Vector3() },
@@ -118,6 +154,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
     apply(name: StyleName): void {
       const preset = name === 'default' ? undefined : presets[name];
       scene.fog = baseline.fog;
+      for (const material of heroMaterials) material.envMap = null;
       renderer.toneMapping = baseline.toneMapping;
       renderer.toneMappingExposure = baseline.exposure;
       renderer.shadowMap.type = baseline.shadowType;
@@ -139,6 +176,13 @@ export function createPipeline(context: StyleContext): StylePipeline {
         // r187 folds soft PCF into PCFShadowMap; PCFSoftShadowMap is removed.
         renderer.shadowMap.type = THREE.PCFShadowMap;
         sun.shadow.radius = 2;
+        // Image-based fill for the hero only: the world's toon/shader materials stay on the
+        // hemisphere light, so distant terrain keeps its look.
+        environment ??= skyEnvironment(renderer, [0x5f95d4, 0xc9d6dc, 0x7a9468]);
+        for (const material of heroMaterials) {
+          material.envMap = environment;
+          material.envMapIntensity = HERO_ENVIRONMENT_INTENSITY;
+        }
       }
       sun.color.set(preset.sun[0]);
       sun.intensity = preset.sun[1];
@@ -151,6 +195,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
       look.uniforms.uGrade.value.set(...preset.grade);
       const post = preset.post;
       look.uniforms.uContrast.value = post.contrast;
+      look.uniforms.uToe.value = post.toe ?? 0;
       look.uniforms.uInk.value.set(post.ink);
       look.uniforms.uEdge.value.set(post.width, post.colorEdge);
       look.uniforms.uLuminanceEdge.value.set(...(post.luminanceEdge ?? [0.32, 0.55]));

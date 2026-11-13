@@ -19,6 +19,8 @@ export interface SurfaceStyle {
 
 export interface PostStyle {
   contrast: number;
+  /** 0..1: relax the contrast curve below mid-grey so shadows keep detail. */
+  toe?: number;
   ink: number;
   /** CSS pixels, independent of dynamic resolution and device pixel ratio. */
   width: number;
