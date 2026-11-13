@@ -6,7 +6,7 @@ import { toon } from '../render/toon';
 import { shared } from '../render/uniforms';
 import { resolveWalls, supportHeight } from './colliders';
 import { heightAt } from './heightmap';
-import { BRIDGE, CITY, FIELDS, LAKE, LIGHTHOUSE, PIER, START, WINDMILL } from './layout';
+import { BRIDGE, CITY, CITY_STREETS, SOUTH_GATE, FIELDS, LAKE, LIGHTHOUSE, PIER, START, WINDMILL } from './layout';
 import { seededRandom } from './noise';
 import type { CityInfo } from './structures/city';
 import type { BuiltHouse } from './structures/house';
@@ -270,8 +270,8 @@ export function createLife(village: VillageInfo, city: CityInfo, count: number):
   }
   for (const side of [1, -1]) {
     // Guards at the south gate, each leaning on a spear.
-    const x = CITY.x + 5.4 * side;
-    const z = CITY.z + CITY.wall + 4.5;
+    const x = SOUTH_GATE.x + 5.4 * side;
+    const z = SOUTH_GATE.z + 4.5;
     const rig = actor(x, z, 0, villagerStyle(rand, 'guard'), (t) => ({
       ...REST, armRX: -0.25, elbowR: -1.1, armRZ: -0.25,
       headY: Math.sin(t * 0.35 + side) * 0.5, chestX: 0.02 + 0.01 * Math.sin(t * 1.6),
@@ -353,15 +353,15 @@ export function createLife(village: VillageInfo, city: CityInfo, count: number):
     const route: Target[] = [{ x: home.stepX, z: home.stepZ, wait: 0, home }, ...shuffled(villageSpots).slice(0, 3)];
     walker(route, villagerStyle(rand));
   });
-  // Townsfolk strolling between the gate, the square and the upper streets.
-  const citySpots: Target[] = [
-    { x: city.plaza.x + 5, z: city.plaza.z + 6, wait: 5 },
-    { x: city.plaza.x - 6, z: city.plaza.z - 3, wait: 4 },
-    { x: CITY.x, z: CITY.z + CITY.wall - 14, wait: 3 },
-    { x: CITY.x + 2, z: CITY.z + CITY.wall + 16, wait: 4 },
-    { x: CITY.x - 3, z: CITY.z + 122, wait: 2 },
-  ];
-  for (let i = 0; i < Math.min(count, 5); i++) walker(shuffled(citySpots), villagerStyle(rand));
+  // Townsfolk follow the generated market lane in both directions, rather than
+  // cutting straight through houses between old circular-city waypoints.
+  const marketLane = CITY_STREETS.find((r) => r.id === 'market-lane')!;
+  const lanePoints = marketLane.pts.filter((_, i) => i % 3 === 0).map(([x, z], i) => ({ x, z, wait: i % 5 === 0 ? 2 : 0 }));
+  const townLoop: Target[] = [...lanePoints, ...lanePoints.slice(1, -1).reverse()];
+  for (let i = 0; i < Math.min(count, 5); i++) {
+    const offset = Math.floor(townLoop.length * i / 5);
+    walker([...townLoop.slice(offset), ...townLoop.slice(0, offset)], villagerStyle(rand));
+  }
 
   // ---- animals
   const sheepGeo = sheepGeometry();

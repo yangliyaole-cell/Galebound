@@ -3,6 +3,8 @@ import { Builder, archedProfile, place, type Mat } from '../build';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
 
+export const wallStairRamps: { x: number; z: number; theta: number; run: number; foot: number; head: number }[] = [];
+
 const X = new THREE.Vector3(1, 0, 0);
 const dir = new THREE.Vector3();
 const quat = new THREE.Quaternion();
@@ -89,6 +91,7 @@ export interface RingOptions {
   x: number;
   z: number;
   radius: number;
+  polygon?: [number, number][];
   segments: number;
   /** Angle of the first tower. */
   phase: number;
@@ -115,16 +118,25 @@ export interface RingResult {
  */
 export function wallRing(b: Builder, o: RingOptions): RingResult {
   const step = (Math.PI * 2) / o.segments;
-  const verts = Array.from({ length: o.segments }, (_, i) => {
+  const points = o.polygon ?? Array.from({ length: o.segments }, (_, i) => {
     const a = o.phase + i * step;
-    const x = o.x + Math.cos(a) * o.radius;
-    const z = o.z + Math.sin(a) * o.radius;
-    return { x, z, a, ground: heightAt(x, z), top: heightAt(x, z) + o.height };
+    return [o.x + Math.cos(a) * o.radius, o.z + Math.sin(a) * o.radius];
+  });
+  const verts = points.map(([x, z]) => ({ x, z, a: Math.atan2(z - o.z, x - o.x), ground: heightAt(x, z), top: heightAt(x, z) + o.height }));
+  const gateSegments = o.gates.map((g) => {
+    let best = Infinity, index = 0;
+    verts.forEach((v, i) => {
+      const w = verts[(i + 1) % verts.length];
+      const a = Math.atan2((v.z + w.z) / 2 - o.z, (v.x + w.x) / 2 - o.x);
+      const d = Math.abs(Math.atan2(Math.sin(g.angle - a), Math.cos(g.angle - a)));
+      if (d < best) { best = d; index = i; }
+    });
+    return index;
   });
   const result: RingResult = { towers: [], gates: [] };
 
   verts.forEach((v, i) => {
-    const w = verts[(i + 1) % o.segments];
+    const w = verts[(i + 1) % verts.length];
     const dx = w.x - v.x;
     const dz = w.z - v.z;
     const full = Math.hypot(dx, dz);
@@ -132,7 +144,10 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
     const cx = (v.x + w.x) / 2;
     const cz = (v.z + w.z) / 2;
     const theta = Math.atan2(-dz, dx);
-    const top = (lx: number): number => v.top + (w.top - v.top) * (lx / full + 0.5);
+    const top = (lx: number): number => {
+      const t = lx / full + 0.5;
+      return Math.max(v.top + (w.top - v.top) * t, heightAt(v.x + dx * t, v.z + dz * t) + o.height);
+    };
     let base = Infinity;
     for (let k = 0; k <= 6; k++) base = Math.min(base, heightAt(v.x + (dx * k) / 6, v.z + (dz * k) / 6));
     base -= 3;
@@ -143,11 +158,10 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
       cz - lx * Math.sin(theta) + lz * Math.cos(theta),
     ];
 
-    const midAngle = Math.atan2(cz - o.z, cx - o.x);
-    const gate = o.gates.find((g) => Math.abs(Math.atan2(Math.sin(g.angle - midAngle), Math.cos(g.angle - midAngle))) < step * 0.3);
+    const gate = o.gates[gateSegments.indexOf(i)];
     const shape = archedProfile(
       -L / 2, L / 2, base, top,
-      gate ? [{ x: 0, w: gate.width, crown: heightAt(cx, cz) + gate.height }] : [],
+      gate ? [{ x: 0, w: gate.width, crown: heightAt(cx, cz) + gate.height }] : [], 12,
     );
     if (gate) {
       const ground = heightAt(cx, cz);
@@ -192,6 +206,7 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
       const [bx, bz] = local(-x1, -outward * (o.thickness / 2 + 1.0));
       const foot = heightAt(bx, bz);
       const head = top(x1);
+      wallStairRamps.push({ x: sx, z: sz, theta, run, foot, head });
       const ramp = new THREE.Shape();
       ramp.moveTo(-x1, base);
       ramp.lineTo(x1, base);
@@ -222,7 +237,23 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
       b.box('stone', v.x + Math.cos(a2) * (r + 0.05), v.top, v.z + Math.sin(a2) * (r + 0.05), 1.0, 1.0, 0.5, -a2 + Math.PI / 2, o.color, 0);
     }
     b.cone('roof', v.x, v.top + 3.25, v.z, r + 1.1, r * 1.5 + 1.2, o.roof, 16);
+    addRound(v.x, v.z, r + 1.1, (lx, lz) => v.top + 3.25 + (r * 1.5 + 1.2) * Math.max(0, 1 - Math.hypot(lx, lz) / (r + 1.1)), v.top + 3.25);
     result.towers.push({ x: v.x, z: v.z, top: v.top });
   }
   return result;
+}
+
+/** Broken dry-stone boundaries with uneven caps, following the ground. */
+export function dryStoneWall(b: Builder, pts: [number, number][], rand: () => number): void {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], c = pts[i + 1], dx = c[0] - a[0], dz = c[1] - a[1];
+    const len = Math.hypot(dx, dz), rot = Math.atan2(-dz, dx);
+    const blocks = Math.ceil(len / 1.6);
+    for (let k = 0; k < blocks; k++) {
+      if (rand() < 0.12) continue;
+      const t = (k + 0.5) / blocks, x = a[0] + t * dx, z = a[1] + t * dz;
+      const h = 0.45 + rand() * 0.4;
+      b.box('stone', x, heightAt(x, z) - 0.15, z, len / blocks - 0.05, h, 0.7 + rand() * 0.2, rot + (rand() - 0.5) * 0.14, k % 4 ? 0xbebaa4 : 0xa4ad83);
+    }
+  }
 }

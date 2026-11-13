@@ -6,9 +6,10 @@ import { blossomTexture, leafTexture, needleTexture } from '../render/textures';
 import { addRound, surfaceTop } from './colliders';
 import { foliageMaterial, leafCards, type Part } from './foliage';
 import { heightAt, normalAt, sstep } from './heightmap';
-import { CITY, FOREST, HALF, SIZE, START, VILLAGE } from './layout';
-import { blossomDensity, cobbleAt, fieldAt, forestDensity, roadAt } from './maps';
+import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, inPolygon, cityRadiusAt } from './layout';
+import { blossomDensity, forestDensity } from './maps';
 import { fbm, seededRandom } from './noise';
+import { waterLevelAt } from './mountain-layout';
 
 function finish(geo: THREE.BufferGeometry, colors: number[], leaf: number): THREE.BufferGeometry {
   const g = geo.index ? geo.toNonIndexed() : geo;
@@ -253,6 +254,7 @@ export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
   for (const name of names) lists.set(name, Array.from({ length: REGIONS * REGIONS }, () => []));
 
   const place = (name: string, x: number, z: number, scale: number, squash = 1, sink = 0.25): void => {
+    if (name === 'rock' && roadClearance(x, z) < scale * 0.8 + 0.8) return;
     const ri = Math.floor((x + HALF) / REGION);
     const rj = Math.floor((z + HALF) / REGION);
     if (ri < 0 || rj < 0 || ri >= REGIONS || rj >= REGIONS) return;
@@ -270,14 +272,29 @@ export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
   const pick = seededRandom(10);
   const normal = new THREE.Vector3();
   // Not on a road, a field, or anything that has been built.
+  const fields = FIELDS.map(fieldPolygon);
   const clear = (x: number, z: number): boolean =>
-    roadAt(x, z) < 0.12 && cobbleAt(x, z) < 0.12 && fieldAt(x, z) < 0.1 &&
+    Math.hypot(x - ABBEY.x, z - ABBEY.z) > 70 &&
+    roadClearance(x, z) > 1.2 && !insideCity(x, z) &&
+    !PLAZAS.some(([px, pz, r]) => Math.hypot(x - px, z - pz) < r + 2) &&
+    !fields.some((p) => inPolygon(x, z, p)) &&
     surfaceTop(x, z) - heightAt(x, z) < 0.05 && surfaceTop(x + 2, z + 2) - heightAt(x + 2, z + 2) < 0.05 &&
     surfaceTop(x - 2, z - 2) - heightAt(x - 2, z - 2) < 0.05;
 
   // The great tree beside the starting point, as in the concept art.
   place('great', START.x - 9, START.z - 3, 2.6);
+  place('great', START.x - 27, START.z + 19, 2.15);
+  place('great', START.x + 25, START.z + 21, 1.95);
 
+  // Small roadside boulders frame the curves without filling their walkable width.
+  for (const road of ROADS.filter((r) => r.kind === 'dirt')) {
+    for (let i = 4; i < road.pts.length - 1; i += 9) {
+      const a = road.pts[i], c = road.pts[i + 1], len = Math.hypot(c[0] - a[0], c[1] - a[1]);
+      const side = i % 2 ? -1 : 1, off = road.widths[i] / 2 + 2.7 + rand() * 2.5;
+      const x = a[0] - (c[1] - a[1]) / len * off * side, z = a[1] + (c[0] - a[0]) / len * off * side;
+      if (heightAt(x, z) > waterLevelAt(x, z) + 1 && clear(x, z)) place('rock', x, z, 0.7 + rand() * 1.5, 0.65);
+    }
+  }
   const STEP = 8;
   for (let gz = -HALF + 12; gz < HALF - 12; gz += STEP) {
     for (let gx = -HALF + 12; gx < HALF - 12; gx += STEP) {
@@ -287,7 +304,7 @@ export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
       const kind = rand();
       const size = rand();
       const h = heightAt(x, z);
-      if (h < 2 || !clear(x, z) || normalAt(x, z, normal).y < 0.8) continue;
+      if (h < waterLevelAt(x, z) + 2 || !clear(x, z) || normalAt(x, z, normal).y < 0.8) continue;
       const bloom = blossomDensity(x, z);
       if (bloom > 0.05) {
         if (roll < bloom * 0.5) place('blossom', x, z, 0.9 + size * 0.8);
@@ -296,7 +313,7 @@ export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
       const density = forestDensity(x, z);
       if (roll > density * 0.8) continue;
       const deep = 1 - sstep(0.6, 1, Math.hypot(x - FOREST.x, z - FOREST.z) / FOREST.r);
-      const high = sstep(55, 100, h) + (z < -800 ? 0.5 : 0);
+      const high = sstep(55, 100, h) + (z < -800 || (x < -500 && z < -340) ? 0.9 : 0);
       let name = 'oak';
       if (kind < high + deep * 0.25) name = 'pine';
       else if (kind > 0.86 - deep * 0.06) name = 'cypress';
@@ -309,7 +326,7 @@ export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
   for (let i = 0; i < 260; i++) {
     const nearCity = i % 3 === 0;
     const a = rand() * Math.PI * 2;
-    const r = nearCity ? CITY.wall + 14 + rand() * 90 : 40 + rand() * (VILLAGE.r + 60);
+    const r = nearCity ? cityRadiusAt(a) + 14 + rand() * 90 : 40 + rand() * (VILLAGE.r + 60);
     const x = (nearCity ? CITY.x : VILLAGE.x) + Math.cos(a) * r;
     const z = (nearCity ? CITY.z : VILLAGE.z) + Math.sin(a) * r;
     const size = rand();
@@ -326,7 +343,7 @@ export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
       const size = rand();
       const squash = rand();
       const h = heightAt(x, z);
-      if (h < 0.4 || !clear(x, z)) continue;
+      if (h < waterLevelAt(x, z) + 0.4 || !clear(x, z)) continue;
       const ny = normalAt(x, z, normal).y;
       const density = forestDensity(x, z);
       if (h > 2.2 && h < 110 && ny > 0.8 && roll < 0.06 + density * 0.2) {

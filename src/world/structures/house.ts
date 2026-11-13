@@ -37,6 +37,9 @@ export interface BuiltHouse {
   spec: HouseSpec;
 }
 
+/** Registry of generated footprints, also used by the headless layout audit. */
+export const builtHouses: BuiltHouse[] = [];
+
 const BEAM = 0x5b4332;
 const GLASS = 0x34526d;
 const STONE = 0xd6cfbf;
@@ -162,5 +165,7 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
 
   const [doorX, doorZ] = at(doorU - 0.5, d / 2 + 0.08);
   const [stepX, stepZ] = at(doorU, d / 2 + 1.5);
-  return { doorX, doorZ, doorY: floorY, rot: h.rot, stepX, stepZ, topY: eave + roofH, spec: h };
+  const built = { doorX, doorZ, doorY: floorY, rot: h.rot, stepX, stepZ, topY: eave + roofH, spec: h };
+  builtHouses.push(built);
+  return built;
 }

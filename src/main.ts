@@ -24,6 +24,8 @@ import { Sound } from './core/audio';
 import { createLife } from './world/life';
 import { createOrbs } from './world/orbs';
 import { buildCity } from './world/structures/city';
+import { buildAbbey } from './world/structures/abbey';
+import { createAbbeyLighting } from './world/abbey-space';
 import { buildLandmarks } from './world/structures/landmarks';
 import { buildCrops, buildVillage } from './world/structures/village';
 
@@ -96,6 +98,7 @@ async function boot(): Promise<void> {
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.06;
   scene.add(sun, sun.target);
+  const abbeyLighting = createAbbeyLighting(sun, hemisphere, () => scene.fog instanceof THREE.Fog ? scene.fog : null);
 
   hud.loading('正在铺草、引水…');
   await nextFrame();
@@ -111,7 +114,7 @@ async function boot(): Promise<void> {
   scene.add(village.object, landmarks.object);
   await nextFrame();
   const city = buildCity(detail);
-  scene.add(city.object, createFlags(city.flags));
+  scene.add(city.object, createFlags(city.flags), buildAbbey());
   scene.add(buildCrops(detail === 0 ? 0.4 : 1, toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.05, doubleSided: true })));
 
   hud.loading('正在种树…');
@@ -368,8 +371,13 @@ async function boot(): Promise<void> {
     }
     const begin = sample ? performance.now() : 0;
     const pipeline = styles!.pipeline;
-    if (pipeline) pipeline.render();
-    else renderer.render(scene, camera);
+    abbeyLighting.update(shot ? 1 : dt, player.pos);
+    try {
+      if (pipeline) pipeline.render();
+      else renderer.render(scene, camera);
+    } finally {
+      abbeyLighting.restore();
+    }
     if (sample) {
       // A synchronous default-framebuffer readback also waits on SwiftShader's deferred work.
       const gl = renderer.getContext();

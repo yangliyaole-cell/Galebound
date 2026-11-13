@@ -4,6 +4,7 @@ import { shared } from '../render/uniforms';
 import { seededRandom } from './noise';
 import { GROUND_GLSL, groundUniforms } from './terrain';
 import { SIZE } from './layout';
+import { ABBEY_GROUND_MASK_GLSL } from './abbey-space';
 
 /** An upright card three rows tall, so it can bend. The tuft is painted on it. */
 function bladeGeometry(width: number): THREE.BufferGeometry {
@@ -48,7 +49,7 @@ function createLayer(
 
   const mat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
   // Programs are cached by shader text; the tile size is baked in, so key on it.
-  mat.customProgramCacheKey = () => `grass-${tile}-${width}`;
+  mat.customProgramCacheKey = () => `grass-${tile}-${width}-abbey-mask`;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, groundUniforms, {
       uHeight: { value: heightTex },
@@ -74,6 +75,7 @@ function createLayer(
         uniform vec3 uPlayer;
         varying vec3 vBlade;
         varying vec2 vTuftUv;
+        varying float vGrassAllowed;
         ${GROUND_GLSL}
         float terrainHeight(vec2 xz) { return texture2D(uHeight, worldUv(xz)).r; }`,
       )
@@ -96,7 +98,8 @@ function createLayer(
       )
       .replace(
         '#include <begin_vertex>',
-        `float tip = position.y;
+        `vGrassAllowed = step(0.001, bladeHeight) * abbeyGroundMask(root);
+        float tip = position.y;
         float cs = cos(aCell.z);
         float sn = sin(aCell.z);
         vec3 transformed = vec3(root.x + position.x * cs, ground - 0.05 + tip * bladeHeight, root.y + position.x * sn);
@@ -115,10 +118,11 @@ function createLayer(
         vBlade *= cloudShadow(root);`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vBlade;\nvarying vec2 vTuftUv;\nuniform sampler2D uTuft;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBlade;\nvarying vec2 vTuftUv;\nvarying float vGrassAllowed;\nuniform sampler2D uTuft;')
       .replace(
         '#include <color_fragment>',
-        `vec4 tuft = texture2D(uTuft, vTuftUv);
+        `if (vGrassAllowed < 0.5) discard;
+        vec4 tuft = texture2D(uTuft, vTuftUv);
         if (tuft.a < 0.38) discard;
         // The painting carries the shading: dark roots, sunlit tips.
         diffuseColor.rgb = vBlade * (0.42 + 1.0 * tuft.r) + vec3(0.03, 0.05, 0.0) * tuft.r * tuft.r;`,
@@ -183,6 +187,7 @@ function createFlowers(count: number, tile: number, heightTex: THREE.Texture): T
       uniform vec2 uWindTravel;
       uniform float uWindStrength;
       varying vec3 vColor;
+      ${ABBEY_GROUND_MASK_GLSL}
       float hash1(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
       float noise1(vec2 p) {
         vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -197,7 +202,7 @@ function createFlowers(count: number, tile: number, heightTex: THREE.Texture): T
         vec4 biome = texture2D(uBiome, uv);
         vec4 splat = texture2D(uSplat, uv);
         float allowed = step(aCell.w, biome.g * 1.15) * step(max(splat.r, max(splat.g, splat.b)), 0.25)
-          * step(2.2, ground) * step(ground, 95.0) * step(0.8, biome.a);
+          * step(2.2, ground) * step(ground, 95.0) * step(0.8, biome.a) * abbeyGroundMask(root);
         float edge = 1.0 - smoothstep(TILE * 0.36, TILE * 0.49, length(rel));
         float size = (0.7 + aCell.z * 0.8) * allowed * edge;
 

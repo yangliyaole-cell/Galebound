@@ -2,7 +2,19 @@ import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from '../render/glsl';
 import { shared } from '../render/uniforms';
 import { grid } from './heightmap';
-import { HALF, SIZE } from './layout';
+import { HALF, SIZE, FIELDS } from './layout';
+import { ALPINE_LAKES } from './mountain-layout';
+import { ABBEY_GROUND_MASK_GLSL } from './abbey-space';
+
+const parcelTintGLSL = FIELDS.map((f) => {
+  const tint = new THREE.Color({ wheat: 0xc9b66f, tilled: 0xa67a60, cabbage: 0x78a861, lavender: 0x9d8bb7 }[f.crop]);
+  return `if (distance(p, vec2(${f.x.toFixed(1)}, ${f.z.toFixed(1)})) < ${(Math.max(f.w, f.d) * 0.76).toFixed(1)}) c = vec3(${tint.r.toFixed(4)},${tint.g.toFixed(4)},${tint.b.toFixed(4)});`;
+}).join('\n');
+
+const lakeLevelGLSL = ALPINE_LAKES.map((l) =>
+  `{ vec2 q=(p-vec2(${l.x.toFixed(1)},${l.z.toFixed(1)}))/vec2(${l.rx.toFixed(1)},${l.rz.toFixed(1)});
+    float a=atan(q.y,q.x); float r=1.+.09*sin(3.*a+${l.x.toFixed(1)})+.05*cos(5.*a);
+    if(length(q)<r*1.12) level=${l.level.toFixed(1)}; }`).join('\n');
 
 /** Ground colour from position, slope and the painted maps. Shared with the grass. */
 export const GROUND_GLSL = /* glsl */ `
@@ -24,6 +36,9 @@ export const GROUND_GLSL = /* glsl */ `
   uniform vec3 uSoil;
   ${NOISE_GLSL}
   ${CLOUD_GLSL}
+  ${ABBEY_GROUND_MASK_GLSL}
+  float lakeLevel(vec2 p) { float level=0.; ${lakeLevelGLSL} return level; }
+  vec3 parcelColor(vec2 p) { vec3 c = uSoil; ${parcelTintGLSL} return c; }
   vec2 worldUv(vec2 xz) { return xz / ${SIZE.toFixed(1)} + 0.5; }
 
   vec3 grassColor(vec2 xz, vec3 biome, float broad, float fine) {
@@ -62,7 +77,7 @@ export const GROUND_GLSL = /* glsl */ `
     float alpine = smoothstep(95.0, 150.0, wp.y + (fine - 0.5) * 30.0);
     col = mix(col, uRock, alpine * 0.7);
 
-    float sand = 1.0 - smoothstep(0.9, 2.1, wp.y + (fine - 0.5) * 1.2);
+    float sand = 1.0 - smoothstep(0.9, 2.1, wp.y - lakeLevel(wp.xz) + (fine - 0.5) * 1.2);
     col = mix(col, uSand * (0.9 + 0.2 * wide.r), sand);
     col = mix(col, uSand * vec3(0.5, 0.68, 0.72), smoothstep(-0.2, -3.5, wp.y) * 0.85);
 
@@ -79,7 +94,7 @@ export const GROUND_GLSL = /* glsl */ `
 
     float field = smoothstep(0.35, 0.6, splat.b);
     float furrow = step(0.5, fract((wp.x * 0.35 + wp.z * 0.94) * 0.55));
-    col = mix(col, uSoil * (0.82 + 0.3 * furrow) * (0.9 + 0.2 * fine), field);
+    col = mix(col, parcelColor(wp.xz) * (0.82 + 0.3 * furrow) * (0.9 + 0.2 * fine), field);
 
     float cobble = smoothstep(0.3, 0.55, splat.g + (fine - 0.5) * 0.35);
     vec2 q = wp.xz * 1.5;
@@ -95,7 +110,7 @@ export const GROUND_GLSL = /* glsl */ `
     col = mix(col, mix(uDirtDark, uDirtLight, smoothstep(0.3, 0.7, fine)) * (0.8 + 0.42 * near.g) * (0.92 + 0.16 * wide.r), road);
 
     grassAmount = (1.0 - road) * (1.0 - cobble) * (1.0 - field) * (1.0 - sand) *
-      (1.0 - rock) * (1.0 - snow) * (1.0 - alpine * 0.85);
+      (1.0 - rock) * (1.0 - snow) * (1.0 - alpine * 0.85) * step(lakeLevel(wp.xz) + 0.25, wp.y) * abbeyGroundMask(wp.xz);
     return col;
   }
 `;

@@ -3,11 +3,13 @@ import { Builder, archedProfile, orbAt, place } from '../build';
 import { addBox, addRound } from '../colliders';
 import type { FlagSpot } from '../flags';
 import { heightAt } from '../heightmap';
-import { CITY, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
-import { cobbleAt } from '../maps';
+import { CITY, SOUTH_GATE, cityWallPolygon, cityRadiusAt, insideCity, roadClearance, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
 import { seededRandom } from '../noise';
-import { wallRing, wrapStairs } from './common';
-import { ROOFS, SHUTTERS, SLATES, WALLS, addHouse } from './house';
+import { wallRing } from './common';
+import { buildPalace } from './palace';
+import { planCityParcels } from './city-parcels';
+import { buildTerraceWalls } from './city-terraces';
+import { addHouse } from './house';
 import { stall } from './village';
 
 const STONE = 0xdad3c3;
@@ -15,7 +17,6 @@ const PALE = 0xe6e0d1;
 const SLATE = 0x66799a;
 const BANNER = 0xc8452f;
 
-const pick = <T>(list: T[], rand: () => number): T => list[Math.floor(rand() * list.length)];
 
 interface Line {
   ax: number;
@@ -33,24 +34,14 @@ function distToLine(x: number, z: number, l: Line): number {
 
 /** Arches carrying water from the eastern highland into the city. */
 function aqueduct(b: Builder): Line {
-  const start = { x: 506, z: -612 };
-  const level = heightAt(start.x, start.z) + 0.4;
-  let dx = CITY.x - start.x;
-  let dz = CITY.z - start.z;
-  const dl = Math.hypot(dx, dz);
-  dx /= dl;
-  dz /= dl;
-  // Follow the line until the city hill rises to meet the channel.
-  let length = 0;
-  let left = false;
-  for (let t = 4; t < dl; t += 2) {
-    const h = heightAt(start.x + dx * t, start.z + dz * t);
-    if (h < level - 3) left = true;
-    if (left && h >= level - 0.6) {
-      length = t;
-      break;
-    }
-  }
+  const start = { x: 566, z: -586 };
+  const a = Math.atan2(start.z - CITY.z, start.x - CITY.x);
+  const radius = cityRadiusAt(a);
+  const end = { x: CITY.x + Math.cos(a) * (radius - 14), z: CITY.z + Math.sin(a) * (radius - 14) };
+  const wallGround = heightAt(CITY.x + Math.cos(a) * radius, CITY.z + Math.sin(a) * radius);
+  const level = Math.max(heightAt(start.x, start.z), heightAt(end.x, end.z), wallGround + 11.5) + 1;
+  const length = Math.hypot(end.x - start.x, end.z - start.z);
+  const dx = (end.x - start.x) / length, dz = (end.z - start.z) / length;
   const bays = Math.max(1, Math.round(length / 13));
   const bay = length / bays;
   const theta = Math.atan2(-dz, dx);
@@ -88,9 +79,9 @@ function aqueduct(b: Builder): Line {
   b.cyl('plain', ex, level + 0.2, ez, 4.6, 4.6, 0.12, 0x4f9fd0, 16, 0);
   addRound(ex, ez, 5.4, level + 0.3);
   // And begins at a spring house on the plateau.
-  b.box('stone', start.x - dx * 3, heightAt(start.x, start.z) - 2, start.z - dz * 3, 5, 5.6, 5, theta, STONE, 0.15);
-  b.pyramid('roof', start.x - dx * 3, heightAt(start.x, start.z) + 3.6, start.z - dz * 3, 6, 6, 2.4, theta, SLATE);
-  addBox(start.x - dx * 3, start.z - dz * 3, 2.5, 2.5, theta, heightAt(start.x, start.z) + 3.6);
+  b.box('stone', start.x - dx * 3, heightAt(start.x, start.z) - 2, start.z - dz * 3, 5, level - heightAt(start.x, start.z) + 7.6, 5, theta, STONE, 0.15);
+  b.pyramid('roof', start.x - dx * 3, level + 5.6, start.z - dz * 3, 6, 6, 2.4, theta, SLATE);
+  addBox(start.x - dx * 3, start.z - dz * 3, 2.5, 2.5, theta, level + 5.6);
 
   orbAt('aqueduct-mid', mx, mz, 1.3);
   orbAt('aqueduct-quarter', start.x + dx * length * 0.22, start.z + dz * length * 0.22, 1.3);
@@ -98,76 +89,6 @@ function aqueduct(b: Builder): Line {
   return { ax: start.x, az: start.z, bx: ex, bz: ez };
 }
 
-function castle(b: Builder, flags: FlagSpot[], rand: () => number): void {
-  const { x, z } = CITY;
-  const y = heightAt(x, z);
-  const ring = wallRing(b, {
-    x, z, radius: 31, segments: 8, phase: Math.PI / 8, height: 7, thickness: 2.6, towerRadius: 3.2,
-    gates: [{ angle: Math.PI, width: 5, height: 6.2 }], roof: SLATE, color: PALE, stairs: [1],
-  });
-  for (const t of ring.towers) flags.push({ x: t.x, y: t.top + 9.5, z: t.z, color: BANNER, size: 0.9 });
-  for (const t of ring.towers) b.cyl('wood', t.x, t.top + 7.8, t.z, 0.06, 0.06, 2.4, 0x4a4038, 5, 0);
-
-  // The keep: a square tower with a terrace, climbed by stairs on three sides.
-  const half = 7.5;
-  const terrace = y + 24;
-  b.box('stone', x, y - 3, z, half * 2, 27, half * 2, 0, PALE, 0.14);
-  addBox(x, z, half, half, 0, terrace);
-  for (let side = 0; side < 4; side++) {
-    for (let k = -3; k <= 3; k++) {
-      const u = k * 2.1;
-      const [mx, mz] = side === 0 ? [u, half - 0.3] : side === 1 ? [half - 0.3, u] : side === 2 ? [u, -half + 0.3] : [-half + 0.3, u];
-      // Leave gaps where the stairs arrive.
-      if (side === 2 && k < -1) continue;
-      b.box('stone', x + mx, terrace, z + mz, side % 2 ? 0.6 : 1.1, 1.1, side % 2 ? 1.1 : 0.6, 0, PALE, 0);
-    }
-    for (const h of [6, 12, 18]) {
-      const [wx, wz] = side === 0 ? [0, half + 0.02] : side === 1 ? [half + 0.02, 0] : side === 2 ? [0, -half - 0.02] : [-half - 0.02, 0];
-      for (const off of [-3, 3]) {
-        const ox = side % 2 ? 0 : off;
-        const oz = side % 2 ? off : 0;
-        b.box('plain', x + wx + ox, y + h, z + wz + oz, side % 2 ? 0.12 : 0.9, 1.8, side % 2 ? 0.9 : 0.12, 0, 0x34526d, 0);
-      }
-    }
-  }
-  wrapStairs(b, x, z, half, 0, y, terrace, 3, 2.6, STONE);
-
-  // A tall round tower against the west face, the one side the stairs leave free.
-  const tx = x - half - 1.6;
-  const tz = z - 1;
-  b.cyl('stone', tx, y - 3, tz, 3.2, 3.5, 37, PALE, 16, 0.12);
-  b.cyl('stone', tx, y + 33.5, tz, 3.7, 3.2, 0.9, PALE, 16, 0);
-  b.cone('roof', tx, y + 34.4, tz, 4.3, 9.5, SLATE, 16);
-  addRound(tx, tz, 3.4, y + 34.4);
-  flags.push({ x: tx, y: y + 45.6, z: tz, color: BANNER, size: 1.2 });
-  b.cyl('wood', tx, y + 43.6, tz, 0.07, 0.07, 3, 0x4a4038, 5, 0);
-
-  // The great spire on the terrace.
-  b.cyl('stone', x, terrace, z, 4.0, 4.3, 15, PALE, 16, 0.1);
-  b.cyl('stone', x, terrace + 14.4, z, 4.6, 4.0, 1.0, PALE, 16, 0);
-  b.cone('roof', x, terrace + 15.4, z, 5.3, 15, SLATE, 16);
-  addRound(x, z, 4.3, terrace + 15.4);
-  for (let k = 0; k < 6; k++) {
-    const a = (k / 6) * Math.PI * 2;
-    b.box('plain', x + Math.sin(a) * 4.12, terrace + 8, z + Math.cos(a) * 4.12, 0.8, 2.2, 0.14, a, 0x34526d, 0);
-  }
-  flags.push({ x, y: terrace + 33, z, color: BANNER, size: 1.6 });
-  b.cyl('wood', x, terrace + 30, z, 0.09, 0.09, 4.2, 0x4a4038, 5, 0);
-  orbAt('keep-terrace', x + 5.6, z - 5.6, 1.2);
-  orbAt('keep-air', x + 14, z + 30, 22);
-
-  // The great hall along the north wall.
-  const hall = addHouse(b, {
-    x: x + 3, z: z - 19.5, rot: 0, w: 22, d: 8, floors: 2, roof: SLATE, wall: 0xefe8d8,
-    timber: false, ridgeAlongFront: true, shutters: 0x6a4a3a, chimney: true, simple: 1,
-  }, rand);
-  orbAt('hall-roof', hall.spec.x, hall.spec.z, 1.2);
-  addHouse(b, {
-    x: x + 19, z: z + 9, rot: -Math.PI / 2, w: 8, d: 6, floors: 1, roof: SLATE, wall: 0xefe8d8,
-    timber: true, ridgeAlongFront: true, shutters: 0x6a4a3a, chimney: false, simple: 1,
-  }, rand);
-  orbAt('castle-wall', ring.towers[5].x, ring.towers[5].z, 1.3);
-}
 
 function cathedral(b: Builder, x: number, z: number, rot: number, flags: FlagSpot[]): void {
   const c = Math.cos(rot);
@@ -240,6 +161,7 @@ function fountain(b: Builder, x: number, z: number, rand: () => number): void {
 export interface CityInfo {
   plaza: { x: number; z: number };
   southGate: { x: number; z: number };
+  houseCount: number;
 }
 
 export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpot[]; info: CityInfo } {
@@ -250,13 +172,13 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
   const step = (Math.PI * 2) / WALL_SEGMENTS;
 
   const ring = wallRing(b, {
-    x: cx, z: cz, radius: CITY.wall, segments: WALL_SEGMENTS, phase: Math.PI / 2 + step / 2,
+    x: cx, z: cz, radius: CITY.wall, polygon: cityWallPolygon, segments: WALL_SEGMENTS, phase: Math.PI / 2 + step / 2,
     height: 9, thickness: 3.4, towerRadius: 4.6,
     gates: [
       { angle: SOUTH_GATE_ANGLE, width: 6.5, height: 7.6 },
       { angle: EAST_GATE_ANGLE, width: 5.6, height: 6.8 },
     ],
-    roof: SLATE, color: STONE, stairs: [18, 0, 15, 5, 10],
+    roof: SLATE, color: STONE, stairs: [18, 1, 15, 5, 10],
   });
   ring.towers.forEach((t, i) => {
     if (i % 2) return;
@@ -269,12 +191,20 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
   orbAt('wall-east', ring.towers[14].x, ring.towers[14].z, 1.3);
 
   const water = aqueduct(b);
-  castle(b, flags, rand);
+  buildPalace(b, flags);
 
-  const plaza = { x: cx, z: cz + 108 };
+  const plaza = { x: cx + 18, z: cz + 100 };
   fountain(b, plaza.x, plaza.z, rand);
-  const ca = Math.PI / 2 - 0.95;
-  const cathedralAt = { x: cx + Math.cos(ca) * 92, z: cz + Math.sin(ca) * 92 };
+  // Keep the smaller town chapel in a genuine vacant parcel, clear of all lanes.
+  let chapelScore = -Infinity;
+  const cathedralAt = { x: cx, z: cz - 160 };
+  for (let dx = -200; dx <= 200; dx += 7) for (let dz = -180; dz <= 160; dz += 7) {
+    const x = cx + dx, z = cz + dz;
+    if (!insideCity(x, z, 28) || Math.hypot(dx, dz) < 118 || distToLine(x, z, water) < 25) continue;
+    const score = Math.min(30, roadClearance(x, z));
+    if (score > chapelScore) { chapelScore = score; cathedralAt.x = x; cathedralAt.z = z; }
+  }
+  const ca = Math.atan2(cathedralAt.z - cz, cathedralAt.x - cx);
   cathedral(b, cathedralAt.x, cathedralAt.z, Math.atan2(Math.cos(ca), Math.sin(ca)), flags);
 
   const keepOut = [
@@ -282,55 +212,24 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
     { x: cathedralAt.x, z: cathedralAt.z, r: 21 },
     ...ring.gates.map((g) => ({ x: g.x, z: g.z, r: 13 })),
   ];
-  const onStreet = (x: number, z: number): boolean => cobbleAt(x, z) > 0.8;
-
-  // Houses crowd the hillside in rings, each facing down the slope.
-  const spacing = detail > 0 ? 12.2 : 15.5;
-  let count = 0;
-  for (let r = 52; r <= 161; r += 13.5) {
-    const n = Math.floor((Math.PI * 2 * r) / spacing);
-    const offset = rand() * 6.28;
-    for (let k = 0; k < n; k++) {
-      const a = offset + (k / n) * Math.PI * 2 + (rand() - 0.5) * 0.03;
-      const rr = r + (rand() - 0.5) * 3;
-      const x = cx + Math.cos(a) * rr;
-      const z = cz + Math.sin(a) * rr;
-      const w = 6.2 + rand() * 2.2;
-      const d = 6 + rand() * 1.6;
-      const floors = 2 + Math.floor(rand() * 2.3);
-      const roof = rand() < 0.13 ? pick(SLATES, rand) : pick(ROOFS, rand);
-      const wall = pick(WALLS, rand);
-      const timber = rand() < 0.35;
-      const along = rand() < 0.5;
-      const shutters = pick(SHUTTERS, rand);
-      const chimney = rand() < 0.6;
-      const tx = -Math.sin(a) * 4;
-      const tz = Math.cos(a) * 4;
-      const ox = Math.cos(a) * 4;
-      const oz = Math.sin(a) * 4;
-      if (onStreet(x, z) || onStreet(x + tx, z + tz) || onStreet(x - tx, z - tz) || onStreet(x + ox, z + oz) || onStreet(x - ox, z - oz)) continue;
-      if (keepOut.some((q) => Math.hypot(q.x - x, q.z - z) < q.r)) continue;
-      if (distToLine(x, z, water) < 8) continue;
-      addHouse(b, {
-        x, z, w, d, floors, roof, wall, timber, shutters, chimney,
-        rot: Math.atan2(Math.cos(a), Math.sin(a)),
-        ridgeAlongFront: along,
-        simple: detail > 1 ? 1 : 2,
-      }, rand);
-      count++;
-      if (count % 37 === 5) orbAt(`city-roof-${count}`, x, z, 1.2);
-    }
-  }
+  const parcels = planCityParcels(keepOut, (x, z) => distToLine(x, z, water));
+  parcels.forEach((h, i) => {
+    addHouse(b, { ...h, simple: detail > 1 ? 1 : 2 }, rand);
+    // Keep the existing four city roof ids; increased density must not add orbs.
+    const count = i + 1;
+    if (count <= 116 && count % 37 === 5) orbAt(`city-roof-${count}`, h.x, h.z, 1.2);
+  });
+  buildTerraceWalls(b, parcels);
 
   // Lamps along the avenue from the south gate.
   for (let k = 0; k < 6; k++) {
     for (const side of [1, -1]) {
-      const lx = cx + 4.2 * side;
-      const lz = cz + CITY.wall - 10 - k * 9;
+      const lx = SOUTH_GATE.x + 5.5 * side;
+      const lz = SOUTH_GATE.z - 8 - k * 3.8;
       const y = heightAt(lx, lz);
       b.cyl('wood', lx, y, lz, 0.07, 0.1, 3.2, 0x3a3430, 6, 0);
       b.box('plain', lx, y + 3.2, lz, 0.36, 0.46, 0.36, 0, 0xffe9a8, 0);
     }
   }
-  return { object: b.build(), flags, info: { plaza, southGate: { x: cx, z: cz + CITY.wall + 8 } } };
+  return { object: b.build(), flags, info: { plaza, houseCount: parcels.length, southGate: { x: SOUTH_GATE.x, z: SOUTH_GATE.z + 8 } } };
 }

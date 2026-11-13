@@ -6,3 +6,5 @@ __pycache__/
 /art/hero/revision-*/
 *.blend1
 *.blend2
+
+/artifacts/layout.svg

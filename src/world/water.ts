@@ -2,6 +2,23 @@ import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from '../render/glsl';
 import { shared } from '../render/uniforms';
 import { SIZE, WATER_LEVEL } from './layout';
+import { ALPINE_LAKES, ALPINE_STREAM } from './mountain-layout';
+import { sstep } from './heightmap';
+
+/** CPU reference for checking the fragment's depth/foam/alpha/color inputs.
+ * Heights come from the actual uploaded half-float texture in check-layout. */
+export function waterFragmentSample(ground: number, level: number, wobble = 0.5, lapPhase = 0.5): {
+  depth: number; alpha: number; foam: number; color: number[];
+} {
+  const depth = Math.max(level - ground, 0);
+  const shore = 1 - sstep(0, 0.55, depth - wobble * 0.3);
+  const lap = sstep(0.55, 0.8, lapPhase) * (1 - sstep(0.4, 1.6, depth));
+  const foam = Math.max(0, Math.min(1, shore + lap * 0.6));
+  const alpha = Math.max(0.5 + (0.94 - 0.5) * sstep(0, 2.6, depth), foam) * sstep(0, 0.06, depth);
+  const color = new THREE.Color(0x62d2cf).lerp(new THREE.Color(0x1f6fb5), sstep(0, 6, depth))
+    .lerp(new THREE.Color(0xffffff), foam * 0.9).toArray();
+  return { depth, alpha, foam, color };
+}
 
 /** One flat sheet for sea, lake and river; the terrain's height decides its look. */
 export function createWater(heightTex: THREE.Texture, sunDir: THREE.Vector3, horizon: number): THREE.Mesh {
@@ -44,7 +61,7 @@ export function createWater(heightTex: THREE.Texture, sunDir: THREE.Vector3, hor
         vec2 uv = p / ${SIZE.toFixed(1)} + 0.5;
         float ground = -22.0;
         if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ground = texture2D(uHeight, uv).r;
-        float depth = max(-ground, 0.0);
+        float depth = max(vWPos.y - ground, 0.0);
 
         vec3 view = normalize(cameraPosition - vWPos);
         float dist = length(cameraPosition - vWPos);
@@ -88,5 +105,27 @@ export function createWater(heightTex: THREE.Texture, sunDir: THREE.Vector3, hor
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000).rotateX(-Math.PI / 2), mat);
   mesh.position.y = WATER_LEVEL;
   mesh.renderOrder = 1;
+  // Lake fans and a descending ribbon share one shader/material and one extra draw call.
+  const positions: number[] = [];
+  const tri = (...v: THREE.Vector3[]): void => { for (const p of v) positions.push(p.x, p.y, p.z); };
+  for (const l of ALPINE_LAKES) {
+    const rim = (a: number): THREE.Vector3 => {
+      const r = 1.22 * (1 + 0.09 * Math.sin(3 * a + l.x) + 0.05 * Math.cos(5 * a));
+      return new THREE.Vector3(l.x + Math.cos(a) * l.rx * r, l.level, l.z + Math.sin(a) * l.rz * r);
+    };
+    for (let k = 0; k < 56; k++) tri(new THREE.Vector3(l.x, l.level, l.z), rim((k + 1) / 56 * Math.PI * 2), rim(k / 56 * Math.PI * 2));
+  }
+  for (let i = 0; i < ALPINE_STREAM.length - 1; i++) {
+    const a = ALPINE_STREAM[i], b = ALPINE_STREAM[i + 1];
+    const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+    const nx = -dz / len * 6.4, nz = dx / len * 6.4;
+    const a1 = new THREE.Vector3(a.x + nx, a.y, a.z + nz), a2 = new THREE.Vector3(a.x - nx, a.y, a.z - nz);
+    const b1 = new THREE.Vector3(b.x + nx, b.y, b.z + nz), b2 = new THREE.Vector3(b.x - nx, b.y, b.z - nz);
+    tri(a1, b1, a2); tri(a2, b1, b2);
+  }
+  const local = new THREE.BufferGeometry(); local.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  local.computeVertexNormals();
+  const inland = new THREE.Mesh(local, mat); inland.renderOrder = 1; inland.position.y = -WATER_LEVEL;
+  mesh.add(inland);
   return mesh;
 }

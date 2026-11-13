@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import { Builder, archedProfile, orbAt, place } from '../build';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
-import { BRIDGE, FIELDS, PIER, RIVER, ROADS, VILLAGE, WATER_LEVEL, distToPolyline } from '../layout';
-import { cobbleAt, fieldAt, roadAt } from '../maps';
+import { BRIDGE, FIELDS, PIER, RIVER, ROADS, VILLAGE, WATER_LEVEL, distToPolyline, fieldPolygon, inPolygon, roadClearance, PLAZAS } from '../layout';
 import { seededRandom } from '../noise';
 import { beam, fence } from './common';
 import { ROOFS, SHUTTERS, WALLS, addHouse, type BuiltHouse } from './house';
@@ -28,6 +27,7 @@ function well(b: Builder, x: number, z: number): void {
   b.roof(x, y + 2.95, z, 1.9, 2.6, 0.8, Math.PI / 2, 0xb9553a, 0.25);
   b.cyl('wood', x + 0.25, y + 1.5, z, 0.2, 0.17, 0.32, 0x7a5a3c, 8, 0);
   addRound(x, z, 1.25, y + 0.95);
+  addBox(x, z, 0.95, 1.3, Math.PI / 2, (lx) => y + 2.95 + 0.8 * Math.max(0, 1 - Math.abs(lx) / 0.95), y + 2.95);
 }
 
 export function stall(b: Builder, x: number, z: number, rot: number, awning: number, rand: () => number): void {
@@ -117,6 +117,19 @@ function bridge(b: Builder): void {
     b.box('plain', x + (W / 2 - 0.21) * side, top(0) + 2.8, z, 0.34, 0.42, 0.34, 0, 0xffe9a8, 0);
   }
   addBox(x, z, W / 2, L / 2, 0, (_lx, lz) => top(lz), WATER_LEVEL + 1.6);
+  // Short masonry approaches meet both banks, including the lower north bank.
+  for (const sign of [-1, 1]) {
+    const run = 7, centerZ = z + sign * (L / 2 + run / 2);
+    const foot = heightAt(x, z + sign * (L / 2 + run));
+    const rampTop = (lz: number): number => bank + (foot - bank) * (0.5 + lz * sign / run);
+    const profile = new THREE.Shape();
+    profile.moveTo(-run / 2, Math.min(bank, foot) - 2);
+    profile.lineTo(run / 2, Math.min(bank, foot) - 2);
+    profile.lineTo(run / 2, rampTop(-run / 2));
+    profile.lineTo(-run / 2, rampTop(run / 2)); profile.closePath();
+    b.shape('stone', profile, W, place(x, 0, centerZ, Math.PI / 2), 0xd3ccbc);
+    addBox(x, centerZ, W / 2, run / 2, 0, (_lx, lz) => rampTop(lz));
+  }
   orbAt('bridge-under', x, z + 0.5, 0.9);
   orbAt('bridge-rail', x + W / 2 - 0.2, z, 1.2);
 }
@@ -132,6 +145,22 @@ function pier(b: Builder): void {
     }
   }
   addBox(x, z, len / 2, 1.3, 0, top, 0.6);
+  // A short shore gangway keeps the lake road above the restored negative bed.
+  // It joins the pier's landward tip; the approach ramp meets the actual bank.
+  const gx = x + len / 2 + 1, shoreZ = z + 28, joinZ = z + 21;
+  const run = shoreZ - joinZ, centerZ = (shoreZ + joinZ) / 2;
+  const foot = heightAt(gx, shoreZ);
+  const rampTop = (lz: number): number => top + (foot - top) * (lz / run + 0.5);
+  b.box('wood', gx, top - 0.18, z + 10, 2.8, 0.18, 22, 0, 0x9a7a52, 0);
+  addBox(gx, z + 10, 1.4, 11, 0, top, top - 0.18);
+  const ramp = new THREE.Shape();
+  ramp.moveTo(-run / 2, -2); ramp.lineTo(run / 2, -2);
+  ramp.lineTo(run / 2, rampTop(-run / 2)); ramp.lineTo(-run / 2, rampTop(run / 2)); ramp.closePath();
+  b.shape('wood', ramp, 2.8, place(gx, 0, centerZ, Math.PI / 2), 0x9a7a52);
+  addBox(gx, centerZ, 1.4, run / 2, 0, (_lx, lz) => rampTop(lz));
+  for (const pz of [z + 2, z + 9, z + 16, z + 21]) for (const side of [-1, 1]) {
+    b.cyl('wood', gx + side * 1.25, -5, pz, 0.14, 0.14, top + 5.2, 0x6a4c34, 6, 0);
+  }
   // A rowing boat tied up at the end.
   const bx = x - len / 2 - 1.5;
   const hull = new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2).scale(0.9, 0.7, 2.3);
@@ -148,8 +177,9 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
 
   const free = (x: number, z: number, r: number): boolean => {
     if (heightAt(x, z) < 2.5 || distToPolyline(x, z, RIVER) < 22 + r * 0.5) return false;
+    if (roadClearance(x, z) < r + 0.8 || PLAZAS.some(([px, pz, pr]) => Math.hypot(x - px, z - pz) < r + pr)) return false;
     for (const [ox, oz] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]]) {
-      if (roadAt(x + ox * 0.8, z + oz * 0.8) > 0.2 || cobbleAt(x + ox, z + oz) > 0.2 || fieldAt(x + ox, z + oz) > 0.1) return false;
+      if (FIELDS.some((f) => inPolygon(x + ox, z + oz, fieldPolygon(f)))) return false;
     }
     return taken.every((t) => Math.hypot(t.x - x, t.z - z) > t.r + r);
   };
@@ -167,7 +197,7 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
         const t = (next - travelled) / seg;
         const px = ax + (bx - ax) * t;
         const pz = az + (bz - az) * t;
-        next += 11 + rand() * 5;
+        next += 12 + rand() * 13;
         if (Math.hypot(px - VILLAGE.x, pz - VILLAGE.z) > VILLAGE.r) continue;
         for (const side of [1, -1]) {
           if (rand() < 0.2) continue;
@@ -175,7 +205,7 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
           const nz = ((bx - ax) / seg) * side;
           const w = 7 + rand() * 3;
           const d = 6 + rand() * 2;
-          const off = d / 2 + 4.2 + rand() * 2.5;
+          const off = d / 2 + 4.8 + rand() * 6.5;
           const x = px + nx * off;
           const z = pz + nz * off;
           const r = Math.hypot(w, d) / 2 + 0.6;
@@ -184,7 +214,7 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
           const liveDoor = info.homes.length < 7 && Math.hypot(x - info.well.x, z - info.well.z) < 75;
           const built = addHouse(b, {
             x, z, w, d,
-            rot: Math.atan2(-nx, -nz),
+            rot: Math.atan2(-nx, -nz) + (rand() - 0.5) * 0.2,
             floors: rand() < 0.45 ? 2 : 1,
             roof: pick(ROOFS, rand), wall: pick(WALLS, rand),
             timber: rand() < 0.45, ridgeAlongFront: rand() < 0.6,
@@ -203,7 +233,7 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
   well(b, info.well.x, info.well.z);
   const awnings = [0xc9482f, 0x3f7f9a, 0xe0b040, 0x5f9a4a];
   for (let i = 0; i < 4; i++) {
-    const a = 0.6 + i * 1.5;
+    const a = 0.15 + i * 1.5;
     const x = info.well.x + Math.cos(a) * 7.5;
     const z = info.well.z + Math.sin(a) * 7.5;
     const rot = Math.atan2(info.well.x - x, info.well.z - z);
@@ -223,18 +253,18 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
 
   // Fences round the fields, haystacks beside the wheat.
   for (const f of FIELDS) {
-    const c = Math.cos(f.rot);
-    const s = Math.sin(f.rot);
+    const c = Math.cos(f.rot), s = Math.sin(f.rot);
     const corner = (u: number, v: number): [number, number] => [
-      f.x + (u * (f.w / 2 + 1.2)) * c - (v * (f.d / 2 + 1.2)) * s,
-      f.z + (u * (f.w / 2 + 1.2)) * s + (v * (f.d / 2 + 1.2)) * c,
+      f.x + u * (f.w / 2 + 1.2) * c - v * (f.d / 2 + 1.2) * s,
+      f.z + u * (f.w / 2 + 1.2) * s + v * (f.d / 2 + 1.2) * c,
     ];
-    // Leave one side open as a gateway.
-    fence(b, [corner(-0.3, 1), corner(-1, 1), corner(-1, -1), corner(1, -1), corner(1, 1), corner(0.3, 1)]);
+    const parcel = fieldPolygon(f);
+    // Open the southern edge for farm access; follow the actual skewed parcel elsewhere.
+    fence(b, parcel.slice(0, 5));
     if (f.crop === 'wheat') {
       for (let i = 0; i < 3; i++) {
         const [hx, hz] = corner(1.25 + rand() * 0.2, -0.7 + i * 0.6);
-        if (roadAt(hx, hz) < 0.2 && heightAt(hx, hz) > 2.4) haystack(b, hx, hz, 0.8 + rand() * 0.5);
+        if (roadClearance(hx, hz) > 2.8 && heightAt(hx, hz) > 2.4) haystack(b, hx, hz, 0.8 + rand() * 0.5);
       }
     }
   }
@@ -303,23 +333,31 @@ export function buildCrops(density: number, material: THREE.Material): THREE.Gro
     cabbage.setAttribute('aLeaf', new THREE.Float32BufferAttribute(new Array(n).fill(0), 1));
   }
 
+  const lavender = wheat.clone();
+  const lavenderColors = lavender.attributes.color;
+  for (let i = 0; i < lavenderColors.count; i++) {
+    const tip = lavender.attributes.position.getY(i) > 0.6;
+    lavenderColors.setXYZ(i, tip ? 0.6 : 0.31, tip ? 0.38 : 0.5, tip ? 0.78 : 0.29);
+  }
   const dummy = new THREE.Object3D();
   for (const f of FIELDS) {
     if (f.crop === 'tilled') continue;
-    const wheatField = f.crop === 'wheat';
+    const wheatField = f.crop === 'wheat' || f.crop === 'lavender';
     const spacing = wheatField ? 0.62 / Math.sqrt(density) : 1.25;
     const nx = Math.floor((f.w - 2) / spacing);
     const nz = Math.floor((f.d - 2) / spacing);
-    const mesh = new THREE.InstancedMesh(wheatField ? wheat : cabbage, material, nx * nz);
+    const mesh = new THREE.InstancedMesh(f.crop === 'lavender' ? lavender : wheatField ? wheat : cabbage, material, nx * nz);
     const c = Math.cos(f.rot);
     const s = Math.sin(f.rot);
     let n = 0;
+    const polygon = fieldPolygon(f);
     for (let i = 0; i < nx; i++) {
       for (let j = 0; j < nz; j++) {
         const u = -f.w / 2 + 1 + (i + (wheatField ? rand() : 0.5)) * spacing;
         const v = -f.d / 2 + 1 + (j + (wheatField ? rand() : 0.5)) * spacing;
         const x = f.x + u * c - v * s;
         const z = f.z + u * s + v * c;
+        if (!inPolygon(x, z, polygon)) continue;
         dummy.position.set(x, heightAt(x, z) - (wheatField ? 0.02 : -0.12), z);
         dummy.rotation.set(0, rand() * 6.28, 0);
         dummy.scale.setScalar(0.85 + rand() * 0.4);
