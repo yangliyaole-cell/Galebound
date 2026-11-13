@@ -148,7 +148,7 @@ function watchtower(b: Builder, rand: () => number): void {
   for (const [u, h] of [[0, 5], [0, 10]]) {
     b.box('plain', x + u * c + (half + 0.02) * s, y + h, z - u * s + (half + 0.02) * c, 0.5, 1.4, 0.1, rot, 0x2a3440, 0);
   }
-  wrapStairs(b, x, z, half, rot, y - 0.2, top, 4, 1.8, OLD);
+  wrapStairs(b, x, z, half, rot, y - 0.2, top, 4, 2.4, OLD);
   orbAt('watchtower-top', x, z, 1.3);
   // Fallen masonry round the foot.
   for (let i = 0; i < 9; i++) {

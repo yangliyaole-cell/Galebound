@@ -130,11 +130,11 @@ function castle(b: Builder, flags: FlagSpot[], rand: () => number): void {
       }
     }
   }
-  wrapStairs(b, x, z, half, 0, y, terrace, 3, 1.9, STONE);
+  wrapStairs(b, x, z, half, 0, y, terrace, 3, 2.6, STONE);
 
-  // A tall round tower on the corner the stairs leave free.
-  const tx = x - half;
-  const tz = z + half;
+  // A tall round tower against the west face, the one side the stairs leave free.
+  const tx = x - half - 1.6;
+  const tz = z - 1;
   b.cyl('stone', tx, y - 3, tz, 3.2, 3.5, 37, PALE, 16, 0.12);
   b.cyl('stone', tx, y + 33.5, tz, 3.7, 3.2, 0.9, PALE, 16, 0);
   b.cone('roof', tx, y + 34.4, tz, 4.3, 9.5, SLATE, 16);
