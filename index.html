@@ -3,14 +3,104 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
-    <title>Galebound</title>
+    <meta name="theme-color" content="#6fa8dc" />
+    <title>Galebound 乘风</title>
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #6fa8dc; }
-      canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+      :root {
+        --ink: #17202b;
+        --paper: rgba(248, 244, 232, 0.92);
+        --glass: rgba(22, 34, 48, 0.42);
+        --line: rgba(255, 255, 255, 0.55);
+        --gold: #ffd77a;
+        --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Songti SC', 'Noto Serif CJK SC', 'STSong', Georgia, serif;
+        --sans: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #6fa8dc; font-family: var(--sans); }
+      body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+      canvas#game { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+      button { font: inherit; color: inherit; }
+
+      #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; text-shadow: 0 1px 3px rgba(10, 25, 40, 0.55); }
+      #hud > * { position: absolute; }
+      .hidden { opacity: 0 !important; pointer-events: none !important; }
+
+      .panel { background: var(--glass); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+
+      #orbs { top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); padding: 8px 16px 8px 12px; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; transition: transform 0.25s; }
+      #orbs.pop { transform: scale(1.14); }
+      #orbs .spark { width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle, #fff 0 22%, var(--gold) 45%, rgba(255, 215, 122, 0) 72%); }
+
+      #menu { top: calc(max(14px, env(safe-area-inset-top)) + 46px); left: max(14px, env(safe-area-inset-left)); display: flex; gap: 6px; pointer-events: auto; }
+      #menu button { padding: 5px 11px; font-size: 12px; cursor: pointer; opacity: 0.85; }
+
+      #wind { top: max(12px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); width: 92px; text-align: center; transition: opacity 0.4s; }
+      #wind svg { width: 84px; height: 84px; display: block; margin: 0 auto; overflow: visible; }
+      #wind .ring { fill: rgba(22, 34, 48, 0.38); stroke: rgba(255, 255, 255, 0.45); stroke-width: 1.5; }
+      #wind .arc { fill: none; stroke: var(--gold); stroke-width: 4; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
+      #wind .arrow { fill: #fff; transition: fill 0.3s; transform-origin: 50% 50%; }
+      #wind.gust .arrow { fill: var(--gold); }
+      #wind.aligned .ring { stroke: var(--gold); stroke-width: 2.5; }
+      #wind .label { margin-top: 3px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; white-space: nowrap; }
+      #wind.gust .label { color: var(--gold); }
+
+      #toast { top: 20%; left: 50%; transform: translateX(-50%); padding: 9px 20px; font-size: 15px; font-weight: 600; white-space: nowrap; transition: opacity 0.5s; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
+
+      #zone { top: 31%; left: 0; right: 0; text-align: center; transition: opacity 1.2s; font-family: var(--serif); }
+      #zone .name { font-size: clamp(34px, 7vw, 64px); letter-spacing: 0.18em; text-indent: 0.18em; font-weight: 500; text-shadow: 0 2px 18px rgba(10, 30, 50, 0.55); }
+      #zone .sub { font-size: clamp(13px, 2vw, 18px); letter-spacing: 0.32em; text-indent: 0.32em; font-style: italic; opacity: 0.92; margin-top: 4px; }
+      #zone .rule { width: min(260px, 50vw); height: 1px; margin: 10px auto 0; background: linear-gradient(90deg, transparent, #fff, transparent); }
+
+      #hint { bottom: max(14px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-size: 12.5px; opacity: 0.85; white-space: nowrap; transition: opacity 1s; padding: 6px 14px; }
+
+      #touch { right: max(18px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); display: none; pointer-events: auto; }
+      #touch button { position: absolute; border-radius: 50%; background: var(--glass); border: 1.5px solid var(--line); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); font-weight: 700; touch-action: none; }
+      #touch #jump { right: 0; bottom: 0; width: 84px; height: 84px; font-size: 17px; }
+      #touch #run { right: 96px; bottom: 0; width: 60px; height: 60px; font-size: 14px; }
+      #touch button.on { background: rgba(255, 215, 122, 0.55); color: var(--ink); text-shadow: none; }
+      #touch button:active { transform: scale(0.94); }
+
+      .stick-base { position: fixed; display: none; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%; background: rgba(22, 34, 48, 0.28); border: 1.5px solid var(--line); pointer-events: none; }
+      .stick-knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; border-radius: 50%; background: rgba(255, 255, 255, 0.75); transform: translate(-50%, -50%); }
+
+      #title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; background: radial-gradient(ellipse at 50% 42%, rgba(20, 45, 75, 0.05), rgba(15, 35, 60, 0.5)); transition: opacity 1.1s; padding: 24px; box-sizing: border-box; }
+      #title h1 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: clamp(46px, 11vw, 112px); letter-spacing: 0.08em; text-shadow: 0 4px 30px rgba(10, 30, 60, 0.6); line-height: 1; }
+      #title .cn { font-family: var(--serif); font-size: clamp(20px, 4vw, 34px); letter-spacing: 0.9em; text-indent: 0.9em; margin-top: 12px; text-shadow: 0 2px 14px rgba(10, 30, 60, 0.6); }
+      #title .tag { margin-top: 18px; font-size: clamp(13px, 1.9vw, 16px); opacity: 0.95; max-width: 34em; line-height: 1.7; text-shadow: 0 1px 8px rgba(10, 30, 60, 0.7); }
+      #title #start { margin-top: 30px; padding: 14px 44px; font-size: 18px; font-weight: 600; letter-spacing: 0.2em; text-indent: 0.2em; color: var(--ink); background: var(--paper); border: none; border-radius: 999px; cursor: pointer; box-shadow: 0 8px 30px rgba(10, 30, 60, 0.35); transition: transform 0.2s, opacity 0.4s; }
+      #title #start:hover { transform: translateY(-2px); }
+      #title #start:disabled { opacity: 0.6; cursor: default; transform: none; }
+      #title .keys { margin-top: 22px; font-size: 12.5px; opacity: 0.9; line-height: 1.9; text-shadow: 0 1px 6px rgba(10, 30, 60, 0.7); }
+      @media (max-height: 460px) { #title .tag, #title .keys { display: none; } #title #start { margin-top: 16px; } }
     </style>
   </head>
   <body>
-    <canvas id="game"></canvas>
+    <canvas id="game" tabindex="0"></canvas>
+    <div id="hud" class="hidden">
+      <div id="orbs" class="panel"><span class="spark"></span><span id="orb-count">0 / 0</span></div>
+      <div id="menu">
+        <button id="quality" class="panel">画质</button>
+        <button id="sound" class="panel">声音</button>
+      </div>
+      <div id="wind">
+        <svg viewBox="0 0 84 84">
+          <circle class="ring" cx="42" cy="42" r="36" />
+          <circle class="arc" id="wind-arc" cx="42" cy="42" r="36" pathLength="100" stroke-dasharray="0 100" />
+          <path class="arrow" id="wind-arrow" d="M42 12 L55 44 L45.5 40 L45.5 70 L38.5 70 L38.5 40 L29 44 Z" />
+        </svg>
+        <div class="label" id="wind-label">微风</div>
+      </div>
+      <div id="zone" class="hidden"><div class="name"></div><div class="rule"></div><div class="sub"></div></div>
+      <div id="toast" class="panel hidden"></div>
+      <div id="hint" class="panel"></div>
+      <div id="touch"><button id="run">跑</button><button id="jump">跳</button></div>
+    </div>
+    <div id="title">
+      <h1>Galebound</h1>
+      <div class="cn">乘风</div>
+      <div class="tag">阵风起时，从高处顺风一跃，张开双臂上的风布。<br />走遍这片土地，找到藏在各处的光。</div>
+      <button id="start" disabled>正在生成世界…</button>
+      <div class="keys" id="keys"></div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -1,0 +1,139 @@
+import * as THREE from 'three';
+import { fbm } from './noise';
+import { heightAt, normalAt, sstep } from './heightmap';
+import {
+  BLOSSOM, CITY, FIELDS, FOREST, HALF, PLATEAU, PLAZAS, ROADS, SIZE, START, STONES, VILLAGE, WINDMILL,
+  WATCHTOWER, LIGHTHOUSE,
+} from './layout';
+
+let splatSize = 0;
+let splatData: Uint8ClampedArray = new Uint8ClampedArray(0);
+
+/**
+ * Paints roads (red), cobbles (green) and fields (blue) into one texture
+ * covering the whole map. The terrain shader and placement code both read it.
+ */
+export function buildSplat(size: number): THREE.CanvasTexture {
+  splatSize = size;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  const s = size / SIZE;
+  const px = (v: number): number => (v + HALF) * s;
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, size, size);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.fillStyle = 'rgb(0,130,0)';
+  ctx.beginPath();
+  ctx.arc(px(CITY.x), px(CITY.z), (CITY.wall - 3) * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgb(0,255,0)';
+  for (const [x, z, r] of PLAZAS) {
+    ctx.beginPath();
+    ctx.arc(px(x), px(z), r * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = 'rgb(0,0,255)';
+  for (const f of FIELDS) {
+    ctx.save();
+    ctx.translate(px(f.x), px(f.z));
+    ctx.rotate(f.rot);
+    ctx.fillRect((-f.w / 2) * s, (-f.d / 2) * s, f.w * s, f.d * s);
+    ctx.restore();
+  }
+
+  for (const road of ROADS) {
+    ctx.strokeStyle = road.kind === 'dirt' ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+    ctx.lineWidth = Math.max(1.6, road.width * s);
+    ctx.beginPath();
+    road.pts.forEach(([x, z], i) => (i ? ctx.lineTo(px(x), px(z)) : ctx.moveTo(px(x), px(z))));
+    ctx.stroke();
+  }
+
+  splatData = ctx.getImageData(0, 0, size, size).data;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.flipY = false;
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+function splat(x: number, z: number, channel: number): number {
+  const s = splatSize / SIZE;
+  const i = Math.min(splatSize - 1, Math.max(0, Math.round((x + HALF) * s)));
+  const j = Math.min(splatSize - 1, Math.max(0, Math.round((z + HALF) * s)));
+  return splatData[(j * splatSize + i) * 4 + channel] / 255;
+}
+export const roadAt = (x: number, z: number): number => splat(x, z, 0);
+export const cobbleAt = (x: number, z: number): number => splat(x, z, 1);
+export const fieldAt = (x: number, z: number): number => splat(x, z, 2);
+
+const dist = (x: number, z: number, p: { x: number; z: number }): number => Math.hypot(x - p.x, z - p.z);
+
+export function blossomDensity(x: number, z: number): number {
+  return 1 - sstep(0.45, 1.0, dist(x, z, BLOSSOM) / BLOSSOM.r);
+}
+
+/** 0..1 chance of a tree at this spot. */
+export function forestDensity(x: number, z: number): number {
+  const h = heightAt(x, z);
+  if (h < 1.7) return 0;
+  let d = sstep(0.52, 0.7, fbm(x / 170 + 40, z / 170 - 13, 3)) * 0.5;
+  const wood = dist(x, z, FOREST) / FOREST.r + (fbm(x / 60, z / 60, 2) - 0.5) * 0.3;
+  d = Math.max(d, 1 - sstep(0.72, 1.0, wood));
+  d *= sstep(CITY.wall + 8, CITY.wall + 70, dist(x, z, CITY));
+  d *= 0.08 + 0.92 * sstep(VILLAGE.r * 0.55, VILLAGE.r, dist(x, z, VILLAGE));
+  d *= sstep(26, 70, dist(x, z, START));
+  d *= sstep(28, 70, dist(x, z, WINDMILL));
+  d *= sstep(20, 50, dist(x, z, WATCHTOWER));
+  d *= sstep(20, 50, dist(x, z, LIGHTHOUSE));
+  d *= sstep(30, 60, dist(x, z, STONES));
+  d *= sstep(0.75, 1.1, dist(x, z, BLOSSOM) / BLOSSOM.r);
+  d *= 1 - fieldAt(x, z);
+  d *= 1 - sstep(150, 205, h);
+  return d;
+}
+
+export function flowerDensity(x: number, z: number): number {
+  let d = sstep(0.54, 0.74, fbm(x / 60 + 11, z / 60 + 5, 3));
+  d = Math.max(d, 1 - sstep(0.5, 1.1, dist(x, z, BLOSSOM) / BLOSSOM.r));
+  d = Math.max(d, 0.8 * (1 - sstep(20, 75, dist(x, z, START))));
+  return d;
+}
+
+export function dryness(x: number, z: number): number {
+  const pd = Math.hypot((x - PLATEAU.x) / PLATEAU.rx, (z - PLATEAU.z) / PLATEAU.rz);
+  let d = 0.75 * (1 - sstep(0.6, 1.0, pd));
+  d = Math.max(d, sstep(0.58, 0.8, fbm(x / 300 - 4, z / 300 + 9, 2)) * 0.6);
+  d = Math.max(d, sstep(70, 130, heightAt(x, z)) * 0.8);
+  return d;
+}
+
+/** Low-resolution map of forest (R), flowers (G), dryness (B) and flatness (A). */
+export function buildBiome(): THREE.DataTexture {
+  const size = 256;
+  const bytes = new Uint8Array(size * size * 4);
+  const normal = new THREE.Vector3();
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      const x = ((i + 0.5) / size) * SIZE - HALF;
+      const z = ((j + 0.5) / size) * SIZE - HALF;
+      const o = (j * size + i) * 4;
+      bytes[o] = forestDensity(x, z) * 255;
+      bytes[o + 1] = flowerDensity(x, z) * 255;
+      bytes[o + 2] = dryness(x, z) * 255;
+      bytes[o + 3] = normalAt(x, z, normal).y * 255;
+    }
+  }
+  const tex = new THREE.DataTexture(bytes, size, size, THREE.RGBAFormat);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}

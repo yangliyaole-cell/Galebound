@@ -20,32 +20,29 @@ export interface ClothCollider {
  */
 export class ClothStrip {
   readonly mesh: THREE.Mesh;
-  private readonly rows: number;
   private readonly pos: Float32Array;
   private readonly prev: Float32Array;
-  private readonly phase: number;
   private started = false;
 
+  /**
+   * @param colorAt colour for a row, given 0 at the pinned edge and 1 at the free end
+   */
   constructor(
     private readonly width: number,
     private readonly segment: number,
-    rows: number,
-    color: number,
-    trim: number,
-    phase: number,
+    private readonly rows: number,
+    colorAt: (t: number) => number,
+    private readonly phase: number,
   ) {
-    this.rows = rows;
-    this.phase = phase;
     this.pos = new Float32Array(rows * 2 * 3);
     this.prev = new Float32Array(rows * 2 * 3);
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     const colors = new Float32Array(rows * 2 * 3);
-    const main = new THREE.Color(color);
-    const edge = new THREE.Color(trim);
+    const c = new THREE.Color();
     for (let r = 0; r < rows; r++) {
-      const c = r >= rows - 1 ? edge : main;
+      c.set(colorAt(r / (rows - 1)));
       colors.set([c.r, c.g, c.b, c.r, c.g, c.b], r * 6);
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -56,7 +53,7 @@ export class ClothStrip {
     }
     geo.setIndex(index);
 
-    this.mesh = new THREE.Mesh(geo, toon(0xffffff, { vertexColors: true, doubleSided: true }));
+    this.mesh = new THREE.Mesh(geo, toon(0xffffff, { vertexColors: true, doubleSided: true, plain: true }));
     this.mesh.castShadow = true;
     this.mesh.frustumCulled = false;
   }
@@ -91,7 +88,7 @@ export class ClothStrip {
   }
 
   /**
-   * @param air velocity of the air relative to the ground, minus the wearer's velocity
+   * @param air velocity of the air relative to the wearer
    */
   update(
     dt: number,
@@ -104,19 +101,20 @@ export class ClothStrip {
   ): void {
     const p = this.pos;
     const q = this.prev;
-    if (!this.started || Math.hypot(p[0] - pinA.x, p[1] - pinA.y, p[2] - pinA.z) > 1.5) {
+    if (!this.started || Math.hypot(p[0] - pinA.x, p[1] - pinA.y, p[2] - pinA.z) > 2) {
       this.reset(pinA, pinB);
     }
     dt = Math.min(dt, 1 / 30);
     if (dt <= 0) return;
 
     const airSpeed = air.length();
-    // Sideways axis for flutter, perpendicular to the airflow.
+    // Flutter acts across the airflow: sideways and vertically.
     let sx = -air.z;
     let sz = air.x;
     const sl = Math.hypot(sx, sz) || 1;
     sx /= sl;
     sz /= sl;
+    const lift = Math.min(1, airSpeed / 6);
 
     for (let n = 2; n < this.rows * 2; n++) {
       const i = n * 3;
@@ -125,11 +123,13 @@ export class ClothStrip {
       const vx = (p[i] - q[i]) / dt;
       const vy = (p[i + 1] - q[i + 1]) / dt;
       const vz = (p[i + 2] - q[i + 2]) / dt;
-      const wave = time * 9 - row * 1.1 + (n & 1) * 0.7 + this.phase;
-      const flutter = airSpeed * along * 1.6;
-      const ax = DRAG * (air.x - vx) + sx * Math.cos(wave * 0.8) * flutter * 0.5;
-      const ay = GRAVITY + DRAG * (air.y - vy) + Math.sin(wave) * flutter;
-      const az = DRAG * (air.z - vz) + sz * Math.cos(wave * 0.8) * flutter * 0.5;
+      // A wave running down the strip, faster and stronger in fast air.
+      const wave = time * (6 + airSpeed * 0.9) - row * 1.25 + (n & 1) * 0.5 + this.phase;
+      const flutter = airSpeed * DRAG * 0.42 * (0.25 + along);
+      const side = Math.cos(wave * 0.73 + this.phase) * flutter * 0.55;
+      const ax = DRAG * (air.x - vx) + sx * side;
+      const ay = GRAVITY * (1 - lift * 0.45) + DRAG * (air.y - vy) + Math.sin(wave) * flutter;
+      const az = DRAG * (air.z - vz) + sz * side;
       const nx = p[i] + (p[i] - q[i]) * 0.99 + ax * dt * dt;
       const ny = p[i + 1] + (p[i + 1] - q[i + 1]) * 0.99 + ay * dt * dt;
       const nz = p[i + 2] + (p[i + 2] - q[i + 2]) * 0.99 + az * dt * dt;
