@@ -45,6 +45,11 @@
       #wind .label { margin-top: 3px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; white-space: nowrap; }
       #wind.gust .label { color: var(--gold); }
 
+      #style-label { position: fixed; top: max(18px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); padding: 8px 18px; color: #fff; font-size: 13px; letter-spacing: 0.06em; pointer-events: none; transition: opacity 0.35s; }
+      html[data-render-style] #game { filter: none; }
+      html[data-render-style] #vignette { display: none; }
+      html.shot body > :not(#game):not(#vignette):not(script) { display: none !important; }
+
       #toast { top: 20%; left: 50%; transform: translateX(-50%); padding: 9px 20px; font-size: 15px; font-weight: 600; white-space: nowrap; transition: opacity 0.5s; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
 
       #zone { top: 31%; left: 0; right: 0; text-align: center; transition: opacity 1.2s; font-family: var(--serif); }
@@ -78,11 +83,13 @@
   <body>
     <canvas id="game" tabindex="0"></canvas>
     <div id="vignette"></div>
+    <div id="style-label" class="panel hidden" aria-live="polite"></div>
     <div id="hud" class="hidden">
       <div id="orbs" class="panel"><span class="spark"></span><span id="orb-count">0 / 0</span></div>
       <div id="menu">
         <button id="quality" class="panel">画质</button>
         <button id="sound" class="panel">声音</button>
+        <button id="cinema" class="panel">电影感</button>
       </div>
       <div id="wind">
         <svg viewBox="0 0 84 84">

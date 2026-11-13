@@ -90,7 +90,7 @@ export class Wind {
 const BOX = new THREE.Vector3(80, 30, 80);
 
 /** Wind made visible: pale streaks during gusts, and petals that always drift. */
-export function createWindFx(count: number, wind: Wind): THREE.Group {
+export function createWindFx(count: number, wind: Wind, random: () => number = Math.random): THREE.Group {
   const group = new THREE.Group();
   const quad = new THREE.PlaneGeometry(1, 1);
 
@@ -99,7 +99,7 @@ export function createWindFx(count: number, wind: Wind): THREE.Group {
     geo.setAttribute('position', quad.attributes.position);
     geo.setIndex(quad.index);
     const seeds = new Float32Array(n * 4);
-    for (let i = 0; i < n * 4; i++) seeds[i] = Math.random();
+    for (let i = 0; i < n * 4; i++) seeds[i] = random();
     geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 4));
     geo.instanceCount = n;
     const mat = new THREE.ShaderMaterial({
