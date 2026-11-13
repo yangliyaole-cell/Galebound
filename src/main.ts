@@ -22,8 +22,10 @@ import { buildLandmarks } from './world/structures/landmarks';
 import { buildCrops, buildVillage } from './world/structures/village';
 
 const params = new URLSearchParams(location.search);
-const num = (key: string, fallback: number): number =>
-  params.has(key) ? Number(params.get(key)) : fallback;
+const num = (key: string, fallback: number): number => {
+  const value = params.has(key) ? Number(params.get(key)) : fallback;
+  return Number.isFinite(value) ? value : fallback;
+};
 const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
 async function boot(): Promise<void> {
@@ -117,6 +119,11 @@ async function boot(): Promise<void> {
   follow.yaw = num('camyaw', player.yaw + Math.PI);
   follow.pitch = num('campitch', 0.16);
   follow.distance = num('dist', 6);
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    hud.showTouch();
+    follow.autoFollow = true;
+  });
 
   // ---- events
   wind.onState = (state) => {
@@ -144,11 +151,13 @@ async function boot(): Promise<void> {
 
   hud.ready();
   let last = performance.now() / 1000;
+  window.addEventListener('focus', () => { last = performance.now() / 1000; });
   let titleAngle = 0;
   renderer.setAnimationLoop((ms: number) => {
     const time = ms / 1000;
     const dt = Math.min(Math.max(time - last, 0), 0.05);
     last = time;
+    if (document.hidden) return;
     shared.uTime.value = time;
     wind.update(dt);
     input.poll(dt);
@@ -162,6 +171,7 @@ async function boot(): Promise<void> {
       // Title screen: a slow turn around the starting hill.
       input.takeLook();
       input.takeJump();
+      input.takeZoom();
       titleAngle += dt * 0.05;
       follow.yaw = player.yaw + Math.PI + Math.sin(titleAngle) * 0.5;
       const idle = { moveX: 0, moveY: 0, run: false, takeJump: () => false } as unknown as Input;

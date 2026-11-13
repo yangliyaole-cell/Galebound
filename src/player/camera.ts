@@ -15,9 +15,10 @@ export class FollowCamera {
   private fov = 55;
   private started = false;
 
-  constructor(readonly camera: THREE.PerspectiveCamera, private readonly autoFollow: boolean) {}
+  constructor(readonly camera: THREE.PerspectiveCamera, public autoFollow: boolean) {}
 
   look(dx: number, dy: number): void {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
     if (dx === 0 && dy === 0) return;
     this.yaw -= dx;
     this.pitch = Math.max(-0.75, Math.min(1.3, this.pitch + dy));
@@ -25,10 +26,17 @@ export class FollowCamera {
   }
 
   zoom(delta: number): void {
+    if (!Number.isFinite(delta)) return;
     this.distance = Math.max(2.2, Math.min(16, this.distance * (1 + delta)));
   }
 
   update(dt: number, player: Player): void {
+    dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, 0.05)) : 0;
+    // Public fields can also be set by URL/debug controls; keep lookAt away from poles.
+    if (!Number.isFinite(this.yaw)) this.yaw = 0;
+    if (Math.abs(this.yaw) > Math.PI) this.yaw = Math.atan2(Math.sin(this.yaw), Math.cos(this.yaw));
+    this.pitch = Number.isFinite(this.pitch) ? Math.max(-0.75, Math.min(1.3, this.pitch)) : 0.2;
+    this.distance = Number.isFinite(this.distance) ? Math.max(2.2, Math.min(16, this.distance)) : 6;
     this.idle += dt;
     const gliding = player.gliding;
     // Swing round behind the player when they fly, or run on a touch screen.
@@ -39,6 +47,7 @@ export class FollowCamera {
       this.yaw += diff * Math.min(1, dt * follow);
       if (gliding) this.pitch += (0.32 - this.pitch) * Math.min(1, dt * 0.8);
     }
+    if (Math.abs(this.yaw) > Math.PI) this.yaw = Math.atan2(Math.sin(this.yaw), Math.cos(this.yaw));
 
     const eye = gliding ? 0.9 : player.mode === 'swim' ? 1.5 : 1.45;
     const tx = player.pos.x;

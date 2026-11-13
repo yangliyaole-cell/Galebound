@@ -31,10 +31,7 @@ export class Hud {
       ? '左侧拖动：移动（推到底奔跑）　右侧拖动：视角　双指：缩放'
       : 'WASD 移动　·　Shift 奔跑　·　空格 跳跃　·　鼠标 视角　·　滚轮 缩放<br />滑翔中：A / D 转向　·　W 俯冲　·　S 抬升　·　空格 收起风布';
     this.hint.textContent = touch ? '' : 'WASD 移动 · Shift 奔跑 · 空格 跳跃 · 鼠标 视角';
-    if (touch) {
-      this.hint.classList.add('hidden');
-      $('touch').style.display = 'block';
-    }
+    if (touch) this.showTouch();
 
     this.startButton.addEventListener('click', () => {
       this.title.classList.add('hidden');
@@ -68,6 +65,11 @@ export class Hud {
       sound.textContent = `声音：${this.onSound() ? '开' : '关'}`;
     });
     sound.textContent = '声音：开';
+  }
+
+  showTouch(): void {
+    this.hint.classList.add('hidden');
+    $('touch').style.display = 'block';
   }
 
   loading(text: string): void {
