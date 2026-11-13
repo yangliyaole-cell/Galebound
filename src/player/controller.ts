@@ -19,6 +19,8 @@ const HEIGHT = 1.7;
 /** Gliding starts only when facing within about 50 degrees of the wind. */
 const ALIGN = 0.64;
 const MIN_GLIDE_HEIGHT = 3;
+/** Lower bar when leaping out over ground that falls away ahead. */
+const MIN_LEAP_HEIGHT = 1.1;
 
 export class Player {
   readonly pos = new THREE.Vector3();
@@ -223,7 +225,12 @@ export class Player {
     const hx = speed > 1 ? vel.x / speed : Math.sin(this.yaw);
     const hz = speed > 1 ? vel.z / speed : Math.cos(this.yaw);
     this.alignment = hx * wind.dir.x + hz * wind.dir.y;
-    if (wind.gust < 0.35 || this.clearance < MIN_GLIDE_HEIGHT || this.alignment < ALIGN) return;
+    if (wind.gust < 0.35 || this.alignment < ALIGN) return;
+    // High enough: either well clear of the ground, or jumping off a slope
+    // with the land dropping away in front.
+    const below = this.pos.y - this.clearance;
+    const drop = below - heightAt(this.pos.x + hx * 10, this.pos.z + hz * 10);
+    if (this.clearance < MIN_GLIDE_HEIGHT && !(this.clearance > MIN_LEAP_HEIGHT && drop > 0.9)) return;
     // Automatic once falling; the jump button can also open the cloths early.
     if (!(vel.y < -0.5 && this.glideLock <= 0) && !jump) return;
     this.mode = 'glide';

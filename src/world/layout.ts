@@ -25,7 +25,7 @@ export const PIER = { x: -318, z: -282 };
 
 /** Rounded hills added on top of the rolling base terrain. */
 export const HILLS = [
-  { x: START.x, z: START.z, r: 95, h: 22 },
+  { x: START.x, z: START.z, r: 82, h: 27 },
   { x: WINDMILL.x, z: WINDMILL.z, r: 85, h: 21 },
   { x: WATCHTOWER.x, z: WATCHTOWER.z, r: 80, h: 25 },
   { x: BLOSSOM.x, z: BLOSSOM.z, r: 70, h: 9 },

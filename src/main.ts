@@ -18,6 +18,9 @@ import { Wind, createWindFx } from './world/wind';
 import { toon } from './render/toon';
 import { groundDetailTexture } from './render/textures';
 import { createFlags } from './world/flags';
+import { Sound } from './core/audio';
+import { createLife } from './world/life';
+import { createOrbs } from './world/orbs';
 import { buildCity } from './world/structures/city';
 import { buildLandmarks } from './world/structures/landmarks';
 import { buildCrops, buildVillage } from './world/structures/village';
@@ -105,6 +108,16 @@ async function boot(): Promise<void> {
   const scatter = createScatter(quality, sunDir);
   scene.add(scatter.object);
 
+  hud.loading('正在藏起光点…');
+  await nextFrame();
+  const life = createLife(village.info, city.info, detail === 0 ? 3 : 7);
+  scene.add(life.object);
+  const orbs = createOrbs(new Set(save.orbs));
+  scene.add(orbs.object);
+  hud.setOrbs(orbs.found, orbs.total);
+  const sound = new Sound();
+  sound.muted = save.muted;
+
   const wind = new Wind();
   scene.add(createWindFx(quality.particles, wind));
 
@@ -134,14 +147,31 @@ async function boot(): Promise<void> {
   };
   hud.onJump = () => input.pressJump();
   hud.onRun = () => input.toggleRun();
+  hud.onSound = () => {
+    const on = sound.toggle();
+    save.muted = !on;
+    writeSave(save);
+    return on;
+  };
+  player.onJump = () => sound.jump();
+  player.onLand = (impact) => sound.land(impact);
+  player.onSplash = () => sound.splash();
+  let glides = 0;
+  player.onGlide = (begun) => {
+    if (!begun) return;
+    sound.whoosh();
+    if (glides++ === 0) hud.toast('乘上风了。A / D 或摇杆左右转向，顺着风飞得最远', 5);
+  };
 
   let started = false;
   let zone = '';
   let saveTimer = 0;
   hud.onStart = () => {
     started = true;
+    sound.start();
     canvas.focus();
   };
+  let stride = 0;
   if (params.has('autostart')) {
     hud.skipTitle();
     started = true;
@@ -149,7 +179,7 @@ async function boot(): Promise<void> {
   if (params.has('gust')) wind.force(num('gust', 0));
 
   // Handles for automated checks; not used by the game itself.
-  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer };
+  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs };
 
   hud.ready();
   let last = performance.now() / 1000;
@@ -181,6 +211,29 @@ async function boot(): Promise<void> {
     }
     follow.update(dt, player);
     shared.uPlayer.value.copy(player.pos);
+
+    if (started) {
+      // Light orbs: walk or fly through one to gather it.
+      for (const id of orbs.update(dt, player.pos, player.gliding ? 2.6 : 1.7)) {
+        save.orbs.push(id);
+        writeSave(save);
+        hud.setOrbs(orbs.found, orbs.total, true);
+        sound.chime(orbs.found);
+        if (orbs.found === orbs.total) hud.toast('所有的光都找到了。这片土地记住了你', 8);
+        else if (orbs.found === 1) hud.toast('找到一点光。还有更多藏在高处和角落里');
+        else if (orbs.found % 10 === 0) hud.toast(`已找到 ${orbs.found} 点光`);
+      }
+      if (player.mode === 'ground' && player.speed > 0.5) {
+        stride += player.speed * dt;
+        const length = player.speed > 4.3 ? 1.75 : 0.72;
+        if (stride > length) {
+          stride = 0;
+          sound.step(player.speed > 4.3);
+        }
+      }
+      sound.update(dt, wind.gust, player.gliding ? Math.min(1, player.speed / 16) : 0);
+    }
+    life.update(dt, time, player.pos);
 
     sun.target.position.copy(player.pos);
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
