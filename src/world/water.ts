@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from '../render/glsl';
 import { shared } from '../render/uniforms';
 import { SIZE, WATER_LEVEL } from './layout';
+import { TERRAIN_HEIGHT_GLSL, heightSamplingUniforms } from './heightmap';
 import { ALPINE_LAKES, ALPINE_STREAM } from './mountain-layout';
 import { sstep } from './heightmap';
 
 /** CPU reference for checking the fragment's depth/foam/alpha/color inputs.
- * Heights come from the actual uploaded half-float texture in check-layout. */
+ * Heights come from the actual uploaded float texture in check-layout. */
 export function waterFragmentSample(ground: number, level: number, wobble = 0.5, lapPhase = 0.5): {
   depth: number; alpha: number; foam: number; color: number[];
 } {
@@ -48,6 +49,8 @@ export function createWater(heightTex: THREE.Texture, sunDir: THREE.Vector3, hor
       #include <common>
       #include <fog_pars_fragment>
       uniform sampler2D uHeight;
+      uniform float uCell;
+      uniform int uN;
       uniform vec3 uShallow;
       uniform vec3 uDeep;
       uniform vec3 uSky;
@@ -56,11 +59,12 @@ export function createWater(heightTex: THREE.Texture, sunDir: THREE.Vector3, hor
       varying vec3 vWPos;
       ${NOISE_GLSL}
       ${CLOUD_GLSL}
+      ${TERRAIN_HEIGHT_GLSL}
       void main() {
         vec2 p = vWPos.xz;
         vec2 uv = p / ${SIZE.toFixed(1)} + 0.5;
         float ground = -22.0;
-        if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ground = texture2D(uHeight, uv).r;
+        if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ground = terrainHeight(p);
         float depth = max(vWPos.y - ground, 0.0);
 
         vec3 view = normalize(cameraPosition - vWPos);
@@ -97,7 +101,7 @@ export function createWater(heightTex: THREE.Texture, sunDir: THREE.Vector3, hor
         #include <fog_fragment>
       }`,
   });
-  mat.uniforms.uHeight = { value: heightTex };
+  Object.assign(mat.uniforms, heightSamplingUniforms(heightTex));
   mat.uniforms.uSunDir = { value: sunDir };
   mat.uniforms.uTime = shared.uTime;
   mat.uniforms.uCloudDrift = shared.uCloudDrift;

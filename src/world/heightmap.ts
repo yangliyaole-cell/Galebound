@@ -224,13 +224,59 @@ export function normalAt(x: number, z: number, out: THREE.Vector3): THREE.Vector
     .normalize();
 }
 
+/**
+ * Sample the height grid with the same triangle split as the terrain mesh and
+ * heightAt(). Shaders must declare uHeight, uCell and uN.
+ */
+export const TERRAIN_HEIGHT_GLSL = /* glsl */ `
+  void terrainSample(vec2 xz, out float height, out vec3 normal) {
+    vec2 g = clamp((xz + ${HALF.toFixed(1)}) / uCell, vec2(0.0), vec2(float(uN) - 1e-4));
+    ivec2 i = ivec2(floor(g));
+    vec2 f = g - vec2(i);
+    float a = texelFetch(uHeight, i, 0).r;
+    float b = texelFetch(uHeight, i + ivec2(1, 0), 0).r;
+    float c = texelFetch(uHeight, i + ivec2(0, 1), 0).r;
+    float d = texelFetch(uHeight, i + ivec2(1, 1), 0).r;
+    height = (f.x + f.y <= 1.0)
+      ? a + (b - a) * f.x + (c - a) * f.y
+      : d + (c - d) * (1.0 - f.x) + (b - d) * (1.0 - f.y);
+    normal = normalize(f.x + f.y <= 1.0
+      ? vec3(a - b, uCell, a - c)
+      : vec3(c - d, uCell, b - d));
+  }
+  float terrainHeight(vec2 xz) {
+    float height;
+    vec3 normal;
+    terrainSample(xz, height, normal);
+    return height;
+  }
+  vec3 terrainNormal(vec2 xz) {
+    float height;
+    vec3 normal;
+    terrainSample(xz, height, normal);
+    return normal;
+  }
+`;
+
+export function heightSamplingUniforms(heightTex: THREE.Texture): {
+  uHeight: { value: THREE.Texture };
+  uCell: { value: number };
+  uN: { value: number };
+} {
+  return {
+    uHeight: { value: heightTex },
+    uCell: { value: cell },
+    uN: { value: n },
+  };
+}
+
 /** Height as a texture, so shaders can place grass and shade water depth. */
 export function createHeightTexture(): THREE.DataTexture {
-  const half = new Uint16Array(data.length);
-  for (let i = 0; i < data.length; i++) half[i] = THREE.DataUtils.toHalfFloat(data[i]);
-  const tex = new THREE.DataTexture(half, n + 1, n + 1, THREE.RedFormat, THREE.HalfFloatType);
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
+  const pixels = new Float32Array(data);
+  const tex = new THREE.DataTexture(pixels, n + 1, n + 1, THREE.RedFormat, THREE.FloatType);
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
   tex.needsUpdate = true;
   return tex;
 }
