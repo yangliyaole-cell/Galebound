@@ -1,0 +1,95 @@
+{
+ "species": {
+  "oak": {
+   "placed": 3095,
+   "triangles": [
+    7298,
+    868,
+    84
+   ],
+   "cards": [
+    1659,
+    44,
+    0
+   ]
+  },
+  "great": {
+   "placed": 3,
+   "triangles": [
+    13632,
+    1312,
+    196
+   ],
+   "cards": [
+    3620,
+    60,
+    0
+   ]
+  },
+  "blossom": {
+   "placed": 66,
+   "triangles": [
+    7286,
+    856,
+    84
+   ],
+   "cards": [
+    1659,
+    44,
+    0
+   ]
+  },
+  "cypress": {
+   "placed": 786,
+   "triangles": [
+    3886,
+    564,
+    84
+   ],
+   "cards": [
+    485,
+    24,
+    0
+   ]
+  },
+  "pine": {
+   "placed": 807,
+   "triangles": [
+    2686,
+    278,
+    36
+   ],
+   "cards": [
+    1258,
+    86,
+    0
+   ]
+  },
+  "bush": {
+   "placed": 1055,
+   "triangles": [
+    1728,
+    260,
+    20
+   ],
+   "cards": [
+    144,
+    10,
+    0
+   ]
+  },
+  "rock": {
+   "placed": 2624,
+   "triangles": [
+    80,
+    80,
+    20
+   ],
+   "cards": [
+    0,
+    0,
+    0
+   ]
+  }
+ }
+}
