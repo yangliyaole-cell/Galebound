@@ -33,6 +33,8 @@ try {
   const M = await load('world/mountain-layout');
   const geology = await load('world/scenes/geology');
   const glacier = await load('world/scenes/glacier');
+  const surface=await load('world/scenes/surface');
+  const waterfalls=await load('world/scenes/waterfalls');
   assert.ok(scenes, 'production mountain scenery did not register the new scenes');
   const counts = scenes.userData.sceneCounts, solids = G.sceneSolids;
   const fingerprint = createHash('sha256');
@@ -120,7 +122,7 @@ try {
     });
     assert.ok(blue>10&&white>10,`${blue} blue, ${white} white vertices`);
     for(const [x,z] of P.GLACIER_SPINE.slice(1,-1)){
-      const hits=new THREE.Raycaster(new THREE.Vector3(x,H.heightAt(x,z)+10,z),new THREE.Vector3(0,-1,0)).intersectObject(scenes,true);
+      const hits=new THREE.Raycaster(new THREE.Vector3(x,surface.alpineHeight(x,z)+16,z),new THREE.Vector3(0,-1,0)).intersectObject(scenes,true);
       assert.ok(hits.some(h=>h.point.y>H.heightAt(x,z)+.1&&h.face.normal.y>0),'buried or back-facing ice');
     }
     return `${blue} blue / ${white} white vertices`;
@@ -142,10 +144,10 @@ try {
     assert.ok(Math.max(...widths)>Math.min(...widths)*1.5,'repeated equal-width crevasses');
     return `${ridges} crests; ${stats.rockVertices} exposed rock / ${stats.snowVertices} snow vertices; cracks ${deepest.toFixed(2)}m deep`;
   });
-  check('bedrock buttresses and talus are grounded, bridge piers meet masonry proportions', () => {
-    assert.ok(counts.buttresses>0&&counts.talus>0);
+  check('detached wall blocks are absent, whole rock bases are embedded, bridge proportions retained', () => {
+    assert.equal(counts.buttresses,0);assert.ok(counts.talus>0);
     assert.ok(G.rockContacts.length>=counts.rocks);
-    for(const p of G.rockContacts)assert.ok(Number.isFinite(p.gap)&&p.gap<.05,`floating rock at ${p.x},${p.z}`);
+    for(const p of G.rockContacts)assert.ok(Number.isFinite(p.gap)&&p.gap<=0,`unsupported lower vertex at ${p.x},${p.z}`);
     const v=P.VIADUCT,bay=Math.hypot(v.bx-v.ax,v.bz-v.az)/v.bays;
     assert.ok(v.pierWidth/bay>=.25&&v.lowerDeck>35&&v.lowerDeck<v.deck-30);
     assert.ok(C.surfaceTop(-803,-971)>=H.heightAt(-803,-971)+.2,'snow mantle does not exclude shared floating pebbles');
@@ -159,7 +161,7 @@ try {
       if(kind.getX(i)===2){cloud++;assert.ok(seeds.getY(i)<=90);assert.ok(seeds.getX(i)<-845||seeds.getX(i)>-470,'cloud in main waterfall sightline');}
       if(kind.getX(i)===0){spray++;assert.ok(seeds.getW(i)<=3.5);}
     }
-    assert.ok(cloud>0&&spray<=35);assert.ok(mesh.material.uniforms.uCloudWeight.value<=1);
+    assert.ok(cloud>0&&spray<=(detail===2?47:21));assert.ok(mesh.material.uniforms.uCloudWeight.value<=1);
     return `${cloud} small cloud puffs on valley flanks; ${spray} low spray cards`;
   });
   check('waygate opening and meadow photo stances clear solid geometry', () => {
@@ -187,14 +189,14 @@ try {
   const life = (await load('world/life')).createLife(village.info, city.info, 7);
   life.update(1/60, 0, new THREE.Vector3(L.START.x, 40, L.START.z));
   const {Player}=await load('player/controller'),{FollowCamera}=await load('player/camera');
-  const replayShot=(x,z,up,yaw,pitch)=>{
+  const replayShot=(x,z,up,yaw,pitch,dist=8.5)=>{
     const player=Object.assign(Object.create(Player.prototype),{
       pos:new THREE.Vector3(x,C.supportHeight(x,z,Infinity,0)+up,z),vel:new THREE.Vector3(),yaw:Math.PI,mode:up>.5?'air':'ground',
       coyote:0,landTimer:0,glideLock:0,glideSpeed:0,glideTime:0,turn:0,dive:0,lift:0,normal:new THREE.Vector3(),state:{wind:new THREE.Vector3()},
       character:{root:new THREE.Object3D(),update(){}},onJump(){},onLand(){},onGlide(){},onSplash(){},
     });
     const camera=new THREE.PerspectiveCamera(55,16/9,.3,7000),follow=new FollowCamera(camera,false);
-    follow.yaw=yaw;follow.pitch=pitch;follow.distance=8.5;
+    follow.yaw=yaw;follow.pitch=pitch;follow.distance=dist;
     const idle={moveX:0,moveY:0,run:false,takeJump:()=>false},wind={gust:0,dir:new THREE.Vector2(0,-1),velocity:new THREE.Vector3()};
     for(let i=0;i<90;i++){player.update(1/60,12,idle,follow.yaw,wind);follow.update(1/60,player);}
     camera.updateMatrixWorld(true);return {player,camera};
@@ -206,11 +208,60 @@ try {
     return `player (${player.pos.toArray().map(x=>x.toFixed(2)).join(',')}), camera (${camera.position.toArray().map(x=>x.toFixed(2)).join(',')})`;
   });
   check('reframed glacier photo includes all three principal peak tips',()=>{
-    const {camera}=replayShot(-420,-250,140,.54,-.16);
+    const {camera}=replayShot(-835,-250,40,.15,-.155);
     for(const peak of P.GLACIAL_HORNS){const p=new THREE.Vector3(peak.x,H.heightAt(peak.x,peak.z)+.24,peak.z).project(camera);
       assert.ok(Math.abs(p.x)<1&&Math.abs(p.y)<1&&p.z<1,`peak outside shot (${p.toArray()})`);}
     return `eye (${camera.position.toArray().map(x=>x.toFixed(2)).join(',')})`;
   });
+  const opaque=[];
+  for(const root of [village.object,landmarks.object,city.object,abbey,terrain]){
+    root.updateMatrixWorld(true);root.traverse(o=>{if(o.isMesh&&!o.geometry.isInstancedBufferGeometry&&!Array.isArray(o.material)&&!o.material.transparent)opaque.push(o);});
+  }
+  const fallVisibility=(camera)=>{
+    let visible=0,total=0;const details=[];
+    for(const t of [.12,.35,.6,.85])for(const side of [-.55,.55]){
+      const p=waterfalls.waterfallPoint(P.SHOWCASE_FALL,t,side),screen=p.clone().project(camera),distance=p.distanceTo(camera.position);
+      const ray=new THREE.Raycaster(camera.position,p.clone().sub(camera.position).normalize(),.3,distance-.6);
+      const inFrame=Math.abs(screen.x)<.95&&Math.abs(screen.y)<.95;
+      const hits=inFrame?ray.intersectObjects(opaque,false):[];
+      const clear=inFrame&&hits.length===0;if(clear)visible++;total++;
+      details.push({t,side,inFrame,blocker:hits[0]?.object.name??'',gap:hits[0]?distance-hits[0].distance:0});
+    }return {visible,total,details};
+  };
+  check('glacier framing carries the exposed valley river between foreground banks and distant peaks',()=>{
+    const {camera}=replayShot(-835,-250,40,.15,-.155);let clear=0,framed=0;
+    for(let i=0;i<M.ALPINE_STREAM.length;i+=26){
+      const p=M.ALPINE_STREAM[i].clone().add(new THREE.Vector3(0,.2,0)),q=p.clone().project(camera);
+      if(Math.abs(q.x)>1||Math.abs(q.y)>1)continue;framed++;
+      const ray=new THREE.Raycaster(camera.position,p.clone().sub(camera.position).normalize(),.3,p.distanceTo(camera.position)-.6);
+      if(!ray.intersectObjects(opaque,false).length)clear++;
+    }
+    assert.ok(clear>=3,`${clear}/${framed} river waypoints exposed`);return `${clear}/${framed} river waypoints exposed`;
+  });
+  check('foreground waterfall is wide, layered and visible from the scene-04 capture',()=>{
+    assert.ok(P.SHOWCASE_FALL.z>P.VIADUCT.az&&P.SHOWCASE_FALL.z>P.VIADUCT.bz);
+    assert.ok(P.SHOWCASE_FALL.width>=30);assert.ok(waterfalls.waterfallStats.heroLayers>=(detail===2?8:detail===1?4:1));
+    assert.ok(H.heightAt(P.PLUNGE_POOL.x,P.PLUNGE_POOL.z)<P.PLUNGE_POOL.level-2);
+    assert.equal(M.waterLevelAt(P.PLUNGE_POOL.x,P.PLUNGE_POOL.z),P.PLUNGE_POOL.level);
+    const {camera}=replayShot(-705,-590,100,.7,.1,6),result=fallVisibility(camera);
+    assert.ok(result.visible>=6,JSON.stringify(result));
+    return `${result.visible}/${result.total} water samples clear; eye ${camera.position.toArray().map(x=>x.toFixed(1))}; ${waterfalls.waterfallStats.heroLayers} layers`;
+  });
+  if(process.argv.includes('--views')){
+    for(const [x,z,up] of [[-835,-250,40],[-835,-300,30],[-815,-210,45],[-850,-250,20]]){
+      for(const pitch of [-.2,-.155,-.11]){
+        const yaw=Math.atan2(x+803,971+z),{camera}=replayShot(x,z,up,yaw,pitch);
+        const features=[...P.GLACIAL_HORNS.map(p=>new THREE.Vector3(p.x,H.heightAt(p.x,p.z),p.z)),...M.ALPINE_STREAM.filter((_,i)=>i%26===0)];
+        let clearRiver=0;
+        for(const p of features.slice(3)){
+          const q=p.clone().project(camera);if(Math.abs(q.x)>1||Math.abs(q.y)>1)continue;
+          const ray=new THREE.Raycaster(camera.position,p.clone().sub(camera.position).normalize(),.3,p.distanceTo(camera.position)-.6);
+          if(!ray.intersectObjects(opaque,false).length)clearRiver++;
+        }
+        console.log('VIEW '+JSON.stringify({x,z,up,yaw,pitch,clearRiver,eye:camera.position.toArray(),projections:features.map(p=>p.clone().project(camera).toArray())}));
+      }
+    }
+  }
   const roots = [village.object, landmarks.object, city.object, abbey, terrain, water, grass, crops, life.object];
   const after = measure(roots, scatter, D.updateStructureDetails);
   scenes.visible = false; const withoutScenes = measure(roots, scatter, D.updateStructureDetails); scenes.visible = true;

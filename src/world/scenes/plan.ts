@@ -9,6 +9,9 @@ export const GLACIER_SPINE = [
   [-804, -871, 23, 242], [-789, -850, 18, 224], [-780, -836, 13, 216],
 ] as const;
 export const GREAT_FALL = { x: -780, z: -836, y: 216, bx: -750, bz: -792, bottom: 116, width: 21 };
+/** The western meltwater branch falls in FRONT of the long bridge. */
+export const SHOWCASE_FALL = { x: -827, z: -739, y: 148, bx: -778, bz: -678, bottom: 62, width: 34 };
+export const PLUNGE_POOL = { x: -774, z: -675, rx: 23, rz: 16, level: 62 };
 export const VIADUCT = { ax: -770, az: -778, bx: -358, bz: -748, bays: 15, deck: 130, width: 7.6, pierWidth: 8.4, lowerDeck: 66 };
 export const WAYGATE = { x: -39, z: 70, width: 7.6, height: 10.8 };
 export const MEADOW_ROCKS = [

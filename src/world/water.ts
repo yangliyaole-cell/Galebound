@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from '../render/glsl';
 import { shared } from '../render/uniforms';
 import { SIZE, WATER_LEVEL } from './layout';
-import { ALPINE_LAKES, ALPINE_STREAM } from './mountain-layout';
+import { ALPINE_LAKES, ALPINE_STREAM, SHOWCASE_STREAM } from './mountain-layout';
+import { PLUNGE_POOL } from './scenes/plan';
 import { sstep } from './heightmap';
 
 /** CPU reference for checking the fragment's depth/foam/alpha/color inputs.
@@ -108,15 +109,15 @@ export function createWater(heightTex: THREE.Texture, sunDir: THREE.Vector3, hor
   // Lake fans and a descending ribbon share one shader/material and one extra draw call.
   const positions: number[] = [];
   const tri = (...v: THREE.Vector3[]): void => { for (const p of v) positions.push(p.x, p.y, p.z); };
-  for (const l of ALPINE_LAKES) {
+  for (const l of [...ALPINE_LAKES,PLUNGE_POOL]) {
     const rim = (a: number): THREE.Vector3 => {
       const r = 1.22 * (1 + 0.09 * Math.sin(3 * a + l.x) + 0.05 * Math.cos(5 * a));
       return new THREE.Vector3(l.x + Math.cos(a) * l.rx * r, l.level, l.z + Math.sin(a) * l.rz * r);
     };
     for (let k = 0; k < 56; k++) tri(new THREE.Vector3(l.x, l.level, l.z), rim((k + 1) / 56 * Math.PI * 2), rim(k / 56 * Math.PI * 2));
   }
-  for (let i = 0; i < ALPINE_STREAM.length - 1; i++) {
-    const a = ALPINE_STREAM[i], b = ALPINE_STREAM[i + 1];
+  for (const stream of [ALPINE_STREAM,SHOWCASE_STREAM]) for (let i = 0; i < stream.length - 1; i++) {
+    const a = stream[i], b = stream[i + 1];
     const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
     const nx = -dz / len * 6.4, nz = dx / len * 6.4;
     const a1 = new THREE.Vector3(a.x + nx, a.y, a.z + nz), a2 = new THREE.Vector3(a.x - nx, a.y, a.z - nz);

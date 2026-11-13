@@ -1,19 +1,20 @@
 import * as THREE from 'three';
 import { Builder, place } from '../build';
-import { heightAt, normalAt } from '../heightmap';
+import { normalAt } from '../heightmap';
 import { roadClearance } from '../layout';
 import { waterLevelAt, alpineChannel } from '../mountain-layout';
 import { seededRandom } from '../noise';
 import { builtHouses } from '../structures/house';
 import { addRound } from '../colliders';
 import { sceneSolids } from './geometry';
+import { alpineHeight } from './surface';
 
 /** Independent bank forest; never changes the shared tree scatter or its LODs. */
 export function addCanyonConifers(b: Builder, detail: number, count: number): number {
   const rand = seededRandom(14193), normal = new THREE.Vector3(); let planted = 0;
   for (let attempt = 0; planted < count && attempt < count * 35; attempt++) {
     const x = -878 + rand() * 260, z = -813 + rand() * 325;
-    const y = heightAt(x, z), channel = alpineChannel(x, z);
+    const y = alpineHeight(x, z), channel = alpineChannel(x, z);
     if (channel.distance < 17 || channel.distance > 110 || y < waterLevelAt(x, z) + 4 || y > 205) continue;
     if (roadClearance(x, z) < 7 || normalAt(x, z, normal).y < 0.76 || Math.hypot(x + 600, z + 495) < 72) continue;
     if (builtHouses.some((h) => Math.hypot(h.spec.x - x, h.spec.z - z) < 12)) continue;

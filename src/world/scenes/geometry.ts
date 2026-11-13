@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Builder, place } from '../build';
 import { addRound } from '../colliders';
 import { fbm } from '../noise';
-import { heightAt } from '../heightmap';
+import { alpineHeight } from './surface';
 
 export const sceneSolids: { kind: string; x: number; z: number; radius: number }[] = [];
 export const rockContacts: { x: number; z: number; gap: number }[] = [];
@@ -27,14 +27,14 @@ export function landscapeRock(b: Builder, x: number, y: number, z: number, radiu
   // the centre sample. A sphere centred on a steep bank otherwise floats.
   let centreY = y + radius * 0.3;
   if (collider) {
-    let touch = -Infinity;
+    let touch = Infinity;
     for (let i = 0; i < p.count; i++) if (normal.getY(i) < -0.2) {
-      touch = Math.max(touch, heightAt(x + p.getX(i), z + p.getZ(i)) - p.getY(i));
+      touch = Math.min(touch, alpineHeight(x + p.getX(i), z + p.getZ(i)) - p.getY(i));
     }
-    centreY = touch - radius * 0.32;
-    let gap = Infinity;
-    for (let i = 0; i < p.count; i++) if (normal.getY(i) < -0.2) gap = Math.min(gap,
-      centreY + p.getY(i) - heightAt(x + p.getX(i), z + p.getZ(i)));
+    centreY = touch - radius * 0.06;
+    let gap = -Infinity;
+    for (let i = 0; i < p.count; i++) if (normal.getY(i) < -0.2) gap = Math.max(gap,
+      centreY + p.getY(i) - alpineHeight(x + p.getX(i), z + p.getZ(i)));
     rockContacts.push({ x, z, gap });
   }
   b.add('stone', g, 0xa3a99c, place(x, centreY, z), 0.18);

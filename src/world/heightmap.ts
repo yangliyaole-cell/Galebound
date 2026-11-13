@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { fbm } from './noise';
 import { referenceLandform } from './scenes/landform';
 import { hornMetric, rockRelief } from './scenes/geology';
-import { ALPINE_LAKES, alpineLakeMetric, alpineChannel, waterLevelAt } from './mountain-layout';
+import { ALPINE_LAKES, alpineLakeMetric, alpineChannel, showcaseChannel, waterLevelAt } from './mountain-layout';
+import { PLUNGE_POOL, SHOWCASE_FALL } from './scenes/plan';
 import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, ROADS, SIZE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -120,6 +121,20 @@ function analyticHeight(x: number, z: number): number {
     const stream = alpineChannel(x, z);
     const lakeRim = Math.min(...ALPINE_LAKES.map((lake) => alpineLakeMetric(x, z, lake)));
     if (stream.distance > 12 && lakeRim > 1.13 && h > 22) h += rockRelief(x, h, z) * 2.1;
+  }
+  if(x > -885 && x < -715 && z > -820 && z < -635){
+    const f=SHOWCASE_FALL,dx=f.bx-f.x,dz=f.bz-f.z,len=Math.hypot(dx,dz);
+    const t=((x-f.x)*dx+(z-f.z)*dz)/(len*len),d=Math.abs((x-f.x)*dz-(z-f.z)*dx)/len;
+    // Cut a broad hanging face, then let the airborne water descend clear of it.
+    if(t>=-.22&&t<=1.12&&d<f.width*.8){
+      const face=f.y-2-(f.y-f.bottom+3)*sstep(.04,.55,Math.max(0,t));
+      const weight=1-sstep(f.width*.48,f.width*.8,d);
+      h=lerp(h,t<0?Math.max(h,f.y-2):Math.min(h,face),weight);
+    }
+    const pool=Math.hypot((x-PLUNGE_POOL.x)/PLUNGE_POOL.rx,(z-PLUNGE_POOL.z)/PLUNGE_POOL.rz);
+    if(pool<1.4)h=lerp(h,PLUNGE_POOL.level-5+5*sstep(.35,1.2,pool),1-sstep(.95,1.4,pool));
+    const flow=showcaseChannel(x,z);
+    if(flow.distance<12)h=lerp(flow.level-2.7,h,sstep(3.8,12,flow.distance));
   }
   return h;
 }

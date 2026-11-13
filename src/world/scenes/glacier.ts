@@ -4,69 +4,62 @@ import { heightAt } from '../heightmap';
 import { fbm } from '../noise';
 import { GLACIER_SPINE } from './plan';
 import { ribbon } from './geometry';
-import { iceFracture, snowRetention } from './geology';
+import { ease, iceFracture, snowRetention } from './geology';
+import { alpineHeight, alpineEnvelope, retainAlpineSurfaceGrid } from './surface';
+import { waterLevelAt } from '../mountain-layout';
 import { addBox } from '../colliders';
 
 export const alpineSurfaceStats = { rockVertices: 0, snowVertices: 0, steepSnowVertices: 0 };
 
-/** Continuous rock/snow mantle: snow accumulates on shelves and exposes steep faces. */
+/** A sub-metre displaced high mesh with shared, continuously differentiated normals. */
 function addAlpineSurface(b: Builder, detail: number): void {
-  alpineSurfaceStats.rockVertices = 0; alpineSurfaceStats.snowVertices = 0; alpineSurfaceStats.steepSnowVertices = 0;
-  const step = detail === 2 ? 2 : detail === 1 ? 6 : 12;
-  const vertices: number[] = [], normals: number[] = [];
-  const at = (x: number, z: number): number[] => [x, heightAt(x, z) + 0.24, z];
-  for (let z = -1018; z < -452; z += step) for (let x = -1018; x < -305; x += step) {
-    const y = heightAt(x + step / 2, z + step / 2);
-    const canyon = x > -855 && x < -635 && z > -820;
-    if (z >= -730 && !canyon || y < (canyon ? 25 : 145)) continue;
-    if (canyon && y < 145) {
-      const ny = 2 / Math.hypot(heightAt(x - 1, z) - heightAt(x + 1, z), 2, heightAt(x, z - 1) - heightAt(x, z + 1));
-      if (ny > 0.78) continue;
+  alpineSurfaceStats.rockVertices=0;alpineSurfaceStats.snowVertices=0;alpineSurfaceStats.steepSnowVertices=0;
+  const step=detail===2?.75:detail===1?6:12, nx=Math.ceil(714/step),nz=Math.ceil(566/step),row=nx+1;
+  const positions=new Float32Array(row*(nz+1)*3),heights=new Float32Array(row*(nz+1));
+  const normals=new Float32Array(positions.length),colors=new Float32Array(positions.length),snowAmount=new Float32Array(row*(nz+1)),indices:number[]=[];
+  for(let j=0;j<=nz;j++)for(let i=0;i<=nx;i++){
+    const k=j*row+i,x=-1018+714*i/nx,z=-1018+566*j/nz;
+    const h=alpineHeight(x,z);heights[k]=h;positions.set([x,h,z],k*3);
+  }
+  retainAlpineSurfaceGrid(nx,nz,heights);
+  const sample=(i:number,j:number):number=>heights[Math.max(0,Math.min(nz,j))*row+Math.max(0,Math.min(nx,i))];
+  const dx=714/nx,dz=566/nz,r=Math.max(1,Math.round(9/step));
+  const rock=new THREE.Color(),warm=new THREE.Color(0xa49a83),cool=new THREE.Color(0x657c8c),snow=new THREE.Color(0xecf1ed),green=new THREE.Color(0x758653);
+  const normal=new THREE.Vector3(),macroNormal=new THREE.Vector3();
+  for(let j=0;j<=nz;j++)for(let i=0;i<=nx;i++){
+    const k=j*row+i,x=positions[k*3],y=positions[k*3+1],z=positions[k*3+2];
+    normal.set((sample(i-1,j)-sample(i+1,j))/dx,2,(sample(i,j-1)-sample(i,j+1))/dz).normalize();
+    normals.set(normal.toArray(),k*3);
+    macroNormal.set((sample(i-r,j)-sample(i+r,j))/(r*dx),2,(sample(i,j-r)-sample(i,j+r))/(r*dz)).normalize();
+    const concavity=Math.max(-1,Math.min(1,((sample(i-r,j)+sample(i+r,j)+sample(i,j-r)+sample(i,j+r))*.25-y)/3));
+    const band=fbm(x/17+y/11,z/23-y/29,3),grain=fbm(x*.8+y*.11,z*.9,2);
+    rock.copy(cool).lerp(warm,band).multiplyScalar(.79+grain*.28);
+    const meadow=(1-ease(100,165,y))*ease(.58,.92,macroNormal.y);
+    rock.lerp(green,meadow*.82);
+    const cover=snowRetention(x,y,z,macroNormal.y,macroNormal.z,concavity);
+    snowAmount[k]=cover;
+    if(alpineEnvelope(x,z)>.015&&y>waterLevelAt(x,z)+.5){
+      if(cover<.2)alpineSurfaceStats.rockVertices++;
+      if(cover>.8)alpineSurfaceStats.snowVertices++;
+      if(macroNormal.y<.16&&cover>.1)alpineSurfaceStats.steepSnowVertices++;
     }
-    const x1 = Math.min(-304, x + step), z1 = Math.min(-452, z + step);
-    const a = at(x, z), c = at(x, z1), d = at(x1, z), e = at(x1, z1);
-    vertices.push(...a, ...c, ...d, ...d, ...c, ...e);
+    rock.lerp(snow,cover);colors.set(rock.toArray(),k*3);
+    if(i===nx||j===nz)continue;
+    const x1=-1018+714*(i+.5)/nx,z1=-1018+566*(j+.5)/nz,h=heightAt(x1,z1);
+    if(alpineEnvelope(x1,z1,h)<.015||h<waterLevelAt(x1,z1)+.5)continue;
+    indices.push(k,k+row,k+1,k+1,k+row,k+row+1);
   }
-  // The physical mantle makes the shared scatter's existing surfaceTop exclusion
-  // reject loose pebbles on the snow/rock shell. No scatter code or RNG is changed.
-  addBox(-661, -874, 357, 144, 0, (lx, lz) => {
-    const h = heightAt(-661 + lx, -874 + lz); return h + (h > 145 ? 0.24 : 0);
-  });
-  addBox(-745, -636, 110, 184, 0, (lx, lz) => {
-    const x = -745 + lx, z = -636 + lz, h = heightAt(x, z);
-    const ny = 2 / Math.hypot(heightAt(x - 1, z) - heightAt(x + 1, z), 2, heightAt(x, z - 1) - heightAt(x, z + 1));
-    return h + (h > 25 && ny < 0.78 ? 0.24 : 0);
-  });
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  g.computeVertexNormals();
-  // Preserve sharp dihedral ridge normals while avoiding a uniform flat-shaded grid.
-  const p = g.attributes.position, n = g.attributes.normal;
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), z = p.getZ(i), h = heightAt(x, z);
-    const normal = new THREE.Vector3(heightAt(x - 1, z) - heightAt(x + 1, z), 2, heightAt(x, z - 1) - heightAt(x, z + 1)).normalize();
-    const face = new THREE.Vector3(n.getX(i), n.getY(i), n.getZ(i));
-    normal.lerp(face, normal.y < 0.62 ? 0.65 : 0.08).normalize(); normals.push(normal.x, normal.y, normal.z);
-    if (!Number.isFinite(h)) throw new Error('Non-finite alpine mantle');
-  }
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  b.add('plain', g, 0xffffff);
-  const colors = g.attributes.color, rock = new THREE.Color(), snow = new THREE.Color(0xe9f0f1);
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), ny = g.attributes.normal.getY(i);
-    const strata = fbm(x / 14 + y / 9, z / 17 - y / 31, 3);
-    rock.set(0x68788b).multiplyScalar(0.65 + strata * 0.65);
-    const cover = snowRetention(x, y, z, ny);
-    if (cover < 0.2) alpineSurfaceStats.rockVertices++;
-    if (cover > 0.8) alpineSurfaceStats.snowVertices++;
-    if (ny < 0.48 && cover > 0.1) alpineSurfaceStats.steepSnowVertices++;
-    const tint = rock.lerp(snow, cover);
-    colors.setXYZ(i, tint.r, tint.g, tint.b);
-  }
+  const indexed=new THREE.BufferGeometry();indexed.setAttribute('position',new THREE.BufferAttribute(positions,3));
+  indexed.setAttribute('normal',new THREE.BufferAttribute(normals,3));indexed.setAttribute('color',new THREE.BufferAttribute(colors,3));indexed.setIndex(indices);
+  if(detail===2)indexed.setAttribute('aSnow',new THREE.BufferAttribute(snowAmount,1));
+  const g=indexed.toNonIndexed(),tint=g.attributes.color;indexed.dispose();b.add('plain',g,0xffffff);g.setAttribute('color',tint);
+  addBox(-661,-874,357,144,0,(lx,lz)=>alpineHeight(-661+lx,-874+lz));
+  addBox(-769,-636,136,184,0,(lx,lz)=>alpineHeight(-769+lx,-636+lz));
 }
 
 /** A domed body of ice with recessed, independently surveyed crevasses. */
-export function addGlacier(b: Builder, detail: number): void {
-  addAlpineSurface(b, detail);
+export function addGlacier(b: Builder, detail: number, geology: Builder=b): void {
+  addAlpineSurface(geology, detail);
   const curve = new THREE.CatmullRomCurve3(GLACIER_SPINE.map(([x, z]) => new THREE.Vector3(x, 0, z)));
   const count = detail === 2 ? 240 : detail === 1 ? 90 : 40;
   const points = curve.getPoints(count);
@@ -77,7 +70,7 @@ export function addGlacier(b: Builder, detail: number): void {
   const indexed = ribbon(points, widths, detail === 2 ? 64 : detail === 1 ? 18 : 8, (x, z, _t, u) => {
     const dome = (1 - u * u) * (detail === 0 ? 5 : 8.5);
     const fracture = iceFracture(x, z);
-    return heightAt(x, z) + 0.4 + dome - fracture.depth * (1 - u * u);
+    return alpineHeight(x, z) + 0.4 + dome - fracture.depth * (1 - u * u);
   });
   const g = indexed.toNonIndexed(); indexed.dispose(); b.add('plain', g, 0xd8eef0);
   const p = g.attributes.position, colors = g.attributes.color, tint = new THREE.Color();
