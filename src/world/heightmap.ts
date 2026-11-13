@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { fbm } from './noise';
 import { ALPINE_LAKES, alpineLakeMetric, alpineChannel, waterLevelAt } from './mountain-layout';
-import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, ROADS, SIZE, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
+import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, ROADS, SIZE, START, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const clamp = (x: number, a: number, b: number): number => Math.min(b, Math.max(a, x));
@@ -125,6 +125,7 @@ export function buildHeightmap(cellSize: number): void {
  * 0.72 grade. Work only in narrow road corridors, never across an open water bed. */
 function gradeRoadbeds(): void {
   const row = n + 1;
+  const core = new Set<number>();
   for (const road of ROADS) {
     if (road.bridge) continue;
     const heights = road.pts.map(([x, z]) => heightAt(x, z));
@@ -136,9 +137,10 @@ function gradeRoadbeds(): void {
       const a = road.pts[i], b = road.pts[i + 1];
       heights[i] = Math.max(heights[i], heights[i + 1] - 0.72 * Math.hypot(b[0] - a[0], b[1] - a[1]));
     }
+    const grades = new Map<number, { d: number; target: number; reach: number }>();
     for (let i = 0; i < road.pts.length - 1; i++) {
       const a = road.pts[i], b = road.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1];
-      const reach = Math.max(road.widths[i], road.widths[i + 1]) / 2 + 5;
+      const reach = Math.max(road.widths[i], road.widths[i + 1]) / 2 + cell * 2 + 4;
       const x0 = Math.max(0, Math.floor((Math.min(a[0], b[0]) - reach + HALF) / cell));
       const x1 = Math.min(n, Math.ceil((Math.max(a[0], b[0]) + reach + HALF) / cell));
       const z0 = Math.max(0, Math.floor((Math.min(a[1], b[1]) - reach + HALF) / cell));
@@ -148,12 +150,40 @@ function gradeRoadbeds(): void {
         const t = clamp(((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1), 0, 1);
         const d = Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t);
         const o = j * row + k;
-        if (d >= reach || data[o] < waterLevelAt(x, z) + 0.3) continue;
+        if (d >= reach || data[o] < waterLevelAt(x, z) + 0.3 || Math.hypot(x - START.x, z - START.z) < 80) continue;
+        if (d < Math.max(road.widths[i], road.widths[i + 1]) / 2 + cell * 1.5) core.add(o);
         const target = heights[i] + (heights[i + 1] - heights[i]) * t;
-        data[o] = Math.max(data[o], lerp(data[o], target, 1 - sstep(reach - 4, reach, d)));
+        if (d < (grades.get(o)?.d ?? Infinity)) grades.set(o, { d, target, reach });
       }
     }
+    for (const [o, g] of grades) data[o] = lerp(data[o], g.target, 1 - sstep(g.reach - cell, g.reach, g.d));
   }
+  // At junctions two independently graded lanes must agree. A max-heap propagates
+  // the minimum necessary embankment through the road-core grid (O(N log N)).
+  const heap: [number, number][] = [];
+  const push = (o: number, h: number): void => {
+    let i = heap.length; heap.push([o, h]);
+    while (i > 0) { const p = (i - 1) >> 1; if (heap[p][1] >= h) break; heap[i] = heap[p]; i = p; }
+    heap[i] = [o, h];
+  };
+  for (const o of core) push(o, data[o]);
+  while (heap.length) {
+    const [o, h] = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      let i = 0;
+      while (i * 2 + 1 < heap.length) {
+        let c = i * 2 + 1; if (c + 1 < heap.length && heap[c + 1][1] > heap[c][1]) c++;
+        if (heap[c][1] <= last[1]) break; heap[i] = heap[c]; i = c;
+      }
+      heap[i] = last;
+    }
+    if (h < data[o] - 0.0001) continue;
+    for (const q of [o - 1, o + 1, o - row, o + row]) {
+      const target = h - cell * 0.52;
+      if (core.has(q) && data[q] < target - 0.0001) { data[q] = target; push(q, data[q]); }
+    }
+  }
+
 }
 
 export function grid(): { cell: number; n: number; data: Float32Array } {

@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { shared } from '../render/uniforms';
 import { Builder } from './build';
 import { heightAt, normalAt } from './heightmap';
-import { roadClearance } from './layout';
+import { roadClearance, smooth } from './layout';
 import { MOUNTAIN_HAMLETS, WATERFALLS, waterLevelAt } from './mountain-layout';
 import { seededRandom } from './noise';
 import { addHouse } from './structures/house';
@@ -28,10 +28,28 @@ export function buildMountainScenery(): THREE.Group {
       }, rand);
       taken.push({ x, z });
       // A gently rising plume over each stone cottage's roof.
-      smoke.push([x, h.topY + 1.4, z, 0.9]);
+      const u = h.spec.ridgeAlongFront ? h.spec.w * 0.27 : -h.spec.w * 0.2;
+      const v = h.spec.ridgeAlongFront ? -h.spec.d * 0.18 : h.spec.d * 0.2;
+      const c = Math.cos(h.spec.rot), s = Math.sin(h.spec.rot);
+      smoke.push([x + u * c + v * s, h.topY + 1.4, z - u * s + v * c, 0.9]);
     }
     group.userData[`hamlet:${village.x},${village.z}`] = taken.length;
   }
+  // A pale blue glacier tongue follows the high western rock, merged with the villages.
+  const icePath = smooth([[-941, -805], [-910, -818], [-875, -824], [-833, -814], [-803, -797], [-764, -783]], 5);
+  const ice: number[] = [];
+  for (let i = 0; i < icePath.length - 1; i++) {
+    const a = icePath[i], c = icePath[i + 1], dx = c[0] - a[0], dz = c[1] - a[1], len = Math.hypot(dx, dz);
+    const width = 5 + 9 * Math.sin(i / icePath.length * Math.PI);
+    const v = (p: number[], side: number): number[] => {
+      const x = p[0] - dz / len * width * side, z = p[1] + dx / len * width * side;
+      return [x, heightAt(x, z) + 0.45, z];
+    };
+    const a1 = v(a, -1), a2 = v(a, 1), c1 = v(c, -1), c2 = v(c, 1);
+    ice.push(...a1, ...a2, ...c1, ...a2, ...c2, ...c1);
+  }
+  const glacier = new THREE.BufferGeometry(); glacier.setAttribute('position', new THREE.Float32BufferAttribute(ice, 3)); glacier.computeVertexNormals();
+  b.add('plain', glacier, 0xa6d5e4);
   group.add(b.build(false));
   const falls: THREE.BufferGeometry[] = [];
   for (const f of WATERFALLS) {

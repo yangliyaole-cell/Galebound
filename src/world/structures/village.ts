@@ -27,6 +27,7 @@ function well(b: Builder, x: number, z: number): void {
   b.roof(x, y + 2.95, z, 1.9, 2.6, 0.8, Math.PI / 2, 0xb9553a, 0.25);
   b.cyl('wood', x + 0.25, y + 1.5, z, 0.2, 0.17, 0.32, 0x7a5a3c, 8, 0);
   addRound(x, z, 1.25, y + 0.95);
+  addBox(x, z, 0.95, 1.3, Math.PI / 2, (lx) => y + 2.95 + 0.8 * Math.max(0, 1 - Math.abs(lx) / 0.95), y + 2.95);
 }
 
 export function stall(b: Builder, x: number, z: number, rot: number, awning: number, rand: () => number): void {

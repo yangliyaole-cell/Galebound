@@ -9,7 +9,7 @@ import { beam } from './common';
 
 const STONE = 0xd4c9b4, WARM = 0xe9dcc0, SLATE = 0x5b708b;
 const glassColors = [0xca454b, 0x467ec9, 0xe6b64e, 0x4eaf87];
-export const ABBEY_ENTRY = { x: ABBEY.x, z: ABBEY.z + 37, facing: '+Z (south)', width: 6.8 };
+export const ABBEY_ENTRY = { x: ABBEY.x, z: ABBEY.entranceZ, facing: '+Z (south)', width: 6.8 };
 export const ABBEY_INTERIOR_RANGE = 155;
 /** A pointed window shape with its foot at y=0. */
 function lancet(w: number, h: number): THREE.Shape {
@@ -44,12 +44,12 @@ export function buildAbbey(): THREE.Group {
     wall.moveTo(-35, y - 0.5); wall.lineTo(35, y - 0.5); wall.lineTo(35, y + 16); wall.lineTo(-35, y + 16); wall.closePath();
     for (let k = -3; k <= 3; k++) {
       const u = k * 9;
-      const hole = lancet(3.8, 9.2);
-      const pts = hole.getPoints(12).map((p) => new THREE.Vector2(p.x + u, p.y + y + 4));
+      const hole = k === 1 ? lancet(8, 14) : lancet(3.8, 9.2);
+      const pts = hole.getPoints(12).map((p) => new THREE.Vector2(p.x + u, p.y + y + (k === 1 ? 0 : 4)));
       wall.holes.push(new THREE.Path(pts));
       const gz = z - u;
       // The local shape XY plane is turned into a north-south wall.
-      for (let pane = 0; pane < 4; pane++) {
+      for (let pane = 0; k !== 1 && pane < 4; pane++) {
         const ph = pane === 3 ? 2.3 : 2.25;
         const shape = pane === 3 ? lancet(3.55, ph) : new THREE.Shape([
           new THREE.Vector2(-1.775, 0), new THREE.Vector2(1.775, 0),
@@ -58,8 +58,10 @@ export function buildAbbey(): THREE.Group {
         const geo = new THREE.ShapeGeometry(shape).applyMatrix4(place(wx, y + 4.1 + pane * 2.25, gz, Math.PI / 2));
         glass.push(tint(geo, glassColors[(k + pane + 8) % 4]));
       }
-      ext.box('stone', wx, y + 4, gz, 0.3, 8.3, 0.17, 0, WARM, 0);
-      for (const h of [6.3, 8.55, 10.8]) ext.box('stone', wx, y + h, gz, 0.3, 0.16, 3.9, 0, WARM, 0);
+      if (k !== 1) {
+        ext.box('stone', wx, y + 4, gz, 0.3, 8.3, 0.17, 0, WARM, 0);
+        for (const h of [6.3, 8.55, 10.8]) ext.box('stone', wx, y + h, gz, 0.3, 0.16, 3.9, 0, WARM, 0);
+      }
       // Colored shafts slant inward. Two crossing tapered planes keep them legible from the aisle.
       const color = glassColors[(k + 7) % 4];
       const start = new THREE.Vector3(wx - side * 0.4, y + 10, gz);
@@ -74,12 +76,16 @@ export function buildAbbey(): THREE.Group {
       }
       const patch = new THREE.PlaneGeometry(5.5, 8).rotateX(-Math.PI / 2).rotateY(side * 0.35).translate(end.x, y + 0.035, end.z);
       patches.push(tint(patch, color));
+      const pewIndex = Math.max(0, Math.min(7, Math.round((25 - (end.z - z)) / 5.1)));
+      const seatPatch = new THREE.PlaneGeometry(3.8, 0.85).rotateX(-Math.PI / 2)
+        .translate(x + side * 4.8, y + 0.9, z + 25 - pewIndex * 5.1);
+      patches.push(tint(seatPatch, color));
       // Each wall pier reaches the floor. Above the glazing only overhead collision is needed.
       const pierZ = gz + 4.5;
       ext.box('stone', wx, y - 1, pierZ, 2.6, 20, 1.8, 0, STONE);
       addBox(wx, pierZ, 1.3, 0.9, 0, y + 19);
       addBox(wx, gz, 0.7, 3.6, 0, y + 16, y + 13.2);
-      addBox(wx, gz, 0.7, 3.6, 0, y + 4);
+      if (k !== 1) addBox(wx, gz, 0.7, 3.6, 0, y + 4);
       // Flying buttresses spring from separate outer piers to the high nave.
       const bx = x + side * 24;
       ext.box('stone', bx, y - 7, pierZ, 2.4, 22, 2.2, 0, STONE);
@@ -135,6 +141,13 @@ export function buildAbbey(): THREE.Group {
   for (const side of [-1, 1]) {
     const tx = x + side * 21;
     ext.roof(tx, y + 21, z - 9, 18, 19, 8, Math.PI / 2, SLATE);
+    ext.box('stone', tx, y - 0.3, z - 9, 22, 0.3, 18, 0, STONE);
+    addBox(tx, z - 9, 11, 9, 0, y);
+    for (const dz of [-18, 0]) {
+      ext.box('stone', tx, y - 1, z + dz, 19, 22, 1.3, 0, STONE);
+      addBox(tx, z + dz, 9.5, 0.65, 0, y + 21);
+    }
+    ext.prism('stone', tx + side * 8, y + 21, z - 9, 18, 1.5, 8, Math.PI / 2, WARM);
     ext.box('stone', tx + side * 8, y - 2, z - 9, 1.5, 23, 19, 0, STONE);
     addBox(tx + side * 8, z - 9, 0.75, 9.5, 0, y + 21);
   }

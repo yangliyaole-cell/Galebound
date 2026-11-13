@@ -176,7 +176,7 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
       { angle: SOUTH_GATE_ANGLE, width: 6.5, height: 7.6 },
       { angle: EAST_GATE_ANGLE, width: 5.6, height: 6.8 },
     ],
-    roof: SLATE, color: STONE, stairs: [18, 0, 15, 5, 10],
+    roof: SLATE, color: STONE, stairs: [18, 1, 15, 5, 10],
   });
   ring.towers.forEach((t, i) => {
     if (i % 2) return;

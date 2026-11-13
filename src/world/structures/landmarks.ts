@@ -69,6 +69,7 @@ function windmill(b: Builder, rand: () => number): Spinner & { object: THREE.Obj
   b.cone('roof', x, y + 13.2, z, 3.7, 3.6, 0x6b5a4e, 18);
   b.cyl('wood', x, y + 12.9, z, 3.25, 3.25, 0.35, 0x6a4c34, 18, 0);
   addRound(x, z, 4.3, y + 13.2);
+  addRound(x, z, 3.7, (lx, lz) => y + 13.2 + 3.6 * Math.max(0, 1 - Math.hypot(lx, lz) / 3.7), y + 13.2);
   // Door and windows.
   const face = 2.4;
   b.box('wood', x + Math.sin(face) * 4.15, y + 1.1, z + Math.cos(face) * 4.15, 1.2, 2.2, 0.3, face, 0x6d4c33, 0);

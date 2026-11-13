@@ -53,3 +53,16 @@ node scripts/capture-styles.mjs --base-url http://localhost:5199 \
 游戏中按 **V** 循环风格；`?style=default|ghibli|cinematic|watercolor|lowpoly-dusk` 指定初始风格，非法值回到 default。`effects=0` 关闭电影风格的采样泛光和深度 AO（low 档自动关闭）；各风格额外 2 个全屏 pass，使用 MSAA 离屏目标保留抗锯齿，默认额外 0 pass。`window.__gale.style.current` / `await window.__gale.style.set('ghibli')` 可调试切换。
 
 `shot=1` 隐藏 HUD/标题/标签等 DOM，忽略存档位置与已收集光点，用固定随机种子、12 秒 shader 时间、平静风和固定准备步骤冻结世界，不启用动态分辨率。默认相机朝北偏东看向城镇，距离 8.5，可用原有 `x,z,yaw,camyaw,campitch,dist` 覆盖。24 帧完成后 `window.__galeShotReady` 为 true；shader 错误写入 `window.__galeShotError` 并让脚本失败。默认风格保留原 CSS 滤镜与渐晕，其他风格使用自身效果。
+
+## 自然地图检查
+
+```sh
+node scripts/check-layout.mjs
+node scripts/check-layout.mjs --low
+node scripts/check-layout.mjs --high
+node scripts/check-layout.mjs --preview
+```
+
+直接加载实际世界生成模块，不启动浏览器、不创建 WebGL 上下文。Canvas 的画图方法用桩代替；建筑和植被排除区使用共享几何数据，因此数值检查不依赖 Canvas 光栅化结果。覆盖出生点、地形视线、道路曲率/宽度/涉水/坡度/碰撞、房屋、水位、桥梁、楼梯、教堂入口、室内距离切换、种子一致性、81 个光点，以及地形/水/草/作物/植被/NPC 的实际几何生成。
+
+`--preview` 输出被 Git 忽略的 `artifacts/layout.svg`，包含地形分层、水、道路、异形田块、房屋、城墙和地标；它是诊断图，不是渲染截图。中/高网格 4m，低网格 8m。GLSL 编译、透明叠加效果和实际帧率仍需在沙箱外的 Chrome 确认。

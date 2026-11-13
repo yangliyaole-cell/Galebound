@@ -78,7 +78,7 @@ export function cityGate(a: number): { x: number; z: number } {
 }
 export const SOUTH_GATE = cityGate(SOUTH_GATE_ANGLE);
 export const EAST_GATE = cityGate(EAST_GATE_ANGLE);
-export const ABBEY = { x: -600, z: -495, floor: 64, halfWidth: 18, halfLength: 37, entranceZ: -456, tower: 89 };
+export const ABBEY = { x: -600, z: -495, floor: 64, halfWidth: 18, halfLength: 37, entranceZ: -458, tower: 89 };
 
 export function smooth(points: Pt[], perSegment = 8): Pt[] {
   const curve = new THREE.SplineCurve(points.map(([x, z]) => new THREE.Vector2(x, z)));
@@ -122,8 +122,8 @@ export function road(id: string, kind: Road['kind'], width: number, controls: Pt
 const cp = (x: number, z: number): Pt => [CITY.x + x, CITY.z + z];
 export const CITY_STREETS: Road[] = [
   road('ascent', 'cobble', 5.2, [[SOUTH_GATE.x, SOUTH_GATE.z], cp(23, 147), cp(83, 120), cp(124, 57), cp(120, -22), cp(76, -98), cp(5, -126), cp(-75, -111), cp(-126, -64), cp(-121, -13), cp(-90, 0), cp(-76, 0)]),
-  road('market-lane', 'cobble', 4.4, [cp(23, 147), cp(-22, 137), cp(-76, 105), cp(-109, 61), cp(-121, -13)]),
-  road('east-lane', 'cobble', 4.5, [[EAST_GATE.x, EAST_GATE.z], cp(124, 57), cp(102, 89), cp(58, 110), cp(20, 122), cp(-22, 137)]),
+  road('market-lane', 'cobble', 4.4, [cp(23, 147), cp(-33, 119), cp(-76, 105), cp(-109, 61), cp(-121, -13)]),
+  road('east-lane', 'cobble', 4.5, [[EAST_GATE.x, EAST_GATE.z], cp(124, 57), cp(102, 89), cp(58, 110), cp(20, 122), cp(-33, 119)]),
   road('north-alley', 'cobble', 2.4, [cp(120, -22), cp(147, -65), cp(115, -114), cp(59, -143), cp(5, -126)]),
   road('west-alley', 'cobble', 2.5, [cp(-76, 105), cp(-144, 96), cp(-165, 42), cp(-156, -10), cp(-126, -64)]),
 ];

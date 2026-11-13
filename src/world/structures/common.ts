@@ -3,6 +3,8 @@ import { Builder, archedProfile, place, type Mat } from '../build';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
 
+export const wallStairRamps: { x: number; z: number; theta: number; run: number; foot: number; head: number }[] = [];
+
 const X = new THREE.Vector3(1, 0, 0);
 const dir = new THREE.Vector3();
 const quat = new THREE.Quaternion();
@@ -142,7 +144,10 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
     const cx = (v.x + w.x) / 2;
     const cz = (v.z + w.z) / 2;
     const theta = Math.atan2(-dz, dx);
-    const top = (lx: number): number => v.top + (w.top - v.top) * (lx / full + 0.5);
+    const top = (lx: number): number => {
+      const t = lx / full + 0.5;
+      return Math.max(v.top + (w.top - v.top) * t, heightAt(v.x + dx * t, v.z + dz * t) + o.height);
+    };
     let base = Infinity;
     for (let k = 0; k <= 6; k++) base = Math.min(base, heightAt(v.x + (dx * k) / 6, v.z + (dz * k) / 6));
     base -= 3;
@@ -156,7 +161,7 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
     const gate = o.gates[gateSegments.indexOf(i)];
     const shape = archedProfile(
       -L / 2, L / 2, base, top,
-      gate ? [{ x: 0, w: gate.width, crown: heightAt(cx, cz) + gate.height }] : [],
+      gate ? [{ x: 0, w: gate.width, crown: heightAt(cx, cz) + gate.height }] : [], 12,
     );
     if (gate) {
       const ground = heightAt(cx, cz);
@@ -201,6 +206,7 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
       const [bx, bz] = local(-x1, -outward * (o.thickness / 2 + 1.0));
       const foot = heightAt(bx, bz);
       const head = top(x1);
+      wallStairRamps.push({ x: sx, z: sz, theta, run, foot, head });
       const ramp = new THREE.Shape();
       ramp.moveTo(-x1, base);
       ramp.lineTo(x1, base);
@@ -231,6 +237,7 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
       b.box('stone', v.x + Math.cos(a2) * (r + 0.05), v.top, v.z + Math.sin(a2) * (r + 0.05), 1.0, 1.0, 0.5, -a2 + Math.PI / 2, o.color, 0);
     }
     b.cone('roof', v.x, v.top + 3.25, v.z, r + 1.1, r * 1.5 + 1.2, o.roof, 16);
+    addRound(v.x, v.z, r + 1.1, (lx, lz) => v.top + 3.25 + (r * 1.5 + 1.2) * Math.max(0, 1 - Math.hypot(lx, lz) / (r + 1.1)), v.top + 3.25);
     result.towers.push({ x: v.x, z: v.z, top: v.top });
   }
   return result;
