@@ -3,6 +3,8 @@ import { DynamicResolution, pickQuality } from './core/quality';
 import { Input } from './core/input';
 import { loadSave, writeSave } from './core/save';
 import { shared } from './render/uniforms';
+import { createStyleController, type StyleController } from './render/styles';
+import { seededRandom } from './world/noise';
 import { Hud } from './ui/hud';
 import { FollowCamera } from './player/camera';
 import { Player } from './player/controller';
@@ -26,6 +28,12 @@ import { buildLandmarks } from './world/structures/landmarks';
 import { buildCrops, buildVillage } from './world/structures/village';
 
 const params = new URLSearchParams(location.search);
+const shot = params.get('shot') === '1';
+const debugWindow = window as unknown as Record<string, unknown>;
+if (shot) {
+  document.documentElement.classList.add('shot');
+  debugWindow.__galeShotReady = false;
+}
 const num = (key: string, fallback: number): number => {
   const value = params.has(key) ? Number(params.get(key)) : fallback;
   return Number.isFinite(value) ? value : fallback;
@@ -49,10 +57,12 @@ async function boot(): Promise<void> {
   scene.fog = new THREE.Fog(HORIZON_COLOR, 110, quality.viewRange);
   const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 7000);
 
+  let styles: StyleController | undefined;
   const resize = (): void => {
     renderer.setSize(window.innerWidth, window.innerHeight, false);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
+    styles?.resize();
   };
   window.addEventListener('resize', resize);
   resize();
@@ -73,7 +83,8 @@ async function boot(): Promise<void> {
   const sunDir = new THREE.Vector3(0.42, 0.72, 0.55).normalize();
   const sky = createSky(sunDir);
   scene.add(sky.object);
-  scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x7fa04a, 1.5));
+  const hemisphere = new THREE.HemisphereLight(0xcfe6ff, 0x7fa04a, 1.5);
+  scene.add(hemisphere);
   const sun = new THREE.DirectionalLight(0xfff0cf, 3.0);
   sun.castShadow = quality.shadowSize > 0;
   sun.shadow.mapSize.setScalar(quality.shadowSize || 256);
@@ -112,14 +123,14 @@ async function boot(): Promise<void> {
   await nextFrame();
   const life = createLife(village.info, city.info, detail === 0 ? 3 : 7);
   scene.add(life.object);
-  const orbs = createOrbs(new Set(save.orbs));
+  const orbs = createOrbs(new Set(shot ? [] : save.orbs));
   scene.add(orbs.object);
   hud.setOrbs(orbs.found, orbs.total);
   const sound = new Sound();
   sound.muted = save.muted;
 
   const wind = new Wind();
-  scene.add(createWindFx(quality.particles, wind));
+  scene.add(createWindFx(quality.particles, wind, shot ? seededRandom(553) : Math.random));
 
   const player = new Player(quality.outline);
   if (params.get('hero') !== 'classic') {
@@ -129,7 +140,7 @@ async function boot(): Promise<void> {
     player.character.rig.setMaskVisible?.(params.get('mask') !== 'off');
   }
   scene.add(player.character.root, player.character.cloth);
-  if (save.pos && !params.has('x')) {
+  if (!shot && save.pos && !params.has('x')) {
     player.pos.set(save.pos[0], save.pos[1], save.pos[2]);
     player.yaw = save.yaw;
     player.mode = 'air';
@@ -137,9 +148,9 @@ async function boot(): Promise<void> {
     player.teleport(num('x', START.x), num('z', START.z), num('yaw', Math.PI), num('up', 0));
   }
   const follow = new FollowCamera(camera, input.touch);
-  follow.yaw = num('camyaw', player.yaw + Math.PI);
-  follow.pitch = num('campitch', 0.16);
-  follow.distance = num('dist', 6);
+  follow.yaw = num('camyaw', shot ? -0.16 : player.yaw + Math.PI);
+  follow.pitch = num('campitch', shot ? 0.12 : 0.16);
+  follow.distance = num('dist', shot ? 8.5 : 6);
   canvas.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse') return;
     hud.showTouch();
@@ -178,14 +189,29 @@ async function boot(): Promise<void> {
     canvas.focus();
   };
   let stride = 0;
-  if (params.has('autostart')) {
+  if (shot || params.has('autostart')) {
     hud.skipTitle();
     started = true;
   }
-  if (params.has('gust')) wind.force(num('gust', 0));
+  if (!shot && params.has('gust')) wind.force(num('gust', 0));
+
+  styles = createStyleController({ renderer, scene, camera, sun, hemisphere, sunDir, sky: sky.object,
+    quality, heavy: params.get('effects') !== '0' }, (name) => hud.style(name));
+  window.addEventListener('keydown', (event) => {
+    const target = event.target;
+    if (event.code !== 'KeyV' || event.repeat || event.isComposing || event.keyCode === 229
+      || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+      || (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select')))) return;
+    event.preventDefault();
+    void styles!.next().catch((error: unknown) => {
+      console.error('Could not load render style', error);
+      hud.toast('风格加载失败，请重试');
+    });
+  });
+  await styles.set(params.get('style') ?? 'default', false);
 
   // Handles for automated checks; not used by the game itself.
-  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt };
+  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt, style: styles };
 
   hud.ready();
   let last = performance.now() / 1000;
@@ -276,14 +302,81 @@ async function boot(): Promise<void> {
     }
   };
 
+  if (shot) {
+    // Advance only a fixed preparation sequence, then freeze every simulation system.
+    shared.uTime.value = 12;
+    wind.update(0);
+    const idle = { moveX: 0, moveY: 0, run: false, takeJump: () => false } as unknown as Input;
+    for (let i = 0; i < 90; i++) {
+      player.update(1 / 60, 12, idle, follow.yaw, wind);
+      follow.update(1 / 60, player);
+    }
+    shared.uPlayer.value.copy(player.pos);
+    life.update(0, 12, player.pos);
+    sun.target.position.copy(player.pos);
+    sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
+    sky.update(camera, 0);
+    scatter.update(camera.position);
+    renderer.debug.onShaderError = (_gl, _program, vertex, fragment) => {
+      debugWindow.__galeShotError = 'Shader compilation failed';
+      console.error('Shader compilation failed', renderer.getContext().getShaderInfoLog(vertex),
+        renderer.getContext().getShaderInfoLog(fragment));
+    };
+  }
+
+  type Measurement = { remaining: number; frames: number; total: number; calls: number; triangles: number;
+    start: number; pixel: Uint8Array; resolve: (value: unknown) => void };
+  let measurement: Measurement | undefined;
+  const handles = debugWindow.__gale as Record<string, unknown>;
+  handles.measure = (frames = 60): Promise<unknown> => {
+    if (measurement) return Promise.reject(new Error('A measurement is already running'));
+    const count = Math.min(600, Math.max(1, Math.round(frames) || 60));
+    return new Promise((resolve) => {
+      measurement = { remaining: count, frames: count, total: 0, calls: 0, triangles: 0, start: performance.now(), pixel: new Uint8Array(4), resolve };
+    });
+  };
+  let shotFrames = 0;
   renderer.setAnimationLoop((ms: number) => {
     const time = ms / 1000;
     const dt = Math.min(Math.max(time - last, 0), 0.05);
     last = time;
     if (document.hidden) return;
-    tick(dt, time + simulated);
-    renderer.render(scene, camera);
-    resolution.tick(dt);
+    if (!shot) tick(dt, time + simulated);
+    else {
+      // A runtime style switch may move the sun, while the simulation stays frozen.
+      sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
+    }
+    const sample = measurement;
+    const autoReset = renderer.info.autoReset;
+    if (sample) {
+      renderer.info.autoReset = false;
+      renderer.info.reset();
+    }
+    const begin = sample ? performance.now() : 0;
+    const pipeline = styles!.pipeline;
+    if (pipeline) pipeline.render();
+    else renderer.render(scene, camera);
+    if (sample) {
+      // A synchronous default-framebuffer readback also waits on SwiftShader's deferred work.
+      const gl = renderer.getContext();
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, sample.pixel);
+      sample.total += performance.now() - begin;
+      sample.calls += renderer.info.render.calls;
+      sample.triangles += renderer.info.render.triangles;
+      renderer.info.autoReset = autoReset;
+      if (--sample.remaining === 0) {
+        measurement = undefined;
+        sample.resolve({ frames: sample.frames, renderMs: sample.total / sample.frames,
+          rafMs: (performance.now() - sample.start) / sample.frames,
+          calls: sample.calls / sample.frames, triangles: sample.triangles / sample.frames,
+          pixelRatio: renderer.getPixelRatio(), style: styles!.current, extraPasses: pipeline?.extraPasses ?? 0 });
+      }
+    }
+    if (shot && ++shotFrames === 24 && !debugWindow.__galeShotError) {
+      renderer.getContext().finish();
+      debugWindow.__galeShotReady = true;
+    }
+    if (!shot) resolution.tick(dt);
   });
 }
 

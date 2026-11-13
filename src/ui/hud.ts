@@ -20,6 +20,8 @@ export class Hud {
   private toastTimer = 0;
   private zoneTimer = 0;
   private hintTimer = 14;
+  private readonly styleBox = $('style-label');
+  private styleTimeout = 0;
 
   onStart: () => void = () => {};
   onJump: () => void = () => {};
@@ -65,6 +67,13 @@ export class Hud {
       sound.textContent = `声音：${this.onSound() ? '开' : '关'}`;
     });
     sound.textContent = '声音：开';
+  }
+
+  style(name: string): void {
+    window.clearTimeout(this.styleTimeout);
+    this.styleBox.textContent = name;
+    this.styleBox.classList.remove('hidden');
+    this.styleTimeout = window.setTimeout(() => this.styleBox.classList.add('hidden'), 1500);
   }
 
   showTouch(): void {
