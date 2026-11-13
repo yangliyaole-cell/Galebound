@@ -89,6 +89,7 @@ export interface RingOptions {
   x: number;
   z: number;
   radius: number;
+  polygon?: [number, number][];
   segments: number;
   /** Angle of the first tower. */
   phase: number;
@@ -115,16 +116,25 @@ export interface RingResult {
  */
 export function wallRing(b: Builder, o: RingOptions): RingResult {
   const step = (Math.PI * 2) / o.segments;
-  const verts = Array.from({ length: o.segments }, (_, i) => {
+  const points = o.polygon ?? Array.from({ length: o.segments }, (_, i) => {
     const a = o.phase + i * step;
-    const x = o.x + Math.cos(a) * o.radius;
-    const z = o.z + Math.sin(a) * o.radius;
-    return { x, z, a, ground: heightAt(x, z), top: heightAt(x, z) + o.height };
+    return [o.x + Math.cos(a) * o.radius, o.z + Math.sin(a) * o.radius];
+  });
+  const verts = points.map(([x, z]) => ({ x, z, a: Math.atan2(z - o.z, x - o.x), ground: heightAt(x, z), top: heightAt(x, z) + o.height }));
+  const gateSegments = o.gates.map((g) => {
+    let best = Infinity, index = 0;
+    verts.forEach((v, i) => {
+      const w = verts[(i + 1) % verts.length];
+      const a = Math.atan2((v.z + w.z) / 2 - o.z, (v.x + w.x) / 2 - o.x);
+      const d = Math.abs(Math.atan2(Math.sin(g.angle - a), Math.cos(g.angle - a)));
+      if (d < best) { best = d; index = i; }
+    });
+    return index;
   });
   const result: RingResult = { towers: [], gates: [] };
 
   verts.forEach((v, i) => {
-    const w = verts[(i + 1) % o.segments];
+    const w = verts[(i + 1) % verts.length];
     const dx = w.x - v.x;
     const dz = w.z - v.z;
     const full = Math.hypot(dx, dz);
@@ -143,8 +153,7 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
       cz - lx * Math.sin(theta) + lz * Math.cos(theta),
     ];
 
-    const midAngle = Math.atan2(cz - o.z, cx - o.x);
-    const gate = o.gates.find((g) => Math.abs(Math.atan2(Math.sin(g.angle - midAngle), Math.cos(g.angle - midAngle))) < step * 0.3);
+    const gate = o.gates[gateSegments.indexOf(i)];
     const shape = archedProfile(
       -L / 2, L / 2, base, top,
       gate ? [{ x: 0, w: gate.width, crown: heightAt(cx, cz) + gate.height }] : [],

@@ -3,7 +3,7 @@ import { fbm } from './noise';
 import { heightAt, normalAt, sstep } from './heightmap';
 import {
   BLOSSOM, CITY, FIELDS, FOREST, HALF, PLATEAU, PLAZAS, ROADS, SIZE, START, STONES, VILLAGE, WINDMILL,
-  WATCHTOWER, LIGHTHOUSE,
+  WATCHTOWER, LIGHTHOUSE, ABBEY, cityWallPolygon, cityEdgeDistance, insideCity, fieldPolygon, inPolygon, roadClearance,
 } from './layout';
 
 let splatSize = 0;
@@ -29,7 +29,8 @@ export function buildSplat(size: number): THREE.CanvasTexture {
 
   ctx.fillStyle = 'rgb(0,130,0)';
   ctx.beginPath();
-  ctx.arc(px(CITY.x), px(CITY.z), (CITY.wall - 3) * s, 0, Math.PI * 2);
+  cityWallPolygon.forEach(([x, z], i) => i ? ctx.lineTo(px(x), px(z)) : ctx.moveTo(px(x), px(z)));
+  ctx.closePath();
   ctx.fill();
   ctx.fillStyle = 'rgb(0,255,0)';
   for (const [x, z, r] of PLAZAS) {
@@ -40,19 +41,21 @@ export function buildSplat(size: number): THREE.CanvasTexture {
 
   ctx.fillStyle = 'rgb(0,0,255)';
   for (const f of FIELDS) {
-    ctx.save();
-    ctx.translate(px(f.x), px(f.z));
-    ctx.rotate(f.rot);
-    ctx.fillRect((-f.w / 2) * s, (-f.d / 2) * s, f.w * s, f.d * s);
-    ctx.restore();
+    ctx.beginPath();
+    fieldPolygon(f).forEach(([x, z], i) => i ? ctx.lineTo(px(x), px(z)) : ctx.moveTo(px(x), px(z)));
+    ctx.closePath();
+    ctx.fill();
   }
 
   for (const road of ROADS) {
     ctx.strokeStyle = road.kind === 'dirt' ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
-    ctx.lineWidth = Math.max(1.6, road.width * s);
-    ctx.beginPath();
-    road.pts.forEach(([x, z], i) => (i ? ctx.lineTo(px(x), px(z)) : ctx.moveTo(px(x), px(z))));
-    ctx.stroke();
+    for (let i = 0; i < road.pts.length - 1; i++) {
+      ctx.lineWidth = Math.max(1.3, (road.widths[i] + road.widths[i + 1]) * 0.5 * s);
+      ctx.beginPath();
+      ctx.moveTo(px(road.pts[i][0]), px(road.pts[i][1]));
+      ctx.lineTo(px(road.pts[i + 1][0]), px(road.pts[i + 1][1]));
+      ctx.stroke();
+    }
   }
 
   splatData = ctx.getImageData(0, 0, size, size).data;
@@ -70,9 +73,11 @@ function splat(x: number, z: number, channel: number): number {
   const j = Math.min(splatSize - 1, Math.max(0, Math.round((z + HALF) * s)));
   return splatData[(j * splatSize + i) * 4 + channel] / 255;
 }
-export const roadAt = (x: number, z: number): number => splat(x, z, 0);
-export const cobbleAt = (x: number, z: number): number => splat(x, z, 1);
-export const fieldAt = (x: number, z: number): number => splat(x, z, 2);
+export const roadAt = (x: number, z: number): number => splatSize ? splat(x, z, 0) : 1 - sstep(-0.7, 1, roadClearance(x, z, 'dirt'));
+export const cobbleAt = (x: number, z: number): number => splatSize ? splat(x, z, 1) : Math.max(
+  insideCity(x, z) ? 0.51 : 0, 1 - sstep(-0.7, 1, roadClearance(x, z, 'cobble')),
+  ...PLAZAS.map(([px, pz, r]) => 1 - sstep(r - 1, r + 1, Math.hypot(x - px, z - pz))));
+export const fieldAt = (x: number, z: number): number => splatSize ? splat(x, z, 2) : +FIELDS.some((f) => inPolygon(x, z, fieldPolygon(f)));
 
 const dist = (x: number, z: number, p: { x: number; z: number }): number => Math.hypot(x - p.x, z - p.z);
 
@@ -87,7 +92,11 @@ export function forestDensity(x: number, z: number): number {
   let d = sstep(0.52, 0.7, fbm(x / 170 + 40, z / 170 - 13, 3)) * 0.5;
   const wood = dist(x, z, FOREST) / FOREST.r + (fbm(x / 60, z / 60, 2) - 0.5) * 0.3;
   d = Math.max(d, 1 - sstep(0.72, 1.0, wood));
-  d *= sstep(CITY.wall + 8, CITY.wall + 70, dist(x, z, CITY));
+  d *= sstep(8, 70, cityEdgeDistance(x, z));
+  d *= sstep(52, 95, dist(x, z, ABBEY));
+  // Keep the two landmark sight corridors clear of random trees.
+  if (z < START.z && z > CITY.z && Math.abs(x - (START.x + (CITY.x - START.x) * (START.z - z) / (START.z - CITY.z))) < 24) d = 0;
+  if (z < START.z && z > ABBEY.z && Math.abs(x - (ABBEY.x * (START.z - z) / (START.z - ABBEY.z))) < 20) d = 0;
   d *= 0.08 + 0.92 * sstep(VILLAGE.r * 0.55, VILLAGE.r, dist(x, z, VILLAGE));
   d *= sstep(26, 70, dist(x, z, START));
   d *= sstep(28, 70, dist(x, z, WINDMILL));

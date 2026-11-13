@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { fbm } from './noise';
-import { CITY, HALF, HILLS, LAKE, LATE_HILLS, PLATEAU, RIVER, SIZE, distToPolyline } from './layout';
+import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, SIZE, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const clamp = (x: number, a: number, b: number): number => Math.min(b, Math.max(a, x));
@@ -26,13 +26,19 @@ function analyticHeight(x: number, z: number): number {
   // The river valley and lake shore are pressed nearly flat.
   const dr = riverDistance(x, z);
   h = lerp(3.0 + (h - 3.0) * 0.18, h, sstep(25, 170, dr));
-  const dl = Math.hypot((x - LAKE.x) / LAKE.rx, (z - LAKE.z) / LAKE.rz);
+  const dl = lakeMetric(x, z);
   h = lerp(3.0 + (h - 3.0) * 0.2, h, sstep(1.1, 1.9, dl));
 
-  // The city sits on a smooth cone with a flat top for the castle.
-  const dc = Math.hypot(x - CITY.x, z - CITY.z);
-  h = lerp(h, 4.5, (1 - sstep(CITY.hill * 0.7, CITY.hill, dc)) * 0.85);
-  h += CITY.top * Math.pow(1 - sstep(CITY.plateau, CITY.hill, dc), 1.15);
+  // A weathered ridge with a broad palace shelf, shoulders and uneven terraces.
+  const r = Math.hypot(x - CITY.x, z - CITY.z);
+  const a = Math.atan2(z - CITY.z, x - CITY.x);
+  const dc = r / (0.65 + 0.35 * cityRadiusAt(a) / CITY.wall);
+  const cityBlend = 1 - sstep(CITY.plateau, CITY.hill, dc);
+  const shoulder = Math.sin(a * 3 + dc * 0.018) * 5 + Math.cos(a * 5 - 0.5) * 3;
+  h = lerp(h, 5 + CITY.top * Math.pow(cityBlend, 0.82) + shoulder * sstep(85, 140, r),
+    1 - sstep(CITY.hill * 0.88, CITY.hill * 1.15, dc));
+  // Exactly level inside the palace; cliffs soften into the city's inhabited terraces.
+  h = lerp(h, CITY.top + 5, 1 - sstep(84, 103, r));
 
   for (const hill of HILLS) {
     const d2 = (x - hill.x) * (x - hill.x) + (z - hill.z) * (z - hill.z);
@@ -44,10 +50,11 @@ function analyticHeight(x: number, z: number): number {
     (fbm(x / 55 + 1, z / 55 + 8, 2) - 0.5) * 0.22;
   h += PLATEAU.h * (1 - sstep(0.7, 1.05, pd));
 
-  if (dr < 22) h = lerp(-2.4, h, sstep(6, 20, dr));
+  const rw = riverWidthAt(x, z);
+  if (dr < rw + 9) h = lerp(-2.8, h, sstep(rw * 0.57, rw + 8, dr));
   h = lerp(h, -7, sstep(1.0, 0.5, dl));
 
-  const coast = 545 + (fbm(x / 190 + 2, 7.7, 3) - 0.5) * 150;
+  const coast = 545 + (fbm(x / 190 + 2, 7.7, 3) - 0.5) * 190 + 24 * Math.sin(x / 47) + 12 * Math.sin(x / 23);
   h = lerp(h, -14, sstep(coast - 80, coast + 50, z));
 
   for (const hill of LATE_HILLS) {
@@ -70,6 +77,12 @@ function analyticHeight(x: number, z: number): number {
     const sharp = 1 - Math.abs(fbm(x / 60, z / 60, 3) * 2 - 1);
     h += Math.pow(m, 1.35) * peak * (0.55 + 0.75 * ridge + 0.18 * sharp * m);
   }
+  // Abbey cliff and its southern approach. The interior and threshold share one plane.
+  const abbeyD = Math.hypot((x - ABBEY.x) / 51, (z - ABBEY.z) / 64);
+  const approach = (1 - sstep(25, 62, Math.abs(x - ABBEY.x))) *
+    (1 - sstep(-445, -285, z)) * sstep(-550, -475, z);
+  h = Math.max(h, ABBEY.floor * approach);
+  h = lerp(h, ABBEY.floor, 1 - sstep(0.82, 1.3, abbeyD));
   return h;
 }
 

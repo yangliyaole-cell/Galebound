@@ -3,8 +3,7 @@ import { Builder, archedProfile, orbAt, place } from '../build';
 import { addBox, addRound } from '../colliders';
 import type { FlagSpot } from '../flags';
 import { heightAt } from '../heightmap';
-import { CITY, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
-import { cobbleAt } from '../maps';
+import { CITY, CITY_STREETS, SOUTH_GATE, cityWallPolygon, insideCity, roadClearance, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
 import { seededRandom } from '../noise';
 import { wallRing } from './common';
 import { buildPalace } from './palace';
@@ -181,7 +180,7 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
   const step = (Math.PI * 2) / WALL_SEGMENTS;
 
   const ring = wallRing(b, {
-    x: cx, z: cz, radius: CITY.wall, segments: WALL_SEGMENTS, phase: Math.PI / 2 + step / 2,
+    x: cx, z: cz, radius: CITY.wall, polygon: cityWallPolygon, segments: WALL_SEGMENTS, phase: Math.PI / 2 + step / 2,
     height: 9, thickness: 3.4, towerRadius: 4.6,
     gates: [
       { angle: SOUTH_GATE_ANGLE, width: 6.5, height: 7.6 },
@@ -202,10 +201,10 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
   const water = aqueduct(b);
   buildPalace(b, flags);
 
-  const plaza = { x: cx, z: cz + 108 };
+  const plaza = { x: cx + 18, z: cz + 112 };
   fountain(b, plaza.x, plaza.z, rand);
-  const ca = Math.PI / 2 - 0.95;
-  const cathedralAt = { x: cx + Math.cos(ca) * 92, z: cz + Math.sin(ca) * 92 };
+  const ca = -0.4;
+  const cathedralAt = { x: cx + Math.cos(ca) * 159, z: cz + Math.sin(ca) * 159 };
   cathedral(b, cathedralAt.x, cathedralAt.z, Math.atan2(Math.cos(ca), Math.sin(ca)), flags);
 
   const keepOut = [
@@ -213,55 +212,62 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
     { x: cathedralAt.x, z: cathedralAt.z, r: 21 },
     ...ring.gates.map((g) => ({ x: g.x, z: g.z, r: 13 })),
   ];
-  const onStreet = (x: number, z: number): boolean => cobbleAt(x, z) > 0.8;
-
-  // Houses crowd the hillside in rings, each facing down the slope.
-  const spacing = detail > 0 ? 12.2 : 15.5;
+  // Parcels grow outwards from crooked streets, with a second, irregular back row.
+  // A small spatial hash prevents overlaps without an O(N²) placement pass.
+  const parcels = new Map<string, { x: number; z: number; r: number }[]>();
   let count = 0;
-  for (let r = 52; r <= 161; r += 13.5) {
-    const n = Math.floor((Math.PI * 2 * r) / spacing);
-    const offset = rand() * 6.28;
-    for (let k = 0; k < n; k++) {
-      const a = offset + (k / n) * Math.PI * 2 + (rand() - 0.5) * 0.03;
-      const rr = r + (rand() - 0.5) * 3;
-      const x = cx + Math.cos(a) * rr;
-      const z = cz + Math.sin(a) * rr;
-      const w = 6.2 + rand() * 2.2;
-      const d = 6 + rand() * 1.6;
-      const floors = 2 + Math.floor(rand() * 2.3);
-      const roof = rand() < 0.13 ? pick(SLATES, rand) : pick(ROOFS, rand);
-      const wall = pick(WALLS, rand);
-      const timber = rand() < 0.35;
-      const along = rand() < 0.5;
-      const shutters = pick(SHUTTERS, rand);
-      const chimney = rand() < 0.6;
-      const tx = -Math.sin(a) * 4;
-      const tz = Math.cos(a) * 4;
-      const ox = Math.cos(a) * 4;
-      const oz = Math.sin(a) * 4;
-      if (onStreet(x, z) || onStreet(x + tx, z + tz) || onStreet(x - tx, z - tz) || onStreet(x + ox, z + oz) || onStreet(x - ox, z - oz)) continue;
-      if (keepOut.some((q) => Math.hypot(q.x - x, q.z - z) < q.r)) continue;
-      if (distToLine(x, z, water) < 8) continue;
-      addHouse(b, {
-        x, z, w, d, floors, roof, wall, timber, shutters, chimney,
-        rot: Math.atan2(Math.cos(a), Math.sin(a)),
-        ridgeAlongFront: along,
-        simple: detail > 1 ? 1 : 2,
-      }, rand);
-      count++;
-      if (count % 37 === 5) orbAt(`city-roof-${count}`, x, z, 1.2);
+  for (const street of CITY_STREETS) {
+    let travel = 0, next = rand() * 9;
+    for (let i = 0; i < street.pts.length - 1; i++) {
+      const [ax, az] = street.pts[i], [bx, bz] = street.pts[i + 1];
+      const len = Math.hypot(bx - ax, bz - az);
+      while (next <= travel + len) {
+        const t = (next - travel) / len;
+        next += 10 + rand() * 7;
+        const nx = -(bz - az) / len, nz = (bx - ax) / len;
+        for (const side of [-1, 1]) for (let row = 0; row < 2; row++) {
+          if (rand() < (row ? 0.48 : 0.12)) continue;
+          const w = 5.4 + rand() * 4, d = 5.3 + rand() * 3.1;
+          const r = Math.hypot(w, d) / 2 + 0.8;
+          const off = street.width / 2 + r + 1.5 + rand() * 2 + row * (11 + rand() * 4);
+          const x = ax + (bx - ax) * t + nx * off * side;
+          const z = az + (bz - az) * t + nz * off * side;
+          if (!insideCity(x, z, r + 7) || Math.hypot(x - cx, z - cz) < 94 + r) continue;
+          if (roadClearance(x, z) < r || keepOut.some((q) => Math.hypot(q.x - x, q.z - z) < q.r + r)) continue;
+          if (distToLine(x, z, water) < r + 3) continue;
+          const gx = Math.floor(x / 20), gz = Math.floor(z / 20);
+          let occupied = false;
+          for (let ix = gx - 1; ix <= gx + 1; ix++) for (let iz = gz - 1; iz <= gz + 1; iz++) {
+            if (parcels.get(`${ix},${iz}`)?.some((q) => Math.hypot(q.x - x, q.z - z) < q.r + r)) occupied = true;
+          }
+          if (occupied) continue;
+          const key = `${gx},${gz}`;
+          if (!parcels.has(key)) parcels.set(key, []);
+          parcels.get(key)!.push({ x, z, r });
+          addHouse(b, {
+            x, z, w, d, floors: 1 + Math.floor(rand() * 3.8),
+            roof: rand() < 0.18 ? pick(SLATES, rand) : pick(ROOFS, rand), wall: pick(WALLS, rand),
+            timber: rand() < 0.35, shutters: pick(SHUTTERS, rand), chimney: rand() < 0.7,
+            rot: Math.atan2(-nx * side, -nz * side) + (rand() - 0.5) * 0.16,
+            ridgeAlongFront: rand() < 0.6, simple: detail > 1 ? 1 : 2,
+          }, rand);
+          count++;
+          if (count % 37 === 5) orbAt(`city-roof-${count}`, x, z, 1.2);
+        }
+      }
+      travel += len;
     }
   }
 
   // Lamps along the avenue from the south gate.
   for (let k = 0; k < 6; k++) {
     for (const side of [1, -1]) {
-      const lx = cx + 4.2 * side;
-      const lz = cz + CITY.wall - 10 - k * 9;
+      const lx = SOUTH_GATE.x + 5.5 * side;
+      const lz = SOUTH_GATE.z - 8 - k * 3.8;
       const y = heightAt(lx, lz);
       b.cyl('wood', lx, y, lz, 0.07, 0.1, 3.2, 0x3a3430, 6, 0);
       b.box('plain', lx, y + 3.2, lz, 0.36, 0.46, 0.36, 0, 0xffe9a8, 0);
     }
   }
-  return { object: b.build(), flags, info: { plaza, southGate: { x: cx, z: cz + CITY.wall + 8 } } };
+  return { object: b.build(), flags, info: { plaza, southGate: { x: SOUTH_GATE.x, z: SOUTH_GATE.z + 8 } } };
 }

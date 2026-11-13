@@ -3,7 +3,7 @@ import { shared } from '../render/uniforms';
 import { orbAt, orbSpots } from './build';
 import { surfaceTop } from './colliders';
 import { heightAt, normalAt } from './heightmap';
-import { CITY, HALF, LAKE, PLATEAU, START, WATCHTOWER, WINDMILL } from './layout';
+import { HALF, LAKE, PLATEAU, START, SOUTH_GATE, WATCHTOWER, WINDMILL, cityEdgeDistance } from './layout';
 import { seededRandom } from './noise';
 
 /** Orbs out in the open country, beyond the ones the buildings register. */
@@ -16,7 +16,7 @@ function addWildSpots(): void {
   orbAt('air-windmill', WINDMILL.x - 50, WINDMILL.z + 10, 9);
   orbAt('air-watch', WATCHTOWER.x + 10, WATCHTOWER.z - 55, 16);
   orbAt('air-plateau', PLATEAU.x - 175, PLATEAU.z + 60, 22);
-  orbAt('air-city-south', CITY.x - 20, CITY.z + CITY.wall + 40, 10);
+  orbAt('air-city-south', SOUTH_GATE.x - 20, SOUTH_GATE.z + 40, 10);
   orbAt('air-lake', LAKE.x + 20, LAKE.z + 10, 5);
   orbAt('lake-shore', LAKE.x + 128, LAKE.z + 62, 1.2);
 
@@ -32,7 +32,7 @@ function addWildSpots(): void {
     if (h < 2.4 || h > 170 || z > 520) continue;
     if (normalAt(x, z, normal).y < 0.7) continue;
     if (surfaceTop(x, z) - h > 0.05) continue;
-    if (Math.hypot(x - CITY.x, z - CITY.z) < CITY.wall + 20) continue;
+    if (cityEdgeDistance(x, z) < 20) continue;
     if (chosen.some(([cx, cz]) => Math.hypot(cx - x, cz - z) < 150)) continue;
     // Prefer hilltops and high ground: reject most low, flat candidates.
     const prominence = h - (heightAt(x + 30, z) + heightAt(x - 30, z) + heightAt(x, z + 30) + heightAt(x, z - 30)) / 4;
@@ -40,6 +40,21 @@ function addWildSpots(): void {
     chosen.push([x, z]);
     orbAt(`wild-${chosen.length}`, x, z, 1.3);
   }
+}
+
+/** Resolve once after structures/scatter: stable ids and exactly 81 collectible centers. */
+export function collectOrbPositions(): { id: string; x: number; z: number; up: number; y: number }[] {
+  if (!orbSpots.some((s) => s.id === 'start-first')) addWildSpots();
+  const rand = seededRandom(8141);
+  for (let guard = 0; orbSpots.length < 81 && guard < 8000; guard++) {
+    const x = (rand() - 0.5) * 1500, z = rand() * 1200 - 780;
+    const h = heightAt(x, z);
+    if (h < 3 || h > 155 || surfaceTop(x, z) - h > 0.1 || cityEdgeDistance(x, z) < 20) continue;
+    if (orbSpots.some((p) => Math.hypot(p.x - x, p.z - z) < 36)) continue;
+    orbAt(`trail-${orbSpots.length}`, x, z, 1.4);
+  }
+  if (orbSpots.length !== 81) throw new Error(`Expected 81 orb spots, got ${orbSpots.length}`);
+  return orbSpots.map((s) => ({ ...s, y: surfaceTop(s.x, s.z) + Math.max(0.8, s.up) }));
 }
 
 export interface OrbField {
@@ -64,8 +79,7 @@ function glowTexture(): THREE.CanvasTexture {
 }
 
 export function createOrbs(collected: Set<string>): OrbField {
-  addWildSpots();
-  const spots = orbSpots.map((s) => ({ ...s, y: surfaceTop(s.x, s.z) + s.up }));
+  const spots = collectOrbPositions();
   const n = spots.length;
   const quad = new THREE.PlaneGeometry(2, 2);
   const geo = new THREE.InstancedBufferGeometry();

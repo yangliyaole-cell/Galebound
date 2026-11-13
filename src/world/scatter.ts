@@ -6,7 +6,7 @@ import { blossomTexture, leafTexture, needleTexture } from '../render/textures';
 import { addRound, surfaceTop } from './colliders';
 import { foliageMaterial, leafCards, type Part } from './foliage';
 import { heightAt, normalAt, sstep } from './heightmap';
-import { CITY, FOREST, HALF, SIZE, START, VILLAGE } from './layout';
+import { CITY, FOREST, HALF, SIZE, START, VILLAGE, cityRadiusAt } from './layout';
 import { blossomDensity, cobbleAt, fieldAt, forestDensity, roadAt } from './maps';
 import { fbm, seededRandom } from './noise';
 
@@ -309,7 +309,7 @@ export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
   for (let i = 0; i < 260; i++) {
     const nearCity = i % 3 === 0;
     const a = rand() * Math.PI * 2;
-    const r = nearCity ? CITY.wall + 14 + rand() * 90 : 40 + rand() * (VILLAGE.r + 60);
+    const r = nearCity ? cityRadiusAt(a) + 14 + rand() * 90 : 40 + rand() * (VILLAGE.r + 60);
     const x = (nearCity ? CITY.x : VILLAGE.x) + Math.cos(a) * r;
     const z = (nearCity ? CITY.z : VILLAGE.z) + Math.sin(a) * r;
     const size = rand();
