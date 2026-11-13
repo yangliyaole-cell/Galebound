@@ -5,6 +5,8 @@ import { createFlags } from '../flags';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
 import { BLOSSOM, FOREST, ISLAND, LIGHTHOUSE, START, STONES, WATCHTOWER, WINDMILL } from '../layout';
+import { seatRock } from '../rock-geometry';
+import { detailCounters } from '../structure-detail';
 import { seededRandom } from '../noise';
 import { beam, fence, dryStoneWall, wrapStairs } from './common';
 import { ROOFS, SHUTTERS, WALLS, addHouse } from './house';
@@ -12,9 +14,11 @@ import { ROOFS, SHUTTERS, WALLS, addHouse } from './house';
 const STONE = 0xd2cbbb;
 const OLD = 0xbdb7a8;
 const MOSS = 0xa9b48a;
+export const startRubbleSizes: number[] = [];
 
 /** Tumbled blocks of an old wall beside the starting point, as in the concept art. */
 function startRuins(b: Builder, rand: () => number): void {
+  const rubbleSupports: THREE.BufferGeometry[] = [];
   const runs: [number, number, number, number, number[]][] = [
     // x, z, direction, block length, heights of each stack
     [START.x - 6.5, START.z + 4.5, -0.75, 1.7, [3, 3, 2, 3, 1, 2]],
@@ -25,10 +29,19 @@ function startRuins(b: Builder, rand: () => number): void {
       const x = x0 + Math.cos(dirA) * i * (len + 0.06);
       const z = z0 - Math.sin(dirA) * i * (len + 0.06);
       const ground = heightAt(x, z) - 0.25;
+      const supports: THREE.BufferGeometry[] = [];
       for (let k = 0; k < n; k++) {
         const jx = (rand() - 0.5) * 0.14;
-        const top = k === n - 1;
-        b.box('stone', x + jx, ground + k * 0.95, z + jx, len, 0.95, 1.15, dirA + (rand() - 0.5) * 0.1, top ? MOSS : OLD, 0.12);
+        const angle = dirA + (rand() - 0.5) * 0.1;
+        const sizeRandom=seededRandom(i*137+k*83+Math.round(x0*13)+401);
+        const width=k===0 ? (n>1 ? len : .43+sizeRandom()*.74) : k===n-1 ? .5+sizeRandom()*.24 : 1.1+sizeRandom()*.22;
+        const tall=k===0 && n>1 ? 1.2 : k===n-1 && k>0 ? (n===2?.72:.42) : .52+sizeRandom()*.38;
+        const geo = b.rock(x + jx+(k? (sizeRandom()-.5)*.32:0), 0, z + jx+(k?(sizeRandom()-.5)*.24:0), width, tall,
+          Math.min(1.15,width*(i%2?.75:.92)), angle+(sizeRandom()-.5)*.8, OLD, i*173+k*23+Math.round(x0*5), 3);
+        startRubbleSizes.push(Math.max(width,tall));
+        seatRock(geo, supports, heightAt);
+        supports.push(geo); rubbleSupports.push(geo);
+        detailCounters.rubble++;
       }
       if (n > 0) addBox(x, z, len / 2, 0.58, dirA, ground + n * 0.95);
     });
@@ -37,8 +50,26 @@ function startRuins(b: Builder, rand: () => number): void {
   for (let i = 0; i < 4; i++) {
     const x = START.x - 4 + rand() * 9;
     const z = START.z + 6 + rand() * 4;
-    b.box('stone', x, heightAt(x, z) - 0.3, z, 1.5, 0.8, 1.0, rand() * 3, OLD, 0.2);
+    const width=[.43,.62,1.05,1.4][i];
+    const geo = b.rock(x, 0, z, width, [0.27,0.46,0.38,0.68][i], width*(i%2?.72:.95), rand() * 3, OLD, i * 7 + 95, 3);
+    startRubbleSizes.push(width);
+    seatRock(geo, [], heightAt); rubbleSupports.push(geo);
+    detailCounters.rubble++;
   }
+  b.detail(() => {
+    const rubble = seededRandom(7703);
+    // Fragments nest inside the old stacks/fallen-stone area, clear of launch route.
+    for (let i = 0; i < 38; i++) {
+      const right = i % 2 === 0, a = rubble() * Math.PI * 2, r = rubble() * 1.7;
+      const x = START.x + (right ? 4.8 : -5.4) + Math.cos(a) * r;
+      const z = START.z + (right ? -4.2 : 6.0) + Math.sin(a) * r;
+      const size = 0.12 + rubble() * 0.32;
+      const chip = b.rock(x, heightAt(x, z) - size * 0.25, z, size * 1.3, size * 0.58, size, a, i % 4 ? OLD : MOSS, i * 17);
+      // Some chips rest on exposed ledges, so dense grass cannot hide every fragment.
+      if (i % 3 === 0) seatRock(chip, rubbleSupports, heightAt);
+      detailCounters.rubble++;
+    }
+  });
   // Broken pilgrim's arch and a hanging red banner, kept left of the launch corridor.
   const ax = START.x - 22, az = START.z + 7, ay = heightAt(ax, az);
   b.shape('stone', archedProfile(-6, 6, ay - 2,

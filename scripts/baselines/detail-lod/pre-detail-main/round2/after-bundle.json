@@ -1,0 +1,22 @@
+[
+  {
+    "file": "dist/index.html",
+    "bytes": 7709,
+    "gzip": 2944
+  },
+  {
+    "file": "dist/assets/index-DLbJ54yk.js",
+    "bytes": 866223,
+    "gzip": 241752
+  },
+  {
+    "file": "dist/assets/pipeline-C-8hvntA.js",
+    "bytes": 30768,
+    "gzip": 9990
+  },
+  {
+    "file": "dist/models/traveler.glb",
+    "bytes": 7550120,
+    "gzip": 3248737
+  }
+]

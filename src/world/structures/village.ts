@@ -6,6 +6,8 @@ import { BRIDGE, FIELDS, PIER, RIVER, ROADS, VILLAGE, WATER_LEVEL, distToPolylin
 import { seededRandom } from '../noise';
 import { beam, fence } from './common';
 import { ROOFS, SHUTTERS, WALLS, addHouse, type BuiltHouse } from './house';
+import { batchSettlementDetails } from '../scenes/batch-details';
+import { structureDetail } from '../structure-detail';
 
 export interface VillageInfo {
   houses: BuiltHouse[];
@@ -288,7 +290,7 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
     orbAt('village-roof-2', h2.spec.x, h2.spec.z, 1.2);
   }
   void detail;
-  return { object: b.build(), info };
+  return { object: batchSettlementDetails(b.build()), info };
 }
 
 /**
@@ -342,6 +344,7 @@ export function buildCrops(density: number, material: THREE.Material): THREE.Gro
   const dummy = new THREE.Object3D();
   for (const f of FIELDS) {
     if (f.crop === 'tilled') continue;
+    if (f.scenic && structureDetail() === 0) continue;
     const wheatField = f.crop === 'wheat' || f.crop === 'lavender';
     const spacing = wheatField ? 0.62 / Math.sqrt(density) : 1.25;
     const nx = Math.floor((f.w - 2) / spacing);

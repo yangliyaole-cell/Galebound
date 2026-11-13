@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { fbm } from './noise';
-import { ALPINE_LAKES, alpineLakeMetric, alpineChannel, waterLevelAt } from './mountain-layout';
+import { referenceLandform } from './scenes/landform';
+import { hornMetric, rockRelief } from './scenes/geology';
+import { ALPINE_LAKES, alpineLakeMetric, alpineChannel, showcaseChannel, waterLevelAt } from './mountain-layout';
+import { PLUNGE_POOL, SHOWCASE_FALL } from './scenes/plan';
 import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, ROADS, SIZE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -80,8 +83,8 @@ function analyticHeight(x: number, z: number): number {
   }
   // A few dominant glacial horns break the broad mountain rim into distinct peaks.
   for (const [px, pz, radius, rise] of [[-939, -775, 145, 210], [-900, -972, 122, 175], [-736, -988, 103, 145]]) {
-    const d = Math.hypot(x - px, z - pz) / radius;
-    if (d < 1) h += rise * Math.pow(1 - d, 1.45) * (0.9 + 0.1 * Math.sin(Math.atan2(z - pz, x - px) * 5));
+    const d = hornMetric(x, z, px, pz, radius);
+    if (d < 1) h += rise * Math.pow(1 - d, 0.94);
   }
   // Preserve the palace silhouette while breaking the outer town into inhabited
   // contour shelves. Override the mountain rim here so the palace remains highest.
@@ -99,8 +102,9 @@ function analyticHeight(x: number, z: number): number {
     (1 - sstep(-445, -285, z)) * sstep(-550, -475, z);
   if (approach > 0) h = Math.max(h, ABBEY.floor * approach);
   h = lerp(h, ABBEY.floor, 1 - sstep(0.82, 1.3, abbeyD));
+  h = referenceLandform(x, z, h);
   // Nested glacial basins and their descending stream cut into the western foothills.
-  if (x > -810 && x < -480 && z > -825 && z < -305) {
+  if (x > -835 && x < -480 && z > -870 && z < -305) {
     for (const lake of ALPINE_LAKES) {
       const d = alpineLakeMetric(x, z, lake);
       if (d < 1.6) {
@@ -110,6 +114,27 @@ function analyticHeight(x: number, z: number): number {
     }
     const stream = alpineChannel(x, z);
     if (stream.distance < 17) h = lerp(stream.level - 2.2, h, sstep(3.5, 17, stream.distance));
+  }
+  // Fracture exposed canyon shoulders after basin/stream incision. Keep the
+  // open water bed, abbey footprint and road grading as their own authorities.
+  if (x > -855 && x < -635 && z > -820 && z < -452) {
+    const stream = alpineChannel(x, z);
+    const lakeRim = Math.min(...ALPINE_LAKES.map((lake) => alpineLakeMetric(x, z, lake)));
+    if (stream.distance > 12 && lakeRim > 1.13 && h > 22) h += rockRelief(x, h, z) * 2.1;
+  }
+  if(x > -885 && x < -715 && z > -820 && z < -635){
+    const f=SHOWCASE_FALL,dx=f.bx-f.x,dz=f.bz-f.z,len=Math.hypot(dx,dz);
+    const t=((x-f.x)*dx+(z-f.z)*dz)/(len*len),d=Math.abs((x-f.x)*dz-(z-f.z)*dx)/len;
+    // Cut a broad hanging face, then let the airborne water descend clear of it.
+    if(t>=-.22&&t<=1.12&&d<f.width*.8){
+      const face=f.y-2-(f.y-f.bottom+3)*sstep(.04,.55,Math.max(0,t));
+      const weight=1-sstep(f.width*.48,f.width*.8,d);
+      h=lerp(h,t<0?Math.max(h,f.y-2):Math.min(h,face),weight);
+    }
+    const pool=Math.hypot((x-PLUNGE_POOL.x)/PLUNGE_POOL.rx,(z-PLUNGE_POOL.z)/PLUNGE_POOL.rz);
+    if(pool<1.4)h=lerp(h,PLUNGE_POOL.level-5+5*sstep(.35,1.2,pool),1-sstep(.95,1.4,pool));
+    const flow=showcaseChannel(x,z);
+    if(flow.distance<12)h=lerp(flow.level-2.7,h,sstep(3.8,12,flow.distance));
   }
   return h;
 }

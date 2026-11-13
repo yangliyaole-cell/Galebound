@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from '../render/glsl';
 import { shared } from '../render/uniforms';
+import { registerGroundPbr } from '../render/pbr/ground';
+import { pbrUniforms } from '../render/pbr/material';
 import { grid } from './heightmap';
 import { HALF, SIZE, FIELDS } from './layout';
 import { ALPINE_LAKES } from './mountain-layout';
@@ -18,6 +20,8 @@ const lakeLevelGLSL = ALPINE_LAKES.map((l) =>
 
 /** Ground colour from position, slope and the painted maps. Shared with the grass. */
 export const GROUND_GLSL = /* glsl */ `
+  uniform float uPbrActive;
+  uniform sampler2D uPbrContact;
   uniform sampler2D uSplat;
   uniform sampler2D uBiome;
   uniform sampler2D uDetail;
@@ -40,6 +44,13 @@ export const GROUND_GLSL = /* glsl */ `
   float lakeLevel(vec2 p) { float level=0.; ${lakeLevelGLSL} return level; }
   vec3 parcelColor(vec2 p) { vec3 c = uSoil; ${parcelTintGLSL} return c; }
   vec2 worldUv(vec2 xz) { return xz / ${SIZE.toFixed(1)} + 0.5; }
+
+  // Shared fragment/grass-vertex shoulder coverage. Road centres remain unchanged.
+  float groundRoadShoulder(vec2 xz, float coverage) {
+    float edge=smoothstep(.04,.23,coverage)*(1.0-smoothstep(.36,.62,coverage));
+    float traffic=smoothstep(.32,.68,gNoise(xz*vec2(.9,2.7)+17.0));
+    return edge*traffic;
+  }
 
   vec3 grassColor(vec2 xz, vec3 biome, float broad, float fine) {
     vec3 g = mix(uGrassDark, uGrassMid, smoothstep(0.36, 0.62, broad));
@@ -107,15 +118,27 @@ export const GROUND_GLSL = /* glsl */ `
     col = mix(col, cobbleCol, cobble);
 
     float road = smoothstep(0.3, 0.6, splat.r + (fine - 0.5) * 0.4);
+    if (uPbrActive > 0.5) {
+      // Match the PBR height blend with low-frequency heights for blade placement.
+      road = smoothstep(-.32,.32,(splat.r-.5)*2.0+(fine-.55)*.26);
+      cobble = smoothstep(-.28,.28,(splat.g-.5)*2.0+(fine-.5)*.2);
+    }
     col = mix(col, mix(uDirtDark, uDirtLight, smoothstep(0.3, 0.7, fine)) * (0.8 + 0.42 * near.g) * (0.92 + 0.16 * wide.r), road);
 
     grassAmount = (1.0 - road) * (1.0 - cobble) * (1.0 - field) * (1.0 - sand) *
       (1.0 - rock) * (1.0 - snow) * (1.0 - alpine * 0.85) * step(lakeLevel(wp.xz) + 0.25, wp.y) * abbeyGroundMask(wp.xz);
+    if(uPbrActive>.5) {
+      grassAmount*=1.0-groundRoadShoulder(wp.xz,splat.r)*.65;
+      // Grass must not grow through collider-backed boulders or foundations.
+      grassAmount*=1.0-smoothstep(.78,.96,texture2D(uPbrContact,worldUv(wp.xz)).r);
+    }
     return col;
   }
 `;
 
 export const groundUniforms = {
+  uPbrActive: pbrUniforms.uPbrActive,
+  uPbrContact: pbrUniforms.uPbrContact,
   uSplat: { value: null as THREE.Texture | null },
   uBiome: { value: null as THREE.Texture | null },
   uDetail: { value: null as THREE.Texture | null },
@@ -159,6 +182,8 @@ export function createTerrain(): THREE.Group {
           * cloudShadow(vWPos.xz);`,
       );
   };
+
+  registerGroundPbr(mat, GROUND_GLSL, groundUniforms);
 
   // Shared index buffer: every chunk has the same topology.
   const index: number[] = [];

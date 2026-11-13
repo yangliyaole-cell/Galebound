@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from './glsl';
+import { LOD_VERTEX, LOD_FRAGMENT, LOD_DISCARD } from './lod';
 import { shared } from './uniforms';
+import { pbrTier } from './pbr/config';
+import { applyPbr, registerPbr } from './pbr/material';
+import type { PbrKind } from './pbr/library';
 
 // Four flat tones give the hand-painted, cel-shaded look.
 const ramp = new THREE.DataTexture(new Uint8Array([105, 175, 230, 255]), 4, 1, THREE.RedFormat);
@@ -9,7 +13,12 @@ ramp.magFilter = THREE.NearestFilter;
 ramp.needsUpdate = true;
 
 export interface ToonOptions {
+  /** Cinematic alternative; all other styles keep the original Toon material. */
+  pbr?: PbrKind;
   vertexColors?: boolean;
+  lod?: boolean;
+  relief?: number;
+  detailRange?: number;
   doubleSided?: boolean;
   /** Bend with the wind, more the higher a vertex is above the object's origin. */
   sway?: number;
@@ -38,7 +47,8 @@ export function toon(color: number, options: ToonOptions = {}): THREE.MeshToonMa
     const rim = options.rim;
     mat.customProgramCacheKey = () => `rim-${rim}`;
     mat.onBeforeCompile = (shader) => {
-      shader.fragmentShader = shader.fragmentShader.replace(
+      shader.fragmentShader = shader.fragmentShader
+      .replace(
         '#include <opaque_fragment>',
         `float rimLight = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 3.0);
         outgoingLight += vec3(0.6, 0.75, 0.95) * rimLight * ${rim.toFixed(3)};
@@ -46,14 +56,20 @@ export function toon(color: number, options: ToonOptions = {}): THREE.MeshToonMa
       );
     };
   }
+  if (options.pbr && pbrTier() !== 'low') {
+    const standard = new THREE.MeshStandardMaterial({ color, vertexColors: options.vertexColors ?? false, side: mat.side });
+    patch(standard, { ...options, texture: undefined, relief: 0 });
+    applyPbr(standard, options.pbr);
+    registerPbr(mat, standard);
+  }
   return mat;
 }
 
-function patch(mat: THREE.MeshToonMaterial, o: ToonOptions): void {
+function patch(mat: THREE.MeshToonMaterial | THREE.MeshStandardMaterial, o: ToonOptions): void {
   const sway = o.sway ?? 0;
   const size = o.textureSize ?? 2;
   mat.customProgramCacheKey = () =>
-    `world-${sway}-${o.leafTint ? 1 : 0}-${o.texture ? size : 0}`;
+    `world-${sway}-${o.leafTint ? 1 : 0}-${o.texture ? size : 0}-${o.lod}-${o.relief ?? 0}-${o.detailRange ?? 0}`;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
       uCloudDrift: shared.uCloudDrift,
@@ -74,6 +90,7 @@ function patch(mat: THREE.MeshToonMaterial, o: ToonOptions): void {
         uniform vec2 uWindTravel;
         uniform float uTime;
         ${o.leafTint ? 'attribute float aLeaf;' : ''}
+        ${o.lod ? LOD_VERTEX : ''}
         ${NOISE_GLSL}`,
       )
       .replace(
@@ -88,6 +105,7 @@ function patch(mat: THREE.MeshToonMaterial, o: ToonOptions): void {
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
+        ${o.lod ? 'vLodBand = aLodBand;' : ''}
         mat4 worldMat = modelMatrix;
         #ifdef USE_INSTANCING
           worldMat = modelMatrix * instanceMatrix;
@@ -108,18 +126,33 @@ function patch(mat: THREE.MeshToonMaterial, o: ToonOptions): void {
         }`,
       );
     shader.fragmentShader = shader.fragmentShader
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        ${o.relief && o.texture ? `
+        vec3 reliefN = normalize(vWorldN);
+        vec2 reliefAlong = normalize(vec2(-reliefN.z, reliefN.x) + vec2(1e-5, 0.0));
+        vec2 reliefUV = abs(reliefN.y) > 0.8 ? vWorldP.xz : vec2(dot(vWorldP.xz, reliefAlong), vWorldP.y * (abs(reliefN.y) > 0.25 ? 1.45 : 1.0));
+        float reliefH = texture2D(uTex, reliefUV / ${size.toFixed(2)}).r * ${o.relief.toFixed(3)} * (1.0 - smoothstep(70.0, 200.0, distance(cameraPosition, vWorldP)));
+        vec3 reliefDx = dFdx(-vViewPosition), reliefDy = dFdy(-vViewPosition);
+        vec3 reliefR1 = cross(reliefDy, normal), reliefR2 = cross(normal, reliefDx);
+        float reliefDet = dot(reliefDx, reliefR1);
+        normal = normalize(max(abs(reliefDet), 1e-8) * normal - sign(reliefDet) * (dFdx(reliefH) * reliefR1 + dFdy(reliefH) * reliefR2));` : ''}
+      `)
       .replace(
         '#include <common>',
         `#include <common>
         varying vec3 vWorldP;
         varying vec3 vWorldN;
         uniform sampler2D uTex;
+        ${o.lod ? LOD_FRAGMENT : ''}
         ${NOISE_GLSL}
         ${CLOUD_GLSL}`,
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
+        ${o.lod ? LOD_DISCARD : ''}
+        ${o.detailRange ? `float detailCoverage = 1.0 - smoothstep(${(o.detailRange - 30).toFixed(1)}, ${o.detailRange.toFixed(1)}, distance(cameraPosition, vWorldP));
+        if (fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) >= detailCoverage) discard;` : ''}
         ${
           o.texture
             ? `vec3 wn = normalize(vWorldN);

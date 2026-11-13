@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { measure, collisionDigest, reviewViews, inventory, screenshotViews } from './detail-metrics.mjs';
 import { createServer } from 'vite';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
 
 // Only canvas painting is stubbed. All world TS, Three geometry, colliders and
@@ -27,6 +28,9 @@ try {
   const { buildAbbey, ABBEY_ENTRY } = await server.ssrLoadModule('/src/world/structures/abbey.ts');
   const low = process.argv.includes('--low');
   const detail = low ? 0 : process.argv.includes('--high') ? 2 : 1;
+  const tier = low ? 'low' : detail === 2 ? 'high' : 'medium';
+  const detailModule = await server.ssrLoadModule('/src/world/structure-detail.ts');
+  detailModule.setStructureDetail(detail);
   H.buildHeightmap(low ? 8 : 4);
   const village = (await server.ssrLoadModule('/src/world/structures/village.ts')).buildVillage(detail);
   const landmarks = (await server.ssrLoadModule('/src/world/structures/landmarks.ts')).buildLandmarks();
@@ -36,12 +40,14 @@ try {
   const texture = H.createHeightTexture(), sun = new THREE.Vector3(0.42, 0.72, 0.55).normalize();
   const terrain = (await server.ssrLoadModule('/src/world/terrain.ts')).createTerrain();
   const water = (await server.ssrLoadModule('/src/world/water.ts')).createWater(texture, sun, 0xc5dfed);
-  const grass = (await server.ssrLoadModule('/src/world/grass.ts')).createGrass(1000, 1200, 200, texture);
-  const scatter = (await server.ssrLoadModule('/src/world/scatter.ts')).createScatter({ treeDetailRange: 170, propRange: 420 }, sun);
+  const vegetation = low ? [7000, 9000, 1200] : detail === 2 ? [24000, 36000, 6000] : [14000, 20000, 3000];
+  const grass = (await server.ssrLoadModule('/src/world/grass.ts')).createGrass(...vegetation, texture);
+  const scatterModule = await server.ssrLoadModule('/src/world/scatter.ts');
+  const scatter = scatterModule.createScatter({ tier: low ? 'low' : detail === 2 ? 'high' : 'medium', propRange: low ? 260 : detail === 2 ? 600 : 420 }, sun);
   scatter.update(new THREE.Vector3(L.START.x, 40, L.START.z));
-  const life = (await server.ssrLoadModule('/src/world/life.ts')).createLife(village.info, city.info, 7);
+  const life = (await server.ssrLoadModule('/src/world/life.ts')).createLife(village.info, city.info, low ? 3 : 7);
   life.update(1 / 60, 0, new THREE.Vector3(L.START.x, 40, L.START.z));
-  const crops = (await server.ssrLoadModule('/src/world/structures/village.ts')).buildCrops(0.4, new THREE.MeshBasicMaterial({ vertexColors: true }));
+  const crops = (await server.ssrLoadModule('/src/world/structures/village.ts')).buildCrops(low ? 0.4 : 1, new THREE.MeshBasicMaterial({ vertexColors: true }));
   const { builtHouses } = await server.ssrLoadModule('/src/world/structures/house.ts');
   const { collectOrbPositions } = await server.ssrLoadModule('/src/world/orbs.ts');
   const { x: sx, z: sz } = L.START;
@@ -474,17 +480,18 @@ try {
     return `${orbs.length} orbs`;
   });
   check('world geometry finite, merged and bounded', () => {
-    let meshes = 0, vertices = 0;
+    let meshes = 0, details = 0, vertices = 0;
     for (const root of [village.object, landmarks.object, city.object, abbey]) root.traverse((o) => {
       if (!o.isMesh) return;
-      meshes++;
+      meshes++; if (o.userData.structureDetail) details++;
       const p = o.geometry.attributes.position;
       vertices += p.count;
       for (const v of p.array) assert.ok(Number.isFinite(v));
       o.geometry.computeBoundingSphere(); assert.ok(Number.isFinite(o.geometry.boundingSphere.radius));
     });
-    assert.ok(meshes < 90);
-    return `${meshes} meshes, ${vertices.toLocaleString()} vertices (includes existing structures)`;
+    assert.ok(meshes - details < 90, 'base architecture must keep original batching budget');
+    assert.ok(details < 220, `${details} spatial detail batches exceed budget`);
+    return `${meshes - details} base + ${details} detail meshes, ${vertices.toLocaleString()} vertices (includes existing structures)`;
   });
   check('terrain water grass crops scatter and life generate without runtime errors', () => {
     let meshes = 0, instances = 0;
@@ -499,6 +506,320 @@ try {
     });
     return `${meshes} meshes (existing regional LOD included), ${instances.toLocaleString()} instances`;
   });
+  check('three tree LOD distances and continuous complementary coverage', () => {
+    const { TREE_LOD, treeLodWeights } = scatterModule;
+    assert.deepEqual(TREE_LOD, { near: 40, far: 160, nearFade: 8, farFade: 20 });
+    for (const [distance, expected] of [[0, [1,0,0]], [36, [1,0,0]], [40, [.5,.5,0]], [44, [0,1,0]], [120, [0,1,0]], [160, [0,.5,.5]], [170, [0,0,1]], [1000, [0,0,1]]]) {
+      assert.deepEqual(treeLodWeights(distance), expected);
+      assert.deepEqual(treeLodWeights(distance, true), [0,0,1]);
+    }
+    let previous = treeLodWeights(0);
+    for (let d = 0.05; d <= 220; d += 0.05) {
+      const w = treeLodWeights(d);
+      assert.ok(Math.abs(w.reduce((a,b) => a+b, 0) - 1) < 1e-12);
+      assert.ok(w.every((v,i) => v >= 0 && v <= 1 && Math.abs(v - previous[i]) < 0.01), `jump at ${d}`);
+      previous = w;
+    }
+    return '36–44m / 150–170m opaque dither bands; no uncovered pixels';
+  });
+  check('actual great-tree instances cross both LOD bands without duplication or buffer growth', () => {
+    const meshes = scatter.object.children;
+    assert.ok(meshes.every(m => m.isInstancedMesh));
+    const buffers = meshes.map(m => [m.instanceMatrix.array, m.geometry.attributes.aLodBand.array, m.instanceColor.array, m.boundingSphere]);
+    const x = sx - 9, z = sz - 3, y = H.heightAt(x,z) - 0.25 * 2.6;
+    let exercised = 0;
+    for (const distance of [10,36,40,44,100,150,160,170,210,40,10]) {
+      scatter.update(new THREE.Vector3(x + distance, y, z));
+      const actual = [];
+      for (const m of meshes) {
+        assert.ok(m.count <= m.instanceMatrix.count);
+        const band = m.geometry.attributes.aLodBand;
+        for (let i = 0; i < m.count; i++) {
+          const start = band.getX(i), end = band.getY(i);
+          assert.ok(start >= 0 && end <= 1.000001 && start < end);
+          const offset = i * 16;
+          if (m.userData.species === 'great' && !m.userData.leafCards && Math.abs(m.instanceMatrix.array[offset+12]-x) < 0.01 && Math.abs(m.instanceMatrix.array[offset+14]-z) < 0.01) {
+            actual.push([m.userData.treeTier, start, end]);
+          }
+        }
+      }
+      const weights = scatterModule.treeLodWeights(distance, low);
+      const expected = weights.map((w,i) => [i,w]).filter(([,w]) => w > 0);
+      assert.deepEqual(actual.map(([i]) => i).sort(), expected.map(([i]) => i));
+      assert.ok(Math.abs(actual.reduce((sum, [,a,b]) => sum+b-a,0)-1) < 1e-6);
+      assert.equal(new Set(actual.map(([tier])=>tier)).size, actual.length);
+      for(const [tier,a,b] of actual) assert.ok(Math.abs(b-a-weights[tier]) < 1e-6);
+      exercised++;
+    }
+    meshes.forEach((m,i) => {
+      assert.equal(m.instanceMatrix.array, buffers[i][0]);
+      assert.equal(m.geometry.attributes.aLodBand.array, buffers[i][1]);
+      assert.equal(m.instanceColor.array, buffers[i][2]);
+      assert.equal(m.boundingSphere, buffers[i][3]);
+      if (m.userData.treeTier === 2) assert.ok(!m.geometry.attributes.aCard, 'far shell contains leaf cards');
+    });
+    const species = scatter.object.userData.species;
+    assert.equal(species.great.placed, 3);
+    for (const name of ['oak','great','blossom','cypress','pine','bush']) {
+      const s = species[name];
+      if (low) { assert.deepEqual(s.cards,[0,0,0]); assert.ok(meshes.filter(m=>m.userData.species===name).every(m=>m.userData.treeTier===2)); }
+      else { assert.ok(s.cards[0] > s.cards[1] && s.cards[1] > 0); assert.ok(s.triangles[0] > s.triangles[1] && s.triangles[1] > s.triangles[2]); }
+    }
+    scatter.update(new THREE.Vector3(sx,sy+2.5,sz));
+    return `${exercised} actual camera positions; ${scatter.stats().total} deterministic scatter objects; low=${low}`;
+  });
+  check('natural rubble, bevelled masonry and open window reveals are real geometry', () => {
+    const before = collisionDigest(C.inspectColliders());
+    const rock = () => { const b = new B.Builder(); const geo=b.rock(0,0,0,1.7,0.95,1.15,0,0xbdb7a8,31,3); b.build(); return geo; };
+    const a = rock(), b = rock(), p = a.attributes.position;
+    assert.deepEqual(p.array,b.attributes.position.array);
+    const shape = a.userData.fracturedRock;
+    assert.ok(shape.profile==='rubble' && shape.corners>=8 && shape.corners<=24);
+    assert.ok(low ? shape.bevel===0 : shape.bevel>0.02);
+    assert.ok(low ? p.count/3<=24 : detail===2 ? p.count/3>80 : p.count/3>24);
+    const shader = {vertexShader:THREE.ShaderLib.toon.vertexShader,fragmentShader:THREE.ShaderLib.toon.fragmentShader,uniforms:{}};
+    const material = (()=>{const b=new B.Builder();b.rock(0,0,0,1,1,1,0,0xbdb7a8,31);return b.build().children[0].material;})();
+    material.onBeforeCompile(shader,{});
+    assert.ok(!shader.fragmentShader.includes('texture2D(uTex'), 'loose rock still receives brick projection');
+    assert.ok(new Set(Array.from({length:p.count},(_,i)=>p.getY(i).toFixed(4))).size > 5, 'rock still a box');
+    a.computeBoundingBox();
+    assert.ok(a.boundingBox.max.x < 1.7 * 0.5 && a.boundingBox.min.x > -1.7 * 0.5);
+    assert.ok(a.boundingBox.max.y <= 0.95 && a.boundingBox.min.y > -0.1);
+    const block = new B.Builder(); block.block(0,0,0,1.7,0.95,1.15,0,0xbdb7a8);
+    const bevel = block.build().children[0].geometry;
+    assert.ok(bevel.attributes.position.count/3 > 12);
+    assert.ok(Array.from(bevel.attributes.normal.array).some(v=>Math.abs(v)>0.1 && Math.abs(v)<0.95));
+    const window = new B.Builder(); window.windowSurround(0,0,0,1,1.25,0.1,0.18,0,0x5b4332);
+    const frame = window.build(); frame.updateMatrixWorld(true);
+    assert.equal(new THREE.Raycaster(new THREE.Vector3(0,.625,1),new THREE.Vector3(0,0,-1)).intersectObject(frame,true).length,0,'frame fills its aperture');
+    assert.ok(new THREE.Raycaster(new THREE.Vector3(.46,.625,1),new THREE.Vector3(0,0,-1)).intersectObject(frame,true).length>0);
+    assert.equal(collisionDigest(C.inspectColliders()),before,'decorative builders registered collisions');
+    return `${p.count/3} rock / ${bevel.attributes.position.count/3} bevel / 24 reveal triangles; seeded geometry identical`;
+  });
+  check('natural rock hull silhouettes reject axis-aligned boxes across seeds', () => {
+    const stats=[];
+    for(let seed=0;seed<20;seed++) {
+      const builder=new B.Builder(),g=builder.rock(0,0,0,1.7,.95,1.15,0,0xbdb7a8,seed,3);
+      const p=g.attributes.position,a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3(),cross=new THREE.Vector3();
+      let total=0,axial=0,volume=0;
+      for(let i=0;i<p.count;i+=3) {
+        a.fromBufferAttribute(p,i);b.fromBufferAttribute(p,i+1);c.fromBufferAttribute(p,i+2);
+        volume+=a.dot(cross.crossVectors(b,c))/6;
+        cross.subVectors(b,a).cross(c.clone().sub(a));const area=cross.length()/2;cross.normalize();
+        total+=area;if(Math.max(Math.abs(cross.x),Math.abs(cross.y),Math.abs(cross.z))>.98)axial+=area;
+      }
+      g.computeBoundingBox();const size=g.boundingBox.getSize(new THREE.Vector3()),fill=Math.abs(volume)/(size.x*size.y*size.z);
+      assert.ok(axial/total<.45,`seed ${seed}: box-aligned area ${axial/total}`);
+      assert.ok(fill>.25 && fill<.72,`seed ${seed}: box-volume fill ${fill}`);
+      stats.push({seed,axisArea:axial/total,fill});
+    }
+    if(process.env.DETAIL_METRICS)writeFileSync(process.env.DETAIL_METRICS.replace('after-','rock-silhouettes-'),JSON.stringify(stats,null,2));
+    return `20 seeds; max axis-aligned area ${(Math.max(...stats.map(s=>s.axisArea))*100).toFixed(1)}%`;
+  });
+  check('architecture detail batches, low fallback and distance culling', () => {
+    const counters = detailModule.detailCounters;
+    assert.equal(counters.rubble,low?22:60);
+    const detailMeshes = [];
+    for(const root of [village.object,landmarks.object,city.object,abbey]) root.traverse(o=>{if(o.userData.structureDetail) detailMeshes.push(o);});
+    if(low) {
+      assert.equal(detailMeshes.length,0);
+      for(const key of ['dryCourses','wallBlocks','archStones','towerBands','houseFacades','roofCourses','palaceWindows','palaceReveals','palaceBlocks','palaceMerlons']) assert.equal(counters[key],0,`low generated ${key}`);
+    } else {
+      assert.ok(counters.dryCourses>300 && counters.wallBlocks>7000);
+      assert.equal(counters.archStones,45);
+      assert.ok(counters.towerBands>120 && counters.palaceWindows>80);
+      assert.equal(counters.houseFacades,builtHouses.length);
+      assert.ok(counters.roofCourses>5000 && detailMeshes.length>20 && detailMeshes.length<220);
+      {const cm=city.object.children.filter(m=>m.userData.structureDetail);assert.ok(cm.length>0&&cm.length<=8);assert.equal(new Set(cm.map(m=>m.material)).size,cm.length,'city detail not merged by material (batchSettlementDetails)');}
+      detailModule.updateStructureDetails(new THREE.Vector3(10000,10000,10000));
+      assert.ok(detailMeshes.every(m=>!m.visible));
+      assert.ok(detailMeshes.every(m=>m.userData.detailRange === (detail === 2 ? 320 : 120)));
+      const m = detailMeshes[0]; detailModule.updateStructureDetails(m.geometry.boundingSphere.center);
+      assert.ok(m.visible);
+      // New relief never closes the south gate below its arch.
+      const gate = L.SOUTH_GATE;
+      for(const up of [1,2,3]) {
+        const ray = new THREE.Raycaster(new THREE.Vector3(gate.x,H.heightAt(gate.x,gate.z)+up,gate.z+6),new THREE.Vector3(0,0,-1),0,12);
+        assert.equal(ray.intersectObjects(city.object.children.filter(m=>m.userData.structureDetail),false).length,0,`detail blocks gate at ${up}m`);
+      }
+    }
+    detailModule.updateStructureDetails(new THREE.Vector3(sx,sy+2.5,sz));
+    return `${detailMeshes.length} spatial batches; ${JSON.stringify(counters)}`;
+  });
+  const rockData = await server.ssrLoadModule('/src/world/rock-geometry.ts');
+  const commonData = await server.ssrLoadModule('/src/world/structures/common.ts');
+  const palaceData = await server.ssrLoadModule('/src/world/structures/palace.ts');
+  const landmarkData = await server.ssrLoadModule('/src/world/structures/landmarks.ts');
+  check('fractured rubble contacts, readable dry-wall courses, and actual recessed keep windows', () => {
+    const rocks = rockData;
+    assert.ok(rocks.rockContacts.length>=22);
+    const buried=rocks.rockContacts.filter(c=>c.burialFraction!==undefined);
+    assert.equal(buried.length,13);
+    assert.ok(buried.every(c=>c.burialFraction>=.1 && c.burialFraction<=.3));
+    const span=landmarkData.startRubbleSizes;
+    assert.equal(span.length,22);
+    assert.ok(Math.max(...span)/Math.min(...span)>=3 && Math.max(...span)/Math.min(...span)<=5);
+    assert.ok(rocks.rockContacts.every(c=>Number.isFinite(c.clearance) && Math.abs(c.clearance)<0.001));
+    const wall = commonData.dryWallSections;
+    const recesses = palaceData.keepWindowRecesses;
+    if(low) { assert.equal(wall.length,0); assert.equal(recesses.length,0); }
+    else {
+      assert.ok(wall.length>100);
+      const heights = wall.map(w=>w.top-w.ground);
+      assert.ok(Math.min(...heights)>1.0, `wall below grass: min ${Math.min(...heights)}`);
+      assert.ok(heights.every(h=>h<2.1), `excessively tall wall: ${Math.max(...heights)}`);
+      assert.equal(recesses.length,57);
+      assert.equal(detailModule.detailCounters.palaceReveals,57);
+      assert.ok(detailModule.detailCounters.palaceBlocks>2500 && detailModule.detailCounters.palaceMerlons>=108);
+      city.object.updateMatrixWorld(true);
+      const crown=detail===2?20:12, radius=6.5, top=H.heightAt(PALACE.x,PALACE.z)+PALACE.terrace+35;
+      const crownRay=(angle)=>new THREE.Raycaster(new THREE.Vector3(PALACE.x+Math.sin(angle)*(radius+.9),top-.5,PALACE.z+Math.cos(angle)*(radius+.9)),new THREE.Vector3(-Math.sin(angle),0,-Math.cos(angle)),0,2).intersectObject(city.object,true);
+      assert.equal(crownRay(Math.PI/crown).length,0,'solid cylinder/roof geometry fills crown gap');
+      assert.ok(crownRay(0).length>0,'crenellation merlon missing');
+      const window = recesses.find(r=>Math.abs(r.normalZ-1)<0.01 && Math.abs(r.x-L.CITY.x-0.22)<0.01);
+      const eye = new THREE.Vector3(window.x+window.normalX*.12,window.y,window.z+window.normalZ*.12);
+      const direction = new THREE.Vector3(-window.normalX,0,-window.normalZ);
+      const hits = new THREE.Raycaster(eye,direction,0,1.4).intersectObject(city.object,true);
+      assert.ok(hits.length>0,'no glass/backing behind window');
+      assert.ok(hits[0].distance>window.depth-.08 && hits[0].distance<window.depth+.2,`window is still flush: ${hits[0].distance}`);
+      const jamb=new THREE.Vector3(window.x+window.normalZ*(.81-.22)+window.normalX*.12,window.y,window.z-window.normalX*(.81-.22)+window.normalZ*.12);
+      const frameHits=new THREE.Raycaster(jamb,direction,0,.5).intersectObject(city.object,true);
+      assert.ok(frameHits.length>0 && frameHits[0].distance<.09,'outer stone frame is buried/flush');
+      const view=screenshotViews(L,H).find(v=>v.name==='palace'),camera=new THREE.PerspectiveCamera(55,16/9,.1,1800);
+      camera.position.fromArray(view.eye);camera.lookAt(...view.target);camera.updateMatrixWorld();
+      const p1=jamb.clone().project(camera),p2=jamb.clone().add(new THREE.Vector3(window.normalZ*.3,0,-window.normalX*.3)).project(camera);
+      assert.ok(Math.hypot((p2.x-p1.x)*800,(p2.y-p1.y)*450)>4,'frame is too thin at the capture camera');
+
+    }
+    return `${rocks.rockContacts.length} seated rocks; ${wall.length} wall sections; ${recesses.length} keep recesses`;
+  });
+  check('review cameras are outside the near canopy and show actual dry-wall geometry', () => {
+    const views = screenshotViews(L,H), near = views.find(v=>v.name==='tree-near');
+    scatter.update(new THREE.Vector3(...near.eye));
+    const hero = scatter.object.children.find(m=>m.userData.species==='great' && m.userData.treeTier===(low?2:0) && !m.userData.leafCards && m.count>0);
+    const matrix = new THREE.Matrix4(); let found = false;
+    for(let i=0;i<hero.count;i++) { hero.getMatrixAt(i,matrix); if(Math.abs(matrix.elements[12]+9)<.01 && Math.abs(matrix.elements[14]-97)<.01) {found=true;break;} }
+    assert.ok(found);
+    const eye = new THREE.Vector3(...near.eye), triangle = new THREE.Triangle(), point = new THREE.Vector3();
+    const p = hero.geometry.attributes.position, leaf = hero.geometry.attributes.aLeaf;
+    const camera = new THREE.PerspectiveCamera(near.fov,16/9,.1,1800);camera.position.copy(eye);camera.lookAt(...near.target);camera.updateMatrixWorld();
+    let distance = Infinity, maxY = -Infinity, minY = Infinity;
+    for(let i=0;i<p.count;i+=3) {
+      triangle.a.fromBufferAttribute(p,i).applyMatrix4(matrix);triangle.b.fromBufferAttribute(p,i+1).applyMatrix4(matrix);triangle.c.fromBufferAttribute(p,i+2).applyMatrix4(matrix);
+      if(leaf.getX(i)>0.5) {triangle.closestPointToPoint(eye,point);distance=Math.min(distance,eye.distanceTo(point));}
+      for(const v of [triangle.a,triangle.b,triangle.c]) { point.copy(v).project(camera);maxY=Math.max(maxY,point.y);minY=Math.min(minY,point.y); }
+    }
+    let leafClearance = distance;
+    if(!low) {
+      const cards = scatter.object.children.find(m=>m.name===hero.name+'-leaves');
+      const p = cards.geometry.attributes.position, index=cards.geometry.index, sizes=cards.geometry.attributes.aCard, corners=cards.geometry.attributes.aCorner;
+      const scale = new THREE.Vector3().setFromMatrixScale(matrix).x;
+      const vertex = (j,out) => {
+        out.fromBufferAttribute(p,j).applyMatrix4(matrix);
+        const seed=sizes.getY(j),flutter=Math.sin(12*(2+seed*2.5)+seed*40+out.x),turn=(seed-.5)*2.6+flutter*.03;
+        out.applyMatrix4(camera.matrixWorldInverse);
+        const cx=corners.getX(j),cy=corners.getY(j),size=sizes.getX(j)*scale;
+        out.x+=(cx*Math.cos(turn)-cy*Math.sin(turn))*size;
+        out.y+=(cx*Math.sin(turn)+cy*Math.cos(turn))*size;
+        return out.applyMatrix4(camera.matrixWorld);
+      };
+      for(let i=0;i<index.count;i+=3) {
+        vertex(index.getX(i),triangle.a);vertex(index.getX(i+1),triangle.b);vertex(index.getX(i+2),triangle.c);
+        triangle.closestPointToPoint(eye,point);leafClearance=Math.min(leafClearance,eye.distanceTo(point));
+        for(const v of [triangle.a,triangle.b,triangle.c]) {point.copy(v).project(camera);maxY=Math.max(maxY,point.y);minY=Math.min(minY,point.y);}
+      }
+      assert.ok(leafClearance>=4 && leafClearance<=9,`outside-crown clearance ${leafClearance}`);
+    }
+    assert.ok(distance>4,`camera too close to crown core: ${distance}`);
+    assert.ok(minY>-.98 && maxY<.98,`whole tree clipped: ${minY}/${maxY}; core/leaf clearance=${distance}/${leafClearance}`);
+    if(!low) {
+      const wall = views.find(v=>v.name==='dry-wall-close');landmarks.object.updateMatrixWorld(true);
+      const ray = new THREE.Raycaster(); const camera = new THREE.PerspectiveCamera(55,16/9,.1,100);
+      camera.position.fromArray(wall.eye);camera.lookAt(...wall.target);camera.updateMatrixWorld();
+      ray.setFromCamera(new THREE.Vector2(0,0),camera);
+      const hits=ray.intersectObject(landmarks.object,true);
+      assert.ok(hits.length>0 && hits[0].distance<10,'dry wall absent from frame center');
+      assert.ok(hits[0].point.y-H.heightAt(hits[0].point.x,hits[0].point.z)>.8,'wall center is submerged in grass');
+    }
+    scatter.update(new THREE.Vector3(sx,sy+2.5,sz));
+    return `near core/leaf clearance ${distance.toFixed(2)}/${leafClearance.toFixed(2)}m; full-tree vertical NDC ${minY.toFixed(2)}…${maxY.toFixed(2)}`;
+  });
+  check('new material compile hooks generate color, relief, leaf and shadow sources', () => {
+    const materials = new Map();
+    for (const root of [village.object,landmarks.object,city.object,scatter.object]) root.traverse(o=>{
+      if (o.isMesh && o.material.isMeshToonMaterial) materials.set(o.material,o);
+    });
+    let lod = 0, relief = 0, detail = 0;
+    for(const [mat,mesh] of materials) {
+      const shader = { vertexShader: THREE.ShaderLib.toon.vertexShader, fragmentShader: THREE.ShaderLib.toon.fragmentShader, uniforms: {} };
+      mat.onBeforeCompile(shader,{});
+      assert.ok(!shader.vertexShader.includes('undefined') && !shader.fragmentShader.includes('undefined'));
+      if (shader.vertexShader.includes('attribute vec2 aLodBand')) {
+        assert.ok(mesh.geometry.attributes.aLodBand);
+        assert.ok(shader.fragmentShader.includes('lodPixel')); lod++;
+      }
+      if (shader.fragmentShader.includes('float reliefH')) relief++;
+      if (shader.fragmentShader.includes('float detailCoverage')) detail++;
+    }
+    assert.ok(lod>=2);
+    if (!low) { assert.ok(relief>=3 && detail>=3); }
+    else assert.equal(relief,0);
+    const caster = scatter.object.children.find(m=>m.castShadow);
+    if(caster) {
+      const shader = { vertexShader: THREE.ShaderLib.depth.vertexShader, fragmentShader: THREE.ShaderLib.depth.fragmentShader, uniforms:{} };
+      caster.customDepthMaterial.onBeforeCompile(shader,{});
+      assert.ok(shader.vertexShader.includes('vLodBand = aLodBand') && shader.fragmentShader.includes('lodPixel'));
+    }
+    return `${materials.size} shared materials; source hooks execute (GPU shader compilation requires external Chrome)`;
+  });
+  check('all collider footprints, rotations, undersides and sampled supports match pre-detail baseline', () => {
+    const baseline = JSON.parse(readFileSync(new URL(`../scripts/baselines/detail-lod/before-${tier}.json`,import.meta.url),'utf8'));
+    assert.equal(C.inspectColliders().length,baseline.colliders);
+    assert.equal(collisionDigest(C.inspectColliders()),baseline.collision);
+    return `${baseline.colliders} colliders; SHA-256 ${baseline.collision}`;
+  });
+  const roots = [village.object, landmarks.object, city.object, abbey, terrain, water, grass, crops, life.object];
+  const measuredViews = measure(roots, scatter, reviewViews(L, H), low ? 1100 : detail === 2 ? 1800 : 1500, detailModule.updateStructureDetails);
+  check('medium draw calls and triangles stay within +30% / 2x at all six review views', () => {
+    if (tier !== 'medium') return `measured ${tier}; medium budget checked by default run`;
+    const baseline = JSON.parse(readFileSync(new URL('../scripts/baselines/detail-lod/before-medium.json',import.meta.url),'utf8'));
+    for(const view of measuredViews) {
+      const before = baseline.views.find(v=>v.name===view.name);
+      assert.deepEqual(view.eye,before.eye); assert.deepEqual(view.target,before.target);
+      assert.ok(view.calls <= before.calls * 1.3, `${view.name}: ${before.calls} → ${view.calls} calls`);
+      assert.ok(view.triangles <= before.triangles * 2, `${view.name}: ${before.triangles} → ${view.triangles} triangles`);
+    }
+    return measuredViews.map(v=>`${v.name} ${v.calls} calls/${v.triangles} tris`).join('; ');
+  });
+  const shotViews = screenshotViews(L,H);
+  const shotMetrics = measure(roots,scatter,shotViews,low?1100:detail===2?1800:1500,detailModule.updateStructureDetails);
+  check('medium budget also passes all eight corrected screenshot cameras', () => {
+    const reference=JSON.parse(readFileSync(new URL(`../scripts/baselines/detail-lod/camera-baseline-${tier}.json`,import.meta.url),'utf8'));
+    assert.equal(reference.collision,collisionDigest(C.inspectColliders()));
+    for(const view of shotMetrics) {
+      const before=reference.screenshots.find(v=>v.name===view.name);
+      assert.deepEqual(view.eye,before.eye);assert.deepEqual(view.target,before.target);assert.equal(view.fov,before.fov);
+      if(tier==='medium') {
+        assert.ok(view.calls<=before.calls*1.3,`${view.name} exceeds call budget`);
+        assert.ok(view.triangles<=before.triangles*2,`${view.name} exceeds triangle budget`);
+      }
+    }
+    const previous=JSON.parse(readFileSync(new URL(`../scripts/baselines/detail-lod/round2/after-${tier}.json`,import.meta.url),'utf8'));
+    const species=scatter.object.userData.species;
+    for(const [name,s] of Object.entries(species)) {
+      assert.equal(s.placed,previous.species[name].placed);
+      assert.equal(s.triangles[1],previous.species[name].triangles[1]);
+      assert.equal(s.triangles[2],previous.species[name].triangles[2]);
+    }
+    return 'same-camera original reference; unchanged placement counts and mid/far geometry sizes';
+  });
+  if (process.env.DETAIL_METRICS) {
+    const data = { tier, collision: collisionDigest(C.inspectColliders()), colliders: C.inspectColliders().length, vegetation,
+      inventory: roots.map(inventory), scatterInventory: inventory(scatter.object), species: scatter.object.userData.species,
+      detailCounts: detailModule.detailCounters, benchmarkViews: measuredViews, views: shotMetrics, screenshots: shotViews };
+    writeFileSync(process.env.DETAIL_METRICS, JSON.stringify(data, null, 2));
+    console.log('Metrics: ' + process.env.DETAIL_METRICS);
+  }
   if (process.argv.includes('--preview')) {
     const colors = (h, water) => h < water ? '#5bafca' : h > 190 ? '#eef3f0' : h > 90 ? '#a5ad99' : h > 50 ? '#779465' : '#a6bd72';
     const chunks = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1024 -1024 2048 2048" width="1300" height="1300"><rect x="-1024" y="-1024" width="2048" height="2048" fill="#5bafca"/>'];

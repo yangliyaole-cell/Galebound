@@ -1,3 +1,4 @@
+import { setStructureDetail, updateStructureDetails } from './world/structure-detail';
 import * as THREE from 'three';
 import { DynamicResolution, pickQuality } from './core/quality';
 import { Input } from './core/input';
@@ -18,6 +19,8 @@ import { createGrass } from './world/grass';
 import { createScatter } from './world/scatter';
 import { Wind, createWindFx } from './world/wind';
 import { toon } from './render/toon';
+import { configurePbr } from './render/pbr/config';
+import { createPbrLighting } from './render/pbr/lighting';
 import { groundDetailTexture } from './render/textures';
 import { createFlags } from './world/flags';
 import { Sound } from './core/audio';
@@ -44,6 +47,7 @@ const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimation
 
 async function boot(): Promise<void> {
   const quality = pickQuality();
+  configurePbr(quality.tier);
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const input = new Input(canvas);
   const hud = new Hud(input.touch, quality.tier);
@@ -109,6 +113,7 @@ async function boot(): Promise<void> {
   hud.loading('正在砌墙盖瓦…');
   await nextFrame();
   const detail = quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0;
+  setStructureDetail(detail);
   const village = buildVillage(detail);
   const landmarks = buildLandmarks();
   scene.add(village.object, landmarks.object);
@@ -198,6 +203,7 @@ async function boot(): Promise<void> {
   }
   if (!shot && params.has('gust')) wind.force(num('gust', 0));
 
+  const pbrLighting = createPbrLighting(renderer, scene, camera, sun, sunDir, sky.object, quality, heightTex);
   styles = createStyleController({ renderer, scene, camera, sun, hemisphere, sunDir, sky: sky.object,
     quality, heavy: params.get('effects') !== '0' }, (name) => hud.style(name));
   window.addEventListener('keydown', (event) => {
@@ -285,6 +291,7 @@ async function boot(): Promise<void> {
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, dt);
     scatter.update(camera.position);
+    updateStructureDetails(camera.position);
     for (const s of landmarks.spinners) s.wheel.rotation.z += s.speed * (0.1 + shared.uWindStrength.value) * dt;
 
     if (started) {
@@ -334,6 +341,7 @@ async function boot(): Promise<void> {
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, 0);
     scatter.update(camera.position);
+    updateStructureDetails(camera.position);
     renderer.debug.onShaderError = (_gl, _program, vertex, fragment) => {
       debugWindow.__galeShotError = 'Shader compilation failed';
       console.error('Shader compilation failed', renderer.getContext().getShaderInfoLog(vertex),
@@ -345,6 +353,24 @@ async function boot(): Promise<void> {
     start: number; pixel: Uint8Array; resolve: (value: unknown) => void };
   let measurement: Measurement | undefined;
   const handles = debugWindow.__gale as Record<string, unknown>;
+  // Frozen-shot camera for external detail reviews; refresh every distance-based system.
+  if (shot) handles.reviewView = (eye: [number, number, number], target: [number, number, number], fov = 55): void => {
+    if (eye.length !== 3 || target.length !== 3 || ![...eye, ...target, fov].every(Number.isFinite)) throw new Error('Expected finite eye/target coordinates');
+    camera.fov = THREE.MathUtils.clamp(fov, 40, 80);
+    camera.updateProjectionMatrix();
+    camera.position.fromArray(eye);
+    camera.lookAt(new THREE.Vector3(...target));
+    camera.updateMatrixWorld(true);
+    player.pos.copy(camera.position);
+    player.character.root.visible = false;
+    shared.uPlayer.value.copy(player.pos);
+    sun.target.position.copy(player.pos);
+    sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
+    sky.update(camera, 0);
+    scatter.update(camera.position);
+    updateStructureDetails(camera.position);
+    life.update(0, 12, player.pos);
+  };
   handles.measure = (frames = 60): Promise<unknown> => {
     if (measurement) return Promise.reject(new Error('A measurement is already running'));
     const count = Math.min(600, Math.max(1, Math.round(frames) || 60));
@@ -372,6 +398,7 @@ async function boot(): Promise<void> {
     const begin = sample ? performance.now() : 0;
     const pipeline = styles!.pipeline;
     abbeyLighting.update(shot ? 1 : dt, player.pos);
+    pbrLighting.update(styles!.current);
     try {
       if (pipeline) pipeline.render();
       else renderer.render(scene, camera);

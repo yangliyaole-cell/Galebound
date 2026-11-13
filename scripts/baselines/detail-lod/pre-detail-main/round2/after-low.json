@@ -1,0 +1,541 @@
+{
+  "tier": "low",
+  "collision": "918a01f53105edec132e825889190a580853aa05780ec1590b9abb0154a0bbf4",
+  "colliders": 8012,
+  "vegetation": [
+    7000,
+    9000,
+    1200
+  ],
+  "inventory": [
+    {
+      "meshes": 6,
+      "detailBatches": 0,
+      "uniqueGeometryBytes": 6967512,
+      "instanceCapacity": 0
+    },
+    {
+      "meshes": 16,
+      "detailBatches": 0,
+      "uniqueGeometryBytes": 2267072,
+      "instanceCapacity": 0
+    },
+    {
+      "meshes": 6,
+      "detailBatches": 0,
+      "uniqueGeometryBytes": 24677568,
+      "instanceCapacity": 0
+    },
+    {
+      "meshes": 13,
+      "detailBatches": 0,
+      "uniqueGeometryBytes": 1141624,
+      "instanceCapacity": 0
+    },
+    {
+      "meshes": 256,
+      "detailBatches": 0,
+      "uniqueGeometryBytes": 1778688,
+      "instanceCapacity": 0
+    },
+    {
+      "meshes": 2,
+      "detailBatches": 0,
+      "uniqueGeometryBytes": 34988,
+      "instanceCapacity": 0
+    },
+    {
+      "meshes": 3,
+      "detailBatches": 0,
+      "uniqueGeometryBytes": 276400,
+      "instanceCapacity": 0
+    },
+    {
+      "meshes": 9,
+      "detailBatches": 0,
+      "uniqueGeometryBytes": 536736,
+      "instanceCapacity": 8199
+    },
+    {
+      "meshes": 301,
+      "detailBatches": 0,
+      "uniqueGeometryBytes": 1501788,
+      "instanceCapacity": 0
+    }
+  ],
+  "scatterInventory": {
+    "meshes": 218,
+    "detailBatches": 0,
+    "uniqueGeometryBytes": 831984,
+    "instanceCapacity": 9156
+  },
+  "species": {
+    "oak": {
+      "placed": 3076,
+      "triangles": [
+        0,
+        0,
+        84
+      ],
+      "cards": [
+        0,
+        0,
+        0
+      ]
+    },
+    "great": {
+      "placed": 3,
+      "triangles": [
+        0,
+        0,
+        196
+      ],
+      "cards": [
+        0,
+        0,
+        0
+      ]
+    },
+    "blossom": {
+      "placed": 66,
+      "triangles": [
+        0,
+        0,
+        84
+      ],
+      "cards": [
+        0,
+        0,
+        0
+      ]
+    },
+    "cypress": {
+      "placed": 791,
+      "triangles": [
+        0,
+        0,
+        84
+      ],
+      "cards": [
+        0,
+        0,
+        0
+      ]
+    },
+    "pine": {
+      "placed": 909,
+      "triangles": [
+        0,
+        0,
+        36
+      ],
+      "cards": [
+        0,
+        0,
+        0
+      ]
+    },
+    "bush": {
+      "placed": 1104,
+      "triangles": [
+        0,
+        0,
+        20
+      ],
+      "cards": [
+        0,
+        0,
+        0
+      ]
+    },
+    "rock": {
+      "placed": 3207,
+      "triangles": [
+        0,
+        0,
+        20
+      ],
+      "cards": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "detailCounts": {
+    "rubble": 22,
+    "dryCourses": 0,
+    "wallBlocks": 0,
+    "archStones": 0,
+    "towerBands": 0,
+    "houseFacades": 0,
+    "roofCourses": 0,
+    "palaceWindows": 0
+  },
+  "views": [
+    {
+      "name": "spawn",
+      "eye": [
+        0,
+        39.94206428527832,
+        100
+      ],
+      "target": [
+        120,
+        130,
+        -640
+      ],
+      "calls": 192,
+      "triangles": 617374,
+      "instances": 7429,
+      "treeTiers": [
+        0,
+        0,
+        1732
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        1849
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0,
+      "scatter": {
+        "tiers": [
+          0,
+          0,
+          4984
+        ],
+        "trees": [
+          0,
+          0,
+          4845
+        ],
+        "blended": 0,
+        "total": 9156,
+        "allocatedInstances": 9156
+      }
+    },
+    {
+      "name": "tree-near",
+      "eye": [
+        -2,
+        40.35159206390381,
+        104
+      ],
+      "target": [
+        -9,
+        49.17413139343262,
+        97
+      ],
+      "calls": 71,
+      "triangles": 439440,
+      "instances": 1635,
+      "treeTiers": [
+        0,
+        0,
+        1530
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        1635
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0,
+      "scatter": {
+        "tiers": [
+          0,
+          0,
+          4986
+        ],
+        "trees": [
+          0,
+          0,
+          4845
+        ],
+        "blended": 0,
+        "total": 9156,
+        "allocatedInstances": 9156
+      }
+    },
+    {
+      "name": "forest",
+      "eye": [
+        -380,
+        10.284236788749695,
+        240
+      ],
+      "target": [
+        -470,
+        18.16214954853058,
+        195
+      ],
+      "calls": 100,
+      "triangles": 226534,
+      "instances": 2681,
+      "treeTiers": [
+        0,
+        0,
+        2453
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        2681
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0,
+      "scatter": {
+        "tiers": [
+          0,
+          0,
+          5122
+        ],
+        "trees": [
+          0,
+          0,
+          4845
+        ],
+        "blended": 0,
+        "total": 9156,
+        "allocatedInstances": 9156
+      }
+    },
+    {
+      "name": "city-wall",
+      "eye": [
+        132,
+        83.89099379552225,
+        -487.9276859748512
+      ],
+      "target": [
+        120,
+        83.8823747711032,
+        -511.9276859748512
+      ],
+      "calls": 82,
+      "triangles": 355290,
+      "instances": 707,
+      "treeTiers": [
+        0,
+        0,
+        633
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        707
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0,
+      "scatter": {
+        "tiers": [
+          0,
+          0,
+          4970
+        ],
+        "trees": [
+          0,
+          0,
+          4845
+        ],
+        "blended": 0,
+        "total": 9156,
+        "allocatedInstances": 9156
+      }
+    },
+    {
+      "name": "palace",
+      "eye": [
+        132,
+        121,
+        -586
+      ],
+      "target": [
+        120,
+        143,
+        -640
+      ],
+      "calls": 47,
+      "triangles": 308192,
+      "instances": 380,
+      "treeTiers": [
+        0,
+        0,
+        368
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        380
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0,
+      "scatter": {
+        "tiers": [
+          0,
+          0,
+          4939
+        ],
+        "trees": [
+          0,
+          0,
+          4845
+        ],
+        "blended": 0,
+        "total": 9156,
+        "allocatedInstances": 9156
+      }
+    },
+    {
+      "name": "aerial",
+      "eye": [
+        120,
+        430,
+        -210
+      ],
+      "target": [
+        120,
+        115,
+        -640
+      ],
+      "calls": 125,
+      "triangles": 425500,
+      "instances": 1288,
+      "treeTiers": [
+        0,
+        0,
+        1288
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        1288
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0,
+      "scatter": {
+        "tiers": [
+          0,
+          0,
+          4845
+        ],
+        "trees": [
+          0,
+          0,
+          4845
+        ],
+        "blended": 0,
+        "total": 9156,
+        "allocatedInstances": 9156
+      }
+    }
+  ],
+  "screenshots": [
+    {
+      "name": "spawn",
+      "eye": [
+        0,
+        39.94206428527832,
+        100
+      ],
+      "target": [
+        120,
+        130,
+        -640
+      ]
+    },
+    {
+      "name": "tree-near",
+      "eye": [
+        -2,
+        40.35159206390381,
+        104
+      ],
+      "target": [
+        -9,
+        49.17413139343262,
+        97
+      ]
+    },
+    {
+      "name": "forest",
+      "eye": [
+        -380,
+        10.284236788749695,
+        240
+      ],
+      "target": [
+        -470,
+        18.16214954853058,
+        195
+      ]
+    },
+    {
+      "name": "city-wall",
+      "eye": [
+        132,
+        83.89099379552225,
+        -487.9276859748512
+      ],
+      "target": [
+        120,
+        83.8823747711032,
+        -511.9276859748512
+      ]
+    },
+    {
+      "name": "palace",
+      "eye": [
+        132,
+        121,
+        -586
+      ],
+      "target": [
+        120,
+        143,
+        -640
+      ]
+    },
+    {
+      "name": "aerial",
+      "eye": [
+        120,
+        430,
+        -210
+      ],
+      "target": [
+        120,
+        115,
+        -640
+      ]
+    },
+    {
+      "name": "rubble-close",
+      "eye": [
+        6.5,
+        38.639451789855954,
+        102
+      ],
+      "target": [
+        4.8,
+        38.46452140808107,
+        96.8
+      ]
+    },
+    {
+      "name": "dry-wall-close",
+      "eye": [
+        -28,
+        34.022990989685056,
+        85
+      ],
+      "target": [
+        -33,
+        30.009683036804198,
+        74
+      ]
+    }
+  ]
+}

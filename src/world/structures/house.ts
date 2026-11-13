@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Builder, place } from '../build';
 import { addBox } from '../colliders';
+import { detailCounters } from '../structure-detail';
 import { heightAt } from '../heightmap';
 
 export interface HouseSpec {
@@ -76,11 +77,12 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
   b.roof(h.x, eave, h.z, span, length, roofH, roofRot, h.roof);
 
   /** Puts a box on one of the four walls. u runs along the wall, v is height above the floor. */
-  const onFace = (face: number, mat: 'wood' | 'plain' | 'stone', u: number, v: number, bw: number, bh: number, bd: number, color: number, out = 0): void => {
+  const onFace = (face: number, mat: 'wood' | 'plain' | 'stone', u: number, v: number, bw: number, bh: number, bd: number, color: number, out = 0, flat = false): void => {
     const half = face % 2 === 0 ? d / 2 : w / 2;
     const p = half + out;
     const [x, z] = face === 0 ? at(u, p) : face === 1 ? at(p, -u) : face === 2 ? at(-u, -p) : at(-p, u);
-    b.box(mat, x, floorY + v, z, bw, bh, bd, h.rot + (face * Math.PI) / 2, color, 0);
+    if (flat) b.panel(mat, x, floorY + v, z, bw, bh, bd, h.rot + face * Math.PI / 2, color);
+    else b.box(mat, x, floorY + v, z, bw, bh, bd, h.rot + (face * Math.PI) / 2, color, 0);
   };
   const faceWidth = (face: number): number => (face % 2 === 0 ? w : d);
 
@@ -156,6 +158,50 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
     b.box('stone', cx, eave + roofH * 0.25, cz, 0.75, roofH * 0.75 + 1.0, 0.75, h.rot, 0xc4bcae, 0.15);
     b.box('stone', cx, eave + roofH + 1.0, cz, 0.95, 0.18, 0.95, h.rot, 0xaaa294, 0);
   }
+
+  b.detail(() => {
+    detailCounters.houseFacades++;
+    // Crisp cornice and exposed rafters give the overhang a readable thickness.
+    for (let face = 0; face < 4; face++) {
+      const fw = faceWidth(face);
+      onFace(face, 'wood', 0, wallH - 0.19, fw + 0.22, 0.18, 0.22, BEAM, 0.055);
+      onFace(face, 'stone', 0, -0.06, fw + 0.24, 0.18, 0.22, STONE, 0.045);
+      if (h.simple) {
+        const n = Math.max(1, Math.floor((fw - 1.2) / 2.5));
+        for (let f = 0; f < h.floors; f++) for (let i = 0; i < n; i++) {
+          const u = -fw / 2 + fw * (i + 0.5) / n, v = f * FLOOR + 1;
+          if (face === 0 && f === 0 && Math.abs(u - doorU) < 1.5) continue;
+          // The base city model has front-only windows. Supply the other facades nearby.
+          onFace(face, 'plain', u, v, 0.8, 1.05, 0.12, GLASS, 0.018, true);
+          const p = (face % 2 ? w : d) / 2 + 0.04;
+          const [wx, wz] = face === 0 ? at(u, p) : face === 1 ? at(p, -u) : face === 2 ? at(-u, -p) : at(-p, u);
+          b.windowSurround(wx, floorY + v - 0.1, wz, 1.0, 1.25, 0.1, 0.18, h.rot + face * Math.PI / 2, BEAM);
+          if (face !== 0 && h.simple === 2) for (const side of [-1, 1]) {
+            onFace(face, 'wood', u + side * 0.66, v - 0.02, 0.32, 1.08, 0.09, h.shutters, 0.035, true);
+          }
+          onFace(face, 'wood', u, v, 0.045, 1.05, 0.16, 0xe9e2d2, 0.055, true);
+          onFace(face, 'wood', u, v + 0.5, 0.8, 0.045, 0.16, 0xe9e2d2, 0.055, true);
+          onFace(face, 'stone', u, v - 0.14, 1.15, 0.12, 0.36, STONE, 0.09);
+        }
+      }
+      // Volumetric corner strips use the procedural block normal relief for joints.
+      for (const side of [-1, 1]) onFace(face, 'stone', side * (fw / 2 - 0.16), 0, 0.32, wallH - 0.22, 0.13, STONE, 0.025);
+    }
+    // Door planks, a latch and iron straps. A live door keeps its animated opening.
+    if (!h.liveDoor) {
+      for (let i = -2; i <= 2; i++) onFace(0, 'wood', doorU + i * 0.19, 0.05, 0.014, 1.94, 0.015, BEAM, 0.09);
+      for (const v of [0.35, 1.45]) onFace(0, 'plain', doorU, v, 0.96, 0.045, 0.035, 0x46443b, 0.105);
+      onFace(0, 'plain', doorU + 0.3, 0.93, 0.08, 0.16, 0.06, 0xc2a168, 0.13);
+    }
+    // Eave rafters are within the original roof's 0.5m overhang.
+    const roofWorld = place(h.x, eave, h.z, roofRot);
+    for (const side of [-1, 1]) for (let i = 0; i <= Math.floor(length / 1.4); i++) {
+      const z = -length / 2 + i * 1.4;
+      const local = new THREE.Matrix4().makeRotationZ(-Math.atan2(roofH, span / 2) * side)
+        .setPosition(side * (span / 2 + 0.12), -0.12, z);
+      b.slab('wood', 0.5, 0.13, 0.11, new THREE.Matrix4().multiplyMatrices(roofWorld, local), BEAM);
+    }
+  });
 
   const half = span / 2;
   addBox(h.x, h.z, w / 2, d / 2, h.rot, (lx, lz) => {

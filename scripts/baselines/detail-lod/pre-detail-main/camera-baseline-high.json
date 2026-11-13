@@ -1,0 +1,402 @@
+{
+  "reference": "7245ee5",
+  "tier": "high",
+  "collision": "e73b8c219d9d5cff055f08a3dfd48e03b36b5b907bc5921b1441fed6e7c053b0",
+  "views": [
+    {
+      "name": "spawn",
+      "eye": [
+        0,
+        40.039310455322266,
+        100
+      ],
+      "target": [
+        120,
+        130,
+        -640
+      ],
+      "calls": 218,
+      "triangles": 1172572,
+      "instances": 15212,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "tree-near",
+      "eye": [
+        -2,
+        40.41767883300781,
+        104
+      ],
+      "target": [
+        -9,
+        49.24629497528076,
+        97
+      ],
+      "calls": 93,
+      "triangles": 1022698,
+      "instances": 2990,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "forest",
+      "eye": [
+        -380,
+        10.283686637878418,
+        240
+      ],
+      "target": [
+        -470,
+        18.168086051940918,
+        195
+      ],
+      "calls": 130,
+      "triangles": 1012230,
+      "instances": 5663,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "city-wall",
+      "eye": [
+        132,
+        84.86840643931548,
+        -487.9276859748512
+      ],
+      "target": [
+        120,
+        85.13641837355564,
+        -511.9276859748512
+      ],
+      "calls": 104,
+      "triangles": 724462,
+      "instances": 1498,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "palace",
+      "eye": [
+        132,
+        121,
+        -586
+      ],
+      "target": [
+        120,
+        143,
+        -640
+      ],
+      "calls": 64,
+      "triangles": 666088,
+      "instances": 1125,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "aerial",
+      "eye": [
+        120,
+        430,
+        -210
+      ],
+      "target": [
+        120,
+        115,
+        -640
+      ],
+      "calls": 162,
+      "triangles": 891356,
+      "instances": 2543,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    }
+  ],
+  "screenshots": [
+    {
+      "name": "spawn",
+      "eye": [
+        0,
+        40.039310455322266,
+        100
+      ],
+      "target": [
+        120,
+        130,
+        -640
+      ],
+      "calls": 218,
+      "triangles": 1172572,
+      "instances": 15212,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "tree-near",
+      "eye": [
+        4.8,
+        45.09629497528076,
+        104.4
+      ],
+      "target": [
+        -9,
+        45.696294975280765,
+        97
+      ],
+      "fov": 76,
+      "calls": 234,
+      "triangles": 1426524,
+      "instances": 12725,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "forest",
+      "eye": [
+        -380,
+        10.283686637878418,
+        240
+      ],
+      "target": [
+        -470,
+        18.168086051940918,
+        195
+      ],
+      "calls": 130,
+      "triangles": 1012230,
+      "instances": 5663,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "city-wall",
+      "eye": [
+        132,
+        84.86840643931548,
+        -487.9276859748512
+      ],
+      "target": [
+        120,
+        85.13641837355564,
+        -511.9276859748512
+      ],
+      "calls": 104,
+      "triangles": 724462,
+      "instances": 1498,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "palace",
+      "eye": [
+        132,
+        121,
+        -586
+      ],
+      "target": [
+        120,
+        143,
+        -640
+      ],
+      "calls": 64,
+      "triangles": 666088,
+      "instances": 1125,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "aerial",
+      "eye": [
+        120,
+        430,
+        -210
+      ],
+      "target": [
+        120,
+        115,
+        -640
+      ],
+      "calls": 162,
+      "triangles": 891356,
+      "instances": 2543,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "rubble-close",
+      "eye": [
+        6.5,
+        38.744243907928464,
+        102
+      ],
+      "target": [
+        4.8,
+        38.55381164550783,
+        96.8
+      ],
+      "calls": 233,
+      "triangles": 1456716,
+      "instances": 14897,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    },
+    {
+      "name": "dry-wall-close",
+      "eye": [
+        -42.43,
+        26.499388380050675,
+        53.69
+      ],
+      "target": [
+        -47.4,
+        24.873504447939006,
+        56.6666666667
+      ],
+      "calls": 150,
+      "triangles": 900918,
+      "instances": 4679,
+      "treeTiers": [
+        0,
+        0,
+        0
+      ],
+      "scatterTiers": [
+        0,
+        0,
+        0
+      ],
+      "detailCalls": 0,
+      "detailTriangles": 0
+    }
+  ]
+}
