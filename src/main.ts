@@ -203,12 +203,26 @@ async function boot(): Promise<void> {
       || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
       || (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select')))) return;
     event.preventDefault();
-    void styles!.next().catch((error: unknown) => {
+    void styles!.next().then(() => hud.cinemaLabel(styles!.current === 'cinematic')).catch((error: unknown) => {
       console.error('Could not load render style', error);
       hud.toast('风格加载失败，请重试');
     });
   });
-  await styles.set(params.get('style') ?? 'default', false);
+  // Cinematic is the default look; the 电影感 button toggles it and is remembered.
+  const cinemaKey = 'galebound.cinematic';
+  const cinemaStored = (): boolean => { try { return localStorage.getItem(cinemaKey) !== '0'; } catch { return true; } };
+  hud.onCinema = async () => {
+    const on = styles!.current !== 'cinematic';
+    try { localStorage.setItem(cinemaKey, on ? '1' : '0'); } catch { /* private mode */ }
+    await styles!.set(on ? 'cinematic' : 'default');
+    return on;
+  };
+  const initialStyle = params.get('style') ?? (cinemaStored() ? 'cinematic' : 'default');
+  try { await styles.set(initialStyle, false); } catch (error) {
+    console.error('Could not load render style', error);
+    await styles.set('default', false);
+  }
+  hud.cinemaLabel(styles.current === 'cinematic');
 
   // Handles for automated checks; not used by the game itself.
   (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt, style: styles };

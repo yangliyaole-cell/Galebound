@@ -27,6 +27,7 @@ export class Hud {
   onJump: () => void = () => {};
   onRun: () => boolean = () => false;
   onSound: () => boolean = () => true;
+  onCinema: () => Promise<boolean> = async () => false;
 
   constructor(touch: boolean, tier: Tier) {
     $('keys').innerHTML = touch
@@ -67,6 +68,14 @@ export class Hud {
       sound.textContent = `声音：${this.onSound() ? '开' : '关'}`;
     });
     sound.textContent = '声音：开';
+    const cinema = $('cinema');
+    cinema.addEventListener('click', () => {
+      void this.onCinema().then((on) => this.cinemaLabel(on)).catch(() => this.toast('风格加载失败，请重试'));
+    });
+  }
+
+  cinemaLabel(on: boolean): void {
+    $('cinema').textContent = `电影感：${on ? '开' : '关'}`;
   }
 
   style(name: string): void {
