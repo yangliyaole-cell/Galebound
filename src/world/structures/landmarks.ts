@@ -1,10 +1,12 @@
 import * as THREE from 'three';
-import { Builder, orbAt, place } from '../build';
+import { Builder, archedProfile, orbAt, place } from '../build';
+import { buildMountainScenery } from '../mountain-scenery';
+import { createFlags } from '../flags';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
 import { BLOSSOM, FOREST, ISLAND, LIGHTHOUSE, START, STONES, WATCHTOWER, WINDMILL } from '../layout';
 import { seededRandom } from '../noise';
-import { beam, fence, wrapStairs } from './common';
+import { beam, fence, dryStoneWall, wrapStairs } from './common';
 import { ROOFS, SHUTTERS, WALLS, addHouse } from './house';
 
 const STONE = 0xd2cbbb;
@@ -37,6 +39,17 @@ function startRuins(b: Builder, rand: () => number): void {
     const z = START.z + 6 + rand() * 4;
     b.box('stone', x, heightAt(x, z) - 0.3, z, 1.5, 0.8, 1.0, rand() * 3, OLD, 0.2);
   }
+  // Broken pilgrim's arch and a hanging red banner, kept left of the launch corridor.
+  const ax = START.x - 22, az = START.z + 7, ay = heightAt(ax, az);
+  b.shape('stone', archedProfile(-6, 6, ay - 2,
+    (u) => ay + 10.5 + Math.sin(u * 0.8) * 0.5, [{ x: 0, w: 6.5, crown: ay + 8.5 }]),
+    1.6, place(ax, 0, az, -0.12), OLD);
+  for (const side of [-1, 1]) addBox(ax + side * 4.65, az, 1.4, 0.8, -0.12, ay + 10.5);
+  addBox(ax, az, 3.25, 0.8, -0.12, ay + 11, ay + 6.5);
+  b.box('cloth', ax - 4.7, ay + 3.4, az + 0.87, 2.2, 5.3, 0.05, -0.12, 0xb74734, 0);
+  b.box('plain', ax - 4.7, ay + 4.9, az + 0.92, 0.18, 2.2, 0.05, -0.12, 0xe7bc61, 0);
+  b.box('plain', ax - 4.7, ay + 5.9, az + 0.93, 1.05, 0.18, 0.05, -0.12, 0xe7bc61, 0);
+  b.box('stone', ax - 9, heightAt(ax - 9, az + 4) - 0.5, az + 4, 1.8, 4.5, 1, 0.18, OLD);
   orbAt('start-wall', START.x - 6.5 + Math.cos(-0.75) * 1.76, START.z + 4.5 + Math.sin(0.75) * 1.76, 1.2);
   fence(b, [[START.x + 9, START.z - 2], [START.x + 20, START.z - 12], [START.x + 34, START.z - 26], [START.x + 44, START.z - 44]]);
 }
@@ -318,7 +331,12 @@ export function buildLandmarks(): { object: THREE.Group; spinners: Spinner[] } {
   islandPavilion(b);
   blossomShrine(b);
   forestCabin(b, rand);
+  dryStoneWall(b, [[-23, 84], [-43, 64], [-55, 44]], rand);
+  dryStoneWall(b, [[73, -119], [105, -93], [142, -101]], rand);
+  dryStoneWall(b, [[-134, -94], [-173, -91], [-198, -103]], rand);
   const object = b.build();
-  object.add(mill.object);
+  object.add(mill.object, buildMountainScenery(), createFlags([
+    { x: START.x - 27, y: heightAt(START.x - 22, START.z + 7) + 13, z: START.z + 7, color: 0xb74734, size: 1.1 },
+  ]));
   return { object, spinners: [mill] };
 }

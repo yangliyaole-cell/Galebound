@@ -235,3 +235,18 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
   }
   return result;
 }
+
+/** Broken dry-stone boundaries with uneven caps, following the ground. */
+export function dryStoneWall(b: Builder, pts: [number, number][], rand: () => number): void {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], c = pts[i + 1], dx = c[0] - a[0], dz = c[1] - a[1];
+    const len = Math.hypot(dx, dz), rot = Math.atan2(-dz, dx);
+    const blocks = Math.ceil(len / 1.6);
+    for (let k = 0; k < blocks; k++) {
+      if (rand() < 0.12) continue;
+      const t = (k + 0.5) / blocks, x = a[0] + t * dx, z = a[1] + t * dz;
+      const h = 0.45 + rand() * 0.4;
+      b.box('stone', x, heightAt(x, z) - 0.15, z, len / blocks - 0.05, h, 0.7 + rand() * 0.2, rot + (rand() - 0.5) * 0.14, k % 4 ? 0xbebaa4 : 0xa4ad83);
+    }
+  }
+}

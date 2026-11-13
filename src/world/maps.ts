@@ -90,6 +90,7 @@ export function forestDensity(x: number, z: number): number {
   const h = heightAt(x, z);
   if (h < 1.7) return 0;
   let d = sstep(0.52, 0.7, fbm(x / 170 + 40, z / 170 - 13, 3)) * 0.5;
+  if (x < -500 && z < -340) d = Math.max(d, 0.64 * sstep(0.28, 0.6, fbm(x / 95 + 13, z / 95, 3)));
   const wood = dist(x, z, FOREST) / FOREST.r + (fbm(x / 60, z / 60, 2) - 0.5) * 0.3;
   d = Math.max(d, 1 - sstep(0.72, 1.0, wood));
   d *= sstep(8, 70, cityEdgeDistance(x, z));

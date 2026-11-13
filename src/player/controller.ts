@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Input } from '../core/input';
 import { resolveWalls, supportHeight } from '../world/colliders';
 import { heightAt, normalAt, sstep } from '../world/heightmap';
-import { WATER_LEVEL } from '../world/layout';
+import { waterLevelAt } from '../world/mountain-layout';
 import type { Wind } from '../world/wind';
 import { Character, type Motion } from './character';
 
@@ -74,6 +74,7 @@ export class Player {
 
   update(dt: number, time: number, input: Input, cameraYaw: number, wind: Wind): void {
     const { pos, vel } = this;
+    const WATER_LEVEL = waterLevelAt(pos.x, pos.z);
     const mx = input.moveX;
     const my = input.moveY;
     const mag = Math.min(1, Math.hypot(mx, my));
@@ -245,6 +246,7 @@ export class Player {
 
   private glide(dt: number, input: Input, wind: Wind, jump: boolean): void {
     const { pos, vel } = this;
+    const WATER_LEVEL = waterLevelAt(pos.x, pos.z);
     const ease = 1 - Math.exp(-dt * 4);
     this.glideTime += dt;
     this.turn += (input.moveX - this.turn) * ease;

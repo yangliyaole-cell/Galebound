@@ -3,7 +3,7 @@ import { Builder, archedProfile, orbAt, place } from '../build';
 import { addBox, addRound } from '../colliders';
 import type { FlagSpot } from '../flags';
 import { heightAt } from '../heightmap';
-import { CITY, CITY_STREETS, SOUTH_GATE, cityWallPolygon, insideCity, roadClearance, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
+import { CITY, CITY_STREETS, SOUTH_GATE, cityWallPolygon, cityRadiusAt, insideCity, roadClearance, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
 import { seededRandom } from '../noise';
 import { wallRing } from './common';
 import { buildPalace } from './palace';
@@ -33,24 +33,14 @@ function distToLine(x: number, z: number, l: Line): number {
 
 /** Arches carrying water from the eastern highland into the city. */
 function aqueduct(b: Builder): Line {
-  const start = { x: 506, z: -612 };
-  const level = heightAt(start.x, start.z) + 0.4;
-  let dx = CITY.x - start.x;
-  let dz = CITY.z - start.z;
-  const dl = Math.hypot(dx, dz);
-  dx /= dl;
-  dz /= dl;
-  // Follow the line until the city hill rises to meet the channel.
-  let length = 0;
-  let left = false;
-  for (let t = 4; t < dl; t += 2) {
-    const h = heightAt(start.x + dx * t, start.z + dz * t);
-    if (h < level - 3) left = true;
-    if (left && h >= level - 0.6) {
-      length = t;
-      break;
-    }
-  }
+  const start = { x: 566, z: -586 };
+  const a = Math.atan2(start.z - CITY.z, start.x - CITY.x);
+  const radius = cityRadiusAt(a);
+  const end = { x: CITY.x + Math.cos(a) * (radius - 14), z: CITY.z + Math.sin(a) * (radius - 14) };
+  const wallGround = heightAt(CITY.x + Math.cos(a) * radius, CITY.z + Math.sin(a) * radius);
+  const level = Math.max(heightAt(start.x, start.z), heightAt(end.x, end.z), wallGround + 11.5) + 1;
+  const length = Math.hypot(end.x - start.x, end.z - start.z);
+  const dx = (end.x - start.x) / length, dz = (end.z - start.z) / length;
   const bays = Math.max(1, Math.round(length / 13));
   const bay = length / bays;
   const theta = Math.atan2(-dz, dx);
@@ -88,9 +78,9 @@ function aqueduct(b: Builder): Line {
   b.cyl('plain', ex, level + 0.2, ez, 4.6, 4.6, 0.12, 0x4f9fd0, 16, 0);
   addRound(ex, ez, 5.4, level + 0.3);
   // And begins at a spring house on the plateau.
-  b.box('stone', start.x - dx * 3, heightAt(start.x, start.z) - 2, start.z - dz * 3, 5, 5.6, 5, theta, STONE, 0.15);
-  b.pyramid('roof', start.x - dx * 3, heightAt(start.x, start.z) + 3.6, start.z - dz * 3, 6, 6, 2.4, theta, SLATE);
-  addBox(start.x - dx * 3, start.z - dz * 3, 2.5, 2.5, theta, heightAt(start.x, start.z) + 3.6);
+  b.box('stone', start.x - dx * 3, heightAt(start.x, start.z) - 2, start.z - dz * 3, 5, level - heightAt(start.x, start.z) + 7.6, 5, theta, STONE, 0.15);
+  b.pyramid('roof', start.x - dx * 3, level + 5.6, start.z - dz * 3, 6, 6, 2.4, theta, SLATE);
+  addBox(start.x - dx * 3, start.z - dz * 3, 2.5, 2.5, theta, level + 5.6);
 
   orbAt('aqueduct-mid', mx, mz, 1.3);
   orbAt('aqueduct-quarter', start.x + dx * length * 0.22, start.z + dz * length * 0.22, 1.3);
@@ -201,10 +191,18 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
   const water = aqueduct(b);
   buildPalace(b, flags);
 
-  const plaza = { x: cx + 18, z: cz + 112 };
+  const plaza = { x: cx + 18, z: cz + 100 };
   fountain(b, plaza.x, plaza.z, rand);
-  const ca = -0.4;
-  const cathedralAt = { x: cx + Math.cos(ca) * 159, z: cz + Math.sin(ca) * 159 };
+  // Keep the smaller town chapel in a genuine vacant parcel, clear of all lanes.
+  let chapelScore = -Infinity;
+  const cathedralAt = { x: cx, z: cz - 160 };
+  for (let dx = -200; dx <= 200; dx += 7) for (let dz = -180; dz <= 160; dz += 7) {
+    const x = cx + dx, z = cz + dz;
+    if (!insideCity(x, z, 28) || Math.hypot(dx, dz) < 118 || distToLine(x, z, water) < 25) continue;
+    const score = Math.min(30, roadClearance(x, z));
+    if (score > chapelScore) { chapelScore = score; cathedralAt.x = x; cathedralAt.z = z; }
+  }
+  const ca = Math.atan2(cathedralAt.z - cz, cathedralAt.x - cx);
   cathedral(b, cathedralAt.x, cathedralAt.z, Math.atan2(Math.cos(ca), Math.sin(ca)), flags);
 
   const keepOut = [

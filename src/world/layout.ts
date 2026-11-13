@@ -123,10 +123,23 @@ const cp = (x: number, z: number): Pt => [CITY.x + x, CITY.z + z];
 export const CITY_STREETS: Road[] = [
   road('ascent', 'cobble', 5.2, [[SOUTH_GATE.x, SOUTH_GATE.z], cp(23, 147), cp(83, 120), cp(124, 57), cp(120, -22), cp(76, -98), cp(5, -126), cp(-75, -111), cp(-126, -64), cp(-121, -13), cp(-90, 0), cp(-76, 0)]),
   road('market-lane', 'cobble', 4.4, [cp(23, 147), cp(-22, 137), cp(-76, 105), cp(-109, 61), cp(-121, -13)]),
-  road('east-lane', 'cobble', 4.5, [[EAST_GATE.x, EAST_GATE.z], cp(124, 57), cp(102, 89), cp(58, 110), cp(18, 112), cp(-22, 137)]),
+  road('east-lane', 'cobble', 4.5, [[EAST_GATE.x, EAST_GATE.z], cp(124, 57), cp(102, 89), cp(58, 110), cp(20, 122), cp(-22, 137)]),
   road('north-alley', 'cobble', 2.4, [cp(120, -22), cp(147, -65), cp(115, -114), cp(59, -143), cp(5, -126)]),
   road('west-alley', 'cobble', 2.5, [cp(-76, 105), cp(-144, 96), cp(-165, 42), cp(-156, -10), cp(-126, -64)]),
 ];
+// Trim switchbacks to the shared irregular ridge. The gate approaches keep their
+// exact endpoints; the market occupies a separate parcel beside the lanes.
+for (const street of CITY_STREETS) {
+  street.pts = street.pts.map(([x, z]) => {
+    let dx = x - CITY.x, dz = z - CITY.z;
+    const a = Math.atan2(dz, dx), r = Math.hypot(dx, dz);
+    const gateDistance = Math.min(Math.hypot(x - SOUTH_GATE.x, z - SOUTH_GATE.z), Math.hypot(x - EAST_GATE.x, z - EAST_GATE.z));
+    const limit = cityRadiusAt(a) - Math.min(12, gateDistance * 0.5);
+    if (r > limit) { dx *= limit / r; dz *= limit / r; }
+    x = CITY.x + dx; z = CITY.z + dz;
+    return [x, z];
+  });
+}
 export const ROADS: Road[] = [
   road('start-village', 'dirt', 3.9, [[2, 92], [-17, 50], [-38, 15], [-17, -28], [25, -65], [33, -109], [12, -150], [5, -180], [20, -205], [20, -219]]),
   road('river-bridge', 'cobble', 4.7, [[20, -219], [20, -265]], true),
@@ -136,14 +149,17 @@ export const ROADS: Road[] = [
   road('coastal-trail', 'dirt', 2.8, [[6, 90], [56, 108], [83, 152], [148, 176], [185, 220], [237, 258], [265, 287], [303, 337], [312, 388], [354, 426], [376, 492]]),
   road('grove-trail', 'dirt', 2.4, [[-6, 92], [-62, 89], [-107, 57], [-165, 39], [-209, -2], [-242, -16], [-288, 14], [-306, 74], [-363, 103], [-386, 160], [-420, 200]]),
   road('highland-road', 'dirt', 3.0, [[EAST_GATE.x, EAST_GATE.z], [309, -506], [340, -473], [393, -490], [444, -465], [471, -417], [527, -397], [579, -420], [608, -410]]),
-  road('abbey-pilgrimage', 'dirt', 2.8, [[-300, -282], [-304, -211], [-382, -170], [-490, -198], [-562, -254], [-585, -326], [-636, -364], [-640, -414], [-615, -440], [-600, -450]]),
+  road('abbey-pilgrimage', 'dirt', 2.8, [[-300, -282], [-299, -334], [-325, -391], [-383, -426], [-460, -436], [-507, -456], [-535, -486], [-558, -486], [-572, -450], [-600, -450]]),
   road('field-path', 'dirt', 2.2, [[-48, -187], [-59, -157], [-80, -135], [-70, -102], [-37, -71], [-17, -28]]),
+  road('north-hamlets', 'dirt', 2.5, [[-626, -713], [-602, -686], [-582, -676], [-561, -641], [-546, -596], [-549, -542], [-540, -490], [-553, -435], [-580, -407], [-600, -411], [-600, -450]]),
+  road('west-hamlet', 'dirt', 2.4, [[-770, -400], [-749, -375], [-710, -369], [-678, -343], [-640, -350], [-613, -319], [-603, -263], [-582, -206], [-529, -172], [-465, -157], [-403, -169], [-334, -211], [-300, -249]]),
+  road('east-hamlet', 'dirt', 2.3, [[-478, -432], [-495, -448], [-516, -446], [-535, -464], [-535, -486]]),
   ...CITY_STREETS,
 ];
 
 /** Cobbled squares: [x, z, radius]. */
 export const PLAZAS: [number, number, number][] = [
-  [16, -196, 11], [CITY.x + 18, CITY.z + 112, 12], [CITY.x, CITY.z, CITY.plateau - 5],
+  [16, -196, 11], [CITY.x + 18, CITY.z + 100, 12], [CITY.x, CITY.z, CITY.plateau - 5],
 ];
 export interface Field {
   x: number; z: number; w: number; d: number; rot: number;
@@ -177,15 +193,26 @@ export function inPolygon(x: number, z: number, pts: Pt[]): boolean {
   }
   return inside;
 }
+// Index short segments once; placement queries only inspect nearby roads.
+const roadCells = new Map<string, { r: Road; i: number }[]>();
+for (const r of ROADS) for (let i = 0; i < r.pts.length - 1; i++) {
+  const a = r.pts[i], b = r.pts[i + 1];
+  for (let gx = Math.floor((Math.min(a[0], b[0]) - 24) / 32); gx <= Math.floor((Math.max(a[0], b[0]) + 24) / 32); gx++) {
+    for (let gz = Math.floor((Math.min(a[1], b[1]) - 24) / 32); gz <= Math.floor((Math.max(a[1], b[1]) + 24) / 32); gz++) {
+      const key = `${gx},${gz}`;
+      if (!roadCells.has(key)) roadCells.set(key, []);
+      roadCells.get(key)!.push({ r, i });
+    }
+  }
+}
+/** Signed distance to a road edge within the local 24m placement neighborhood. */
 export function roadClearance(x: number, z: number, kinds?: Road['kind']): number {
   let d = Infinity;
-  for (const r of ROADS) {
+  for (const { r, i } of roadCells.get(`${Math.floor(x / 32)},${Math.floor(z / 32)}`) ?? []) {
     if (kinds && r.kind !== kinds) continue;
-    for (let i = 0; i < r.pts.length - 1; i++) {
-      const a = r.pts[i], b = r.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1];
-      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1)));
-      d = Math.min(d, Math.hypot(x - a[0] - t * dx, z - a[1] - t * dz) - (r.widths[i] + t * (r.widths[i + 1] - r.widths[i])) / 2);
-    }
+    const a = r.pts[i], b = r.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1];
+    const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1)));
+    d = Math.min(d, Math.hypot(x - a[0] - t * dx, z - a[1] - t * dz) - (r.widths[i] + t * (r.widths[i + 1] - r.widths[i])) / 2);
   }
   return d;
 }

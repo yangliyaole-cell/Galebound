@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { fbm } from './noise';
-import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, SIZE, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
+import { ALPINE_LAKES, alpineLakeMetric, alpineChannel, waterLevelAt } from './mountain-layout';
+import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, ROADS, SIZE, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const clamp = (x: number, a: number, b: number): number => Math.min(b, Math.max(a, x));
@@ -77,12 +78,29 @@ function analyticHeight(x: number, z: number): number {
     const sharp = 1 - Math.abs(fbm(x / 60, z / 60, 3) * 2 - 1);
     h += Math.pow(m, 1.35) * peak * (0.55 + 0.75 * ridge + 0.18 * sharp * m);
   }
+  // A few dominant glacial horns break the broad mountain rim into distinct peaks.
+  for (const [px, pz, radius, rise] of [[-939, -775, 145, 210], [-900, -972, 122, 175], [-736, -988, 103, 145]]) {
+    const d = Math.hypot(x - px, z - pz) / radius;
+    if (d < 1) h += rise * Math.pow(1 - d, 1.45) * (0.9 + 0.1 * Math.sin(Math.atan2(z - pz, x - px) * 5));
+  }
   // Abbey cliff and its southern approach. The interior and threshold share one plane.
   const abbeyD = Math.hypot((x - ABBEY.x) / 51, (z - ABBEY.z) / 64);
   const approach = (1 - sstep(25, 62, Math.abs(x - ABBEY.x))) *
     (1 - sstep(-445, -285, z)) * sstep(-550, -475, z);
   h = Math.max(h, ABBEY.floor * approach);
   h = lerp(h, ABBEY.floor, 1 - sstep(0.82, 1.3, abbeyD));
+  // Nested glacial basins and their descending stream cut into the western foothills.
+  if (x > -810 && x < -480 && z > -825 && z < -305) {
+    for (const lake of ALPINE_LAKES) {
+      const d = alpineLakeMetric(x, z, lake);
+      if (d < 1.6) {
+        const bed = lake.level - 6 + 9 * sstep(0.35, 1.3, d);
+        h = lerp(h, bed, 1 - sstep(1.05, 1.6, d));
+      }
+    }
+    const stream = alpineChannel(x, z);
+    if (stream.distance < 17) h = lerp(stream.level - 2.2, h, sstep(3.5, 17, stream.distance));
+  }
   return h;
 }
 
@@ -98,6 +116,42 @@ export function buildHeightmap(cellSize: number): void {
   for (let j = 0; j <= n; j++) {
     for (let i = 0; i <= n; i++) {
       data[j * row + i] = analyticHeight(i * cell - HALF, j * cell - HALF);
+    }
+  }
+  gradeRoadbeds();
+}
+
+/** Linear-time local earthwork: preserve each crest and ease approaches below a
+ * 0.72 grade. Work only in narrow road corridors, never across an open water bed. */
+function gradeRoadbeds(): void {
+  const row = n + 1;
+  for (const road of ROADS) {
+    if (road.bridge) continue;
+    const heights = road.pts.map(([x, z]) => heightAt(x, z));
+    for (let i = 1; i < heights.length; i++) {
+      const a = road.pts[i - 1], b = road.pts[i];
+      heights[i] = Math.max(heights[i], heights[i - 1] - 0.72 * Math.hypot(b[0] - a[0], b[1] - a[1]));
+    }
+    for (let i = heights.length - 2; i >= 0; i--) {
+      const a = road.pts[i], b = road.pts[i + 1];
+      heights[i] = Math.max(heights[i], heights[i + 1] - 0.72 * Math.hypot(b[0] - a[0], b[1] - a[1]));
+    }
+    for (let i = 0; i < road.pts.length - 1; i++) {
+      const a = road.pts[i], b = road.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1];
+      const reach = Math.max(road.widths[i], road.widths[i + 1]) / 2 + 5;
+      const x0 = Math.max(0, Math.floor((Math.min(a[0], b[0]) - reach + HALF) / cell));
+      const x1 = Math.min(n, Math.ceil((Math.max(a[0], b[0]) + reach + HALF) / cell));
+      const z0 = Math.max(0, Math.floor((Math.min(a[1], b[1]) - reach + HALF) / cell));
+      const z1 = Math.min(n, Math.ceil((Math.max(a[1], b[1]) + reach + HALF) / cell));
+      for (let j = z0; j <= z1; j++) for (let k = x0; k <= x1; k++) {
+        const x = k * cell - HALF, z = j * cell - HALF;
+        const t = clamp(((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1), 0, 1);
+        const d = Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t);
+        const o = j * row + k;
+        if (d >= reach || data[o] < waterLevelAt(x, z) + 0.3) continue;
+        const target = heights[i] + (heights[i + 1] - heights[i]) * t;
+        data[o] = Math.max(data[o], lerp(data[o], target, 1 - sstep(reach - 4, reach, d)));
+      }
     }
   }
 }

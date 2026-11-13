@@ -156,3 +156,8 @@ export function solidAt(x: number, y: number, z: number): boolean {
   }
   return false;
 }
+
+/** Read-only unique solids for the headless world audit and layout tools. */
+export function inspectColliders(): readonly Collider[] {
+  return [...new Set([...cells.values()].flat())];
+}
