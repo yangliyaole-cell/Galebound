@@ -46,6 +46,104 @@ try {
   const { collectOrbPositions } = await server.ssrLoadModule('/src/world/orbs.ts');
   const { x: sx, z: sz } = L.START;
   const sy = H.heightAt(sx, sz);
+  const { waterFragmentSample } = await server.ssrLoadModule('/src/world/water.ts');
+  const { abbeyGroundMask, abbeyInteriorWeight, createAbbeyLighting, ABBEY_GROUND_MASK_GLSL } = await server.ssrLoadModule('/src/world/abbey-space.ts');
+  const { cityPlotsOverlap } = await server.ssrLoadModule('/src/world/structures/city-parcels.ts');
+  check('uploaded bathymetry, actual water geometry, fragment depth alpha and blue color', () => {
+    assert.ok(texture.version > 0 && texture.source.version > 0, 'height texture was never scheduled for GPU upload');
+    const { data, width, height } = texture.image;
+    const sampleTexture = (x, z) => {
+      const u = x / L.SIZE + 0.5, v = z / L.SIZE + 0.5;
+      if (u <= 0 || u >= 1 || v <= 0 || v >= 1) return -22;
+      const gx = u * width - 0.5, gz = v * height - 0.5;
+      const ix = Math.floor(gx), iz = Math.floor(gz), fx = gx - ix, fz = gz - iz;
+      const at = (i, j) => THREE.DataUtils.fromHalfFloat(data[Math.max(0, Math.min(height - 1, j)) * width + Math.max(0, Math.min(width - 1, i))]);
+      return (at(ix, iz) * (1 - fx) + at(ix + 1, iz) * fx) * (1 - fz) +
+        (at(ix, iz + 1) * (1 - fx) + at(ix + 1, iz + 1) * fx) * fz;
+    };
+    const points = [['coast', 0, 560, 0], ['sea', 0, 700, 0], ['mirror', L.LAKE.x, L.LAKE.z, 0],
+      ['river', L.BRIDGE.x, L.BRIDGE.z, 0], ['alpine', -744, -722, 94], ['off-map sea', 0, 1300, 0]];
+    water.updateMatrixWorld(true);
+    for (const [name, x, z, level] of points) {
+      const ground = sampleTexture(x, z), result = waterFragmentSample(ground, level);
+      assert.ok(level > ground + 0.5, `${name}: bed ${ground} is not below level ${level}`);
+      assert.ok(result.depth > 0.5 && result.alpha > 0.65 && result.color[2] > result.color[0] * 1.6, `${name}: invisible or non-blue water`);
+      const hits = new THREE.Raycaster(new THREE.Vector3(x, level + 150, z), new THREE.Vector3(0, -1, 0)).intersectObject(water, true);
+      assert.ok(hits.some((h) => Math.abs(h.point.y - level) < 0.02), `${name}: no upward-facing water surface`);
+      if (Math.abs(x) < L.HALF && Math.abs(z) < L.HALF) assert.ok(level > H.heightAt(x, z) + 0.5, `${name}: water below actual terrain mesh`);
+      console.log(`  WATER ${name}: level=${level}, bed=${ground.toFixed(3)}, depth=${result.depth.toFixed(3)}, alpha=${result.alpha.toFixed(3)}, color=#${new THREE.Color().fromArray(result.color).getHexString()}`);
+    }
+    return 'half-float upload + sea/lake/river/alpine meshes verified';
+  });
+  check('dense city parcels have clear roof gaps and rising contour shelves', () => {
+    const plots = builtHouses.filter((h) => L.insideCity(h.spec.x, h.spec.z)).map((h) => h.spec);
+    assert.equal(plots.length, city.info.houseCount);
+    assert.ok(plots.length >= 300 && plots.length <= 420, `${plots.length} city houses`);
+    for (let i = 0; i < plots.length; i++) for (let j = i + 1; j < plots.length; j++) {
+      assert.ok(!cityPlotsOverlap(plots[i], plots[j], 0.5), `overlapping city plots ${i}/${j}`);
+    }
+    const relief = [];
+    for (let k = 0; k < 18; k++) {
+      const levels = [0.07, 0.25, 0.43, 0.61, 0.79, 0.97].map((q) => H.heightAt(...L.cityShelfPoint(k / 18 * Math.PI * 2, q)));
+      relief.push(levels[0] - levels.at(-1));
+    }
+    assert.ok(Math.max(...relief) > 24 && L.CITY_TERRACE_EDGES.length === 5);
+    return `${plots.length} city houses, 5 shelf edges, relief=${Math.max(...relief).toFixed(1)}m`;
+  });
+  const maps = await server.ssrLoadModule('/src/world/maps.ts');
+  check('city ground between lanes and squares is not blanket cobblestone', () => {
+    let tested = 0;
+    for (let x = L.CITY.x - 280; x <= L.CITY.x + 280; x += 9) for (let z = L.CITY.z - 280; z <= L.CITY.z + 280; z += 9) {
+      if (!L.insideCity(x, z, 8) || Math.hypot(x - L.CITY.x, z - L.CITY.z) < 95 || L.roadClearance(x, z) < 6) continue;
+      if (L.PLAZAS.some(([px, pz, r]) => Math.hypot(x - px, z - pz) < r + 2)) continue;
+      assert.equal(maps.cobbleAt(x, z), 0); tested++;
+    }
+    assert.ok(tested > 100); return `${tested} unpaved samples between streets`;
+  });
+  check('abbey blades flowers and scattered props are excluded from the full floor plan', () => {
+    const spots = [[L.ABBEY.x, L.ABBEY.z], [L.ABBEY.x, L.ABBEY.z + 39], [L.ABBEY.x - 26, L.ABBEY.z - 9], [L.ABBEY.x + 26, L.ABBEY.z - 9]];
+    for (const [x, z] of spots) assert.equal(abbeyGroundMask(x, z), 0);
+    for (const mesh of grass.children) {
+      if (mesh.material.isShaderMaterial) assert.ok(mesh.material.vertexShader.includes(ABBEY_GROUND_MASK_GLSL) && mesh.material.vertexShader.includes('* abbeyGroundMask(root)'));
+      else {
+        const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+        mesh.material.onBeforeCompile(shader);
+        assert.ok(shader.vertexShader.includes(ABBEY_GROUND_MASK_GLSL) && shader.vertexShader.includes('* abbeyGroundMask(wp.xz)'));
+        assert.ok(shader.vertexShader.includes('vGrassAllowed = step(0.001, bladeHeight) * abbeyGroundMask(root)') && shader.fragmentShader.includes('if (vGrassAllowed < 0.5) discard;'));
+      }
+    }
+    const tileSizes = [46, 170, 90];
+    let suppressed = 0, visibleIndoor = 0;
+    const indoors = (x, z) => { const dx = Math.abs(x - L.ABBEY.x), dz = z - L.ABBEY.z; return (dx < 18 && Math.abs(dz) < 37) || (dx < 29 && Math.abs(dz + 9) < 9) || (dx < 3.5 && dz >= 37 && dz <= 40); };
+    for (const [px, pz] of spots) for (let m = 0; m < grass.children.length; m++) {
+      const cells = grass.children[m].geometry.attributes.aCell, tile = tileSizes[m];
+      const mod = (v, n) => ((v % n) + n) % n;
+      for (let i = 0; i < cells.count; i++) {
+        const x = px + mod(cells.getX(i) - px + tile / 2, tile) - tile / 2;
+        const z = pz + mod(cells.getY(i) - pz + tile / 2, tile) - tile / 2;
+        if (indoors(x, z)) { suppressed++; visibleIndoor += abbeyGroundMask(x, z) > 0 ? 1 : 0; }
+      }
+    }
+    let props = 0; const transform = new THREE.Matrix4(), p = new THREE.Vector3();
+    scatter.object.traverse((m) => {
+      if (!m.isInstancedMesh) return;
+      for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, transform); p.setFromMatrixPosition(transform); if (!abbeyGroundMask(p.x, p.z)) props++; }
+    });
+    assert.equal(props, 0); assert.equal(visibleIndoor, 0); assert.ok(suppressed > 0);
+    return `${suppressed} indoor roots tested, 0 visible grass/flowers, 0 indoor scatter props`;
+  });
+  check('abbey lighting fades to 45 percent and restores the outdoor lights', () => {
+    abbey.traverse((o) => assert.ok(!o.isLight, 'abbey added a real-time light'));
+    const sun = new THREE.DirectionalLight(0xfff0cf, 3), ambient = new THREE.HemisphereLight(0xcfe6ff, 0x7fa04a, 1.5);
+    const fog = new THREE.Fog(0xcfe4f2, 110, 1500), originalHaze = fog.color.clone(), lighting = createAbbeyLighting(sun, ambient, fog);
+    const p = new THREE.Vector3(L.ABBEY.x, L.ABBEY.floor, L.ABBEY.z);
+    assert.equal(abbeyInteriorWeight(p), 1); lighting.update(1 / 60, p);
+    assert.ok(lighting.weight > 0 && lighting.weight < 0.1, 'abrupt entry lighting');
+    for (let i = 0; i < 240; i++) lighting.update(1 / 60, p);
+    assert.ok(Math.abs(sun.intensity / 3 - 0.45) < 0.001 && Math.abs(ambient.intensity / 1.5 - 0.45) < 0.001);
+    p.set(L.START.x, 38, L.START.z); for (let i = 0; i < 240; i++) lighting.update(1 / 60, p);
+    assert.equal(sun.intensity, 3); assert.equal(ambient.intensity, 1.5); assert.ok(fog.color.equals(originalHaze));
+  });
   check('spawn grounded and outside solids', () => {
     assert.ok(Number.isFinite(sy) && sy > 20);
     assert.equal(C.solidAt(sx, sy + 0.5, sz), false);
@@ -72,7 +170,7 @@ try {
     const radii = L.cityWallPolygon.map(([x, z]) => Math.hypot(x - L.CITY.x, z - L.CITY.z));
     const mean = radii.reduce((a, b) => a + b) / radii.length;
     const cv = Math.sqrt(radii.reduce((a, b) => a + (b - mean) ** 2, 0) / radii.length) / mean;
-    assert.ok(cv > 0.09);
+    assert.ok(cv >= 0.2);
     for (const g of [L.SOUTH_GATE, L.EAST_GATE]) assert.ok(Math.abs(L.cityEdgeDistance(g.x, g.z)) < 0.01);
     return `${radii.length} vertices, radius CV=${cv.toFixed(3)}, min/max=${Math.min(...radii).toFixed(1)}/${Math.max(...radii).toFixed(1)}m`;
   });
@@ -97,8 +195,9 @@ try {
   check('roads avoid water, except registered bridge/pier', () => {
     const bad = [];
     for (const r of L.ROADS) for (const [x, z] of r.pts) {
-      if (r.bridge || Math.hypot(x - L.PIER.x, z - L.PIER.z) < 22) continue;
-      if (H.heightAt(x, z) < mountain.waterLevelAt(x, z) + 0.3) bad.push(`${r.id}@${x.toFixed(0)},${z.toFixed(0)}`);
+      if (r.bridge) continue;
+      const supportedPier = r.id === 'lake-road' && Math.hypot(x - L.PIER.x, z - L.PIER.z) < 45;
+      if ((supportedPier ? C.surfaceTop(x, z) : H.heightAt(x, z)) < mountain.waterLevelAt(x, z) + 0.3) bad.push(`${r.id}@${x.toFixed(0)},${z.toFixed(0)}`);
     }
     assert.equal(bad.length, 0, bad.slice(0, 20).join('; '));
   });
@@ -131,6 +230,62 @@ try {
       C.resolveWalls(p, 0.32, L.ABBEY.floor, L.ABBEY.floor + 1.7, 0.5);
       assert.ok(Math.hypot(p.x - x, p.z - z) < 0.05, `transept blocked at ${x},${z}`);
       assert.ok(Math.abs(C.supportHeight(x, z, L.ABBEY.floor, 0.5) - L.ABBEY.floor) < 0.1);
+    }
+  });
+  check('spawn to abbey pilgrimage is a continuous dry collision-free walking route', () => {
+    const get = (id) => L.ROADS.find((r) => r.id === id).pts;
+    const villagePath = get('village-city'), join = villagePath.findIndex(([x, z]) => Math.hypot(x - 18, z + 330) < 0.1);
+    assert.ok(join >= 0, 'missing northern bridge-road junction');
+    const route = [[sx, sz], ...get('start-village'), ...get('river-bridge'), ...villagePath.slice(0, join + 1),
+      ...get('abbey-pilgrimage'), [L.ABBEY.x, L.ABBEY.entranceZ]];
+    let feet = sy, length = 0, maxGrade = 0, minDry = Infinity;
+    for (let i = 0; i < route.length - 1; i++) {
+      const a = route[i], b = route[i + 1], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 0.001) continue;
+      const steps = Math.ceil(len / 0.15);
+      for (let j = 1; j <= steps; j++) {
+        const x = a[0] + (b[0] - a[0]) * j / steps, z = a[1] + (b[1] - a[1]) * j / steps;
+        const next = C.supportHeight(x, z, feet, 0.5), p = { x, z };
+        C.resolveWalls(p, 0.32, next, next + 1.7, 0.5);
+        assert.ok(Math.hypot(p.x - x, p.z - z) < 0.03, `route solid at ${x.toFixed(1)},${z.toFixed(1)}`);
+        const grade = Math.abs(next - feet) / (len / steps);
+        assert.ok(grade < 1.25, `route grade ${grade.toFixed(2)} at ${x.toFixed(1)},${z.toFixed(1)}`);
+        const dry = next - mountain.waterLevelAt(x, z); assert.ok(dry > 0.25, `wet route at ${x},${z}`);
+        maxGrade = Math.max(maxGrade, grade); minDry = Math.min(minDry, dry); feet = next;
+      }
+      length += len;
+    }
+    return `${length.toFixed(0)}m via village stone bridge, max grade=${maxGrade.toFixed(2)}, min dry clearance=${minDry.toFixed(2)}m`;
+  });
+  check('abbey exterior photo stances are dry and reach the south portal', () => {
+    const descriptions = [];
+    for (const z of [-420, -444]) {
+      const x = L.ABBEY.x, floor = H.heightAt(x, z), level = mountain.waterLevelAt(x, z);
+      assert.ok(floor > level + 2 && Math.abs(C.surfaceTop(x, z) - floor) < 0.1);
+      assert.ok(!C.solidAt(x, floor + 0.8, z));
+      let feet = floor;
+      for (let t = z; t > L.ABBEY.entranceZ; t -= 0.15) {
+        const p = { x, z: t }, next = C.supportHeight(x, t, feet, 0.5);
+        C.resolveWalls(p, 0.32, next, next + 1.7, 0.5);
+        assert.ok(Math.hypot(p.x - x, p.z - t) < 0.03 && Math.abs(next - feet) < 0.2); feet = next;
+      }
+      descriptions.push(`(${x},${z}) Y=${floor.toFixed(2)}m > water=${level}m`);
+    }
+    return descriptions.join('; ') + '; face north (-Z), camyaw=0';
+  });
+  check('lake road shore gangway joins the pier with dry support', () => {
+    const x = L.PIER.x + 18, deckZ = L.PIER.z;
+    const route = [[x, deckZ + 29], [x, deckZ], [L.PIER.x, deckZ]];
+    let feet = H.heightAt(...route[0]);
+    for (let i = 1; i < route.length; i++) {
+      const a = route[i - 1], b = route[i], steps = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.1);
+      for (let j = 0; j <= steps; j++) {
+        const px = a[0] + (b[0] - a[0]) * j / steps, pz = a[1] + (b[1] - a[1]) * j / steps;
+        const next = C.supportHeight(px, pz, feet, 0.5), p = { x: px, z: pz };
+        C.resolveWalls(p, 0.32, next, next + 1.7, 0.5);
+        assert.ok(next > mountain.waterLevelAt(px, pz) + 0.3 && Math.abs(next - feet) < 0.5);
+        assert.ok(Math.hypot(p.x - px, p.z - pz) < 0.03); feet = next;
+      }
     }
   });
   // Sample the actual generated wrap-stair ramps through all corners, using the
@@ -198,7 +353,8 @@ try {
         for (let d = 0; d < len; d += 1) {
           const x = a[0] + (b[0] - a[0]) * d / len, z = a[1] + (b[1] - a[1]) * d / len;
           const onBridgeApproach = Math.abs(x - L.BRIDGE.x) < L.BRIDGE.width / 2 && Math.abs(z - L.BRIDGE.z) <= L.BRIDGE.length / 2 + 7;
-          const feet = onBridgeApproach ? C.surfaceTop(x, z) : H.heightAt(x, z), p = { x, z };
+          const onPierApproach = r.id === 'lake-road' && Math.hypot(x - L.PIER.x, z - L.PIER.z) < 45;
+          const feet = onBridgeApproach || onPierApproach ? C.surfaceTop(x, z) : H.heightAt(x, z), p = { x, z };
           C.resolveWalls(p, 0.32, feet, feet + 1.7, 0.5);
           if (Math.hypot(p.x - x, p.z - z) > 0.05) blocked.push(`${r.id}@${x.toFixed(0)},${z.toFixed(0)}`);
         }

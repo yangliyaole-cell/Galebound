@@ -97,7 +97,7 @@ function analyticHeight(x: number, z: number): number {
   const abbeyD = Math.hypot((x - ABBEY.x) / 51, (z - ABBEY.z) / 64);
   const approach = (1 - sstep(25, 62, Math.abs(x - ABBEY.x))) *
     (1 - sstep(-445, -285, z)) * sstep(-550, -475, z);
-  h = Math.max(h, ABBEY.floor * approach);
+  if (approach > 0) h = Math.max(h, ABBEY.floor * approach);
   h = lerp(h, ABBEY.floor, 1 - sstep(0.82, 1.3, abbeyD));
   // Nested glacial basins and their descending stream cut into the western foothills.
   if (x > -810 && x < -480 && z > -825 && z < -305) {

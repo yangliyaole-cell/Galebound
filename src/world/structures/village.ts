@@ -145,6 +145,22 @@ function pier(b: Builder): void {
     }
   }
   addBox(x, z, len / 2, 1.3, 0, top, 0.6);
+  // A short shore gangway keeps the lake road above the restored negative bed.
+  // It joins the pier's landward tip; the approach ramp meets the actual bank.
+  const gx = x + len / 2 + 1, shoreZ = z + 28, joinZ = z + 21;
+  const run = shoreZ - joinZ, centerZ = (shoreZ + joinZ) / 2;
+  const foot = heightAt(gx, shoreZ);
+  const rampTop = (lz: number): number => top + (foot - top) * (lz / run + 0.5);
+  b.box('wood', gx, top - 0.18, z + 10, 2.8, 0.18, 22, 0, 0x9a7a52, 0);
+  addBox(gx, z + 10, 1.4, 11, 0, top, top - 0.18);
+  const ramp = new THREE.Shape();
+  ramp.moveTo(-run / 2, -2); ramp.lineTo(run / 2, -2);
+  ramp.lineTo(run / 2, rampTop(-run / 2)); ramp.lineTo(-run / 2, rampTop(run / 2)); ramp.closePath();
+  b.shape('wood', ramp, 2.8, place(gx, 0, centerZ, Math.PI / 2), 0x9a7a52);
+  addBox(gx, centerZ, 1.4, run / 2, 0, (_lx, lz) => rampTop(lz));
+  for (const pz of [z + 2, z + 9, z + 16, z + 21]) for (const side of [-1, 1]) {
+    b.cyl('wood', gx + side * 1.25, -5, pz, 0.14, 0.14, top + 5.2, 0x6a4c34, 6, 0);
+  }
   // A rowing boat tied up at the end.
   const bx = x - len / 2 - 1.5;
   const hull = new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2).scale(0.9, 0.7, 2.3);

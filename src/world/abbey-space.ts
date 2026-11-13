@@ -11,17 +11,17 @@ export function abbeyInteriorDistance(x: number, z: number): number {
 }
 export function abbeyGroundMask(x: number, z: number): number {
   const dx = Math.abs(x - ABBEY.x), dz = z - ABBEY.z;
-  return +!(Math.min(19.5 - dx, 38.5 - Math.abs(dz)) >= 0 ||
-    Math.min(33.5 - dx, 10.5 - Math.abs(dz + 9)) >= 0 ||
-    (dx <= 5 && dz >= 36 && dz <= 43));
+  return +!(Math.min(21 - dx, 40 - Math.abs(dz)) >= 0 ||
+    Math.min(35 - dx, 12 - Math.abs(dz + 9)) >= 0 ||
+    (dx <= 6.5 && dz >= 35 && dz <= 44));
 }
 /** Used verbatim by grass blades and flowers; covers nave, transepts and porch. */
 export const ABBEY_GROUND_MASK_GLSL = `
   float abbeyGroundMask(vec2 p) {
     vec2 q=p-vec2(${ABBEY.x.toFixed(1)},${ABBEY.z.toFixed(1)});
-    float nave=min(19.5-abs(q.x),38.5-abs(q.y));
-    float wings=min(33.5-abs(q.x),10.5-abs(q.y+9.));
-    float porch=min(5.-abs(q.x),min(q.y-36.,43.-q.y));
+    float nave=min(21.-abs(q.x),40.-abs(q.y));
+    float wings=min(35.-abs(q.x),12.-abs(q.y+9.));
+    float porch=min(6.5-abs(q.x),min(q.y-35.,44.-q.y));
     return 1.-step(0.,max(nave,max(wings,porch)));
   }`;
 export function abbeyInteriorWeight(p: { x: number; y: number; z: number }): number {

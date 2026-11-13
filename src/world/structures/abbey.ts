@@ -31,6 +31,16 @@ export function buildAbbey(): THREE.Group {
     g.setAttribute('color', new THREE.Float32BufferAttribute(Array.from({ length: n }, () => [c.r, c.g, c.b]).flat(), 3));
     return g;
   };
+  const shaft = (start: THREE.Vector3, end: THREE.Vector3, color: number, neck = 2.1, spread = 7.5): void => {
+    for (let cross = 0; cross < 2; cross++) {
+      const v = cross ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+      const vertices = [start.clone().addScaledVector(v, -neck), start.clone().addScaledVector(v, neck),
+        end.clone().addScaledVector(v, spread), end.clone().addScaledVector(v, -spread)];
+      const g = new THREE.BufferGeometry().setFromPoints(vertices); g.setIndex([0, 1, 2, 0, 2, 3]);
+      g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+      light.push(tint(g, color));
+    }
+  };
   // A thin floor slab rests on the prepared rock shelf. No collider fills the room.
   ext.box('stone', x, y - 0.3, z, 36, 0.3, 74, 0, STONE);
   addBox(x, z, 18, 37, 0, y);
@@ -66,14 +76,7 @@ export function buildAbbey(): THREE.Group {
       const color = glassColors[(k + 7) % 4];
       const start = new THREE.Vector3(wx - side * 0.4, y + 10, gz);
       const end = new THREE.Vector3(x - side * 3, y + 0.12, gz + 8);
-      for (let cross = 0; cross < 2; cross++) {
-        const v = cross ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
-        const vertices = [start.clone().addScaledVector(v, -2.1), start.clone().addScaledVector(v, 2.1),
-          end.clone().addScaledVector(v, 7.5), end.clone().addScaledVector(v, -7.5)];
-        const g = new THREE.BufferGeometry().setFromPoints(vertices); g.setIndex([0, 1, 2, 0, 2, 3]);
-        g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
-        light.push(tint(g, color));
-      }
+      if (k !== 1) shaft(start, end, color);
       const patch = new THREE.PlaneGeometry(8, 10.5).rotateX(-Math.PI / 2).rotateY(side * 0.35).translate(end.x, y + 0.07, end.z);
       patches.push(tint(patch, color));
       const pewIndex = Math.max(0, Math.min(7, Math.round((25 - (end.z - z)) / 5.1)));
@@ -102,6 +105,8 @@ export function buildAbbey(): THREE.Group {
       ext.box('stone', x + side * 10, y + 24.5, cz, 1, 3.5, 6.2, 0, WARM);
       const g = new THREE.ShapeGeometry(lancet(2.4, 6.5)).applyMatrix4(place(x + side * 10, y + 18, cz, Math.PI / 2));
       glass.push(tint(g, glassColors[(k + 8) % 4]));
+      shaft(new THREE.Vector3(x + side * 9.6, y + 22, cz),
+        new THREE.Vector3(x - side * 4, y + 0.15, cz + 11), glassColors[(k + 8) % 4], 1.1, 5);
     }
     for (const h of [14, 16]) ext.box('stone', x + side * 10, y + h, z, 1, 2, 72, 0, WARM);
   }
@@ -195,7 +200,9 @@ export function buildAbbey(): THREE.Group {
       void main(){ float edge=pow(max(0.,sin(vUv.x*3.14159)),1.6);
         float grain=sin(vPos.x*2.3+vPos.z*3.7+sin(uTime*.23))*sin(vPos.y*4.1-uTime*.4);
         float dust=pow(max(0.,grain),12.); float fade=(1.-vUv.y)*.20+.11;
-        gl_FragColor=vec4(vColor*2.3*(1.+dust*1.5),edge*fade); }`,
+        gl_FragColor=vec4(vColor*2.3*(1.+dust*1.5),edge*fade);
+        #include <colorspace_fragment>
+      }`,
   });
   const shafts = new THREE.Mesh(mergeGeometries(light), beams); shafts.renderOrder = 3;
   interior.add(shafts);
