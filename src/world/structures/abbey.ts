@@ -6,6 +6,7 @@ import { addBox, addRound } from '../colliders';
 import { createFlags, type FlagSpot } from '../flags';
 import { ABBEY } from '../layout';
 import { beam } from './common';
+import { createAbbeyLightMaterial } from '../abbey-light';
 
 const STONE = 0xd4c9b4, WARM = 0xe9dcc0, SLATE = 0x5b708b;
 const glassColors = [0xff3256, 0x3884ff, 0xffc348, 0x38dc9a];
@@ -31,9 +32,12 @@ export function buildAbbey(): THREE.Group {
     g.setAttribute('color', new THREE.Float32BufferAttribute(Array.from({ length: n }, () => [c.r, c.g, c.b]).flat(), 3));
     return g;
   };
-  const shaft = (start: THREE.Vector3, end: THREE.Vector3, color: number, neck = 2.1, spread = 7.5): void => {
+  const shaft = (start: THREE.Vector3, end: THREE.Vector3, color: number, neck = 0.7, spread = 1.65): void => {
+    const direction = end.clone().sub(start).normalize();
+    const across = new THREE.Vector3(direction.z, 0, -direction.x).normalize();
+    const upright = new THREE.Vector3().crossVectors(direction, across).normalize();
     for (let cross = 0; cross < 2; cross++) {
-      const v = cross ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+      const v = cross ? upright : across;
       const vertices = [start.clone().addScaledVector(v, -neck), start.clone().addScaledVector(v, neck),
         end.clone().addScaledVector(v, spread), end.clone().addScaledVector(v, -spread)];
       const g = new THREE.BufferGeometry().setFromPoints(vertices); g.setIndex([0, 1, 2, 0, 2, 3]);
@@ -72,17 +76,19 @@ export function buildAbbey(): THREE.Group {
         ext.box('stone', wx, y + 4, gz, 0.3, 8.3, 0.17, 0, WARM, 0);
         for (const h of [6.3, 8.55, 10.8]) ext.box('stone', wx, y + h, gz, 0.3, 0.16, 3.9, 0, WARM, 0);
       }
-      // Colored shafts slant inward. Two crossing tapered planes keep them legible from the aisle.
+      // Sparse, narrow shafts stay inside their window bay and leave the nave clear.
       const color = glassColors[(k + 7) % 4];
       const start = new THREE.Vector3(wx - side * 0.4, y + 10, gz);
-      const end = new THREE.Vector3(x - side * 3, y + 0.12, gz + 8);
-      if (k !== 1) shaft(start, end, color);
-      const patch = new THREE.PlaneGeometry(8, 10.5).rotateX(-Math.PI / 2).rotateY(side * 0.35).translate(end.x, y + 0.07, end.z);
+      const end = new THREE.Vector3(x + side * 4.5, y + 0.12, gz + 3);
+      if (k % 2 === 0) {
+      shaft(start, end, color);
+      const patch = new THREE.PlaneGeometry(3.2, 4.8).rotateX(-Math.PI / 2).rotateY(side * 0.35).translate(end.x, y + 0.07, end.z);
       patches.push(tint(patch, color));
       const pewIndex = Math.max(0, Math.min(7, Math.round((25 - (end.z - z)) / 5.1)));
-      const seatPatch = new THREE.PlaneGeometry(4.8, 0.95).rotateX(-Math.PI / 2)
+      const seatPatch = new THREE.PlaneGeometry(3.4, 0.80).rotateX(-Math.PI / 2)
         .translate(x + side * 4.8, y + 0.9, z + 25 - pewIndex * 5.1);
       patches.push(tint(seatPatch, color));
+      }
       // Each wall pier reaches the floor. Above the glazing only overhead collision is needed.
       const pierZ = gz + 4.5;
       ext.box('stone', wx, y - 1, pierZ, 2.6, 20, 1.8, 0, STONE);
@@ -105,8 +111,8 @@ export function buildAbbey(): THREE.Group {
       ext.box('stone', x + side * 10, y + 24.5, cz, 1, 3.5, 6.2, 0, WARM);
       const g = new THREE.ShapeGeometry(lancet(2.4, 6.5)).applyMatrix4(place(x + side * 10, y + 18, cz, Math.PI / 2));
       glass.push(tint(g, glassColors[(k + 8) % 4]));
-      shaft(new THREE.Vector3(x + side * 9.6, y + 22, cz),
-        new THREE.Vector3(x - side * 4, y + 0.15, cz + 11), glassColors[(k + 8) % 4], 1.1, 5);
+      if (k === -2 || k === 2) shaft(new THREE.Vector3(x + side * 9.6, y + 22, cz),
+        new THREE.Vector3(x + side * 3, y + 0.15, cz + 4), glassColors[(k + 8) % 4], 0.4, 1.1);
     }
     for (const h of [14, 16]) ext.box('stone', x + side * 10, y + h, z, 1, 2, 72, 0, WARM);
   }
@@ -191,24 +197,11 @@ export function buildAbbey(): THREE.Group {
   const exterior = ext.build(false), interior = inside.build(false);
   const glassMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
   exterior.add(new THREE.Mesh(mergeGeometries(glass), glassMat));
-  const beams = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
-    uniforms: { uTime: shared.uTime }, vertexColors: true,
-    vertexShader: `varying vec2 vUv; varying vec3 vColor; varying vec3 vPos;
-      void main(){ vUv=uv; vColor=color; vPos=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-    fragmentShader: `uniform float uTime; varying vec2 vUv; varying vec3 vColor; varying vec3 vPos;
-      void main(){ float edge=pow(max(0.,sin(vUv.x*3.14159)),1.6);
-        float grain=sin(vPos.x*2.3+vPos.z*3.7+sin(uTime*.23))*sin(vPos.y*4.1-uTime*.4);
-        float dust=pow(max(0.,grain),12.); float fade=(1.-vUv.y)*.20+.11;
-        gl_FragColor=vec4(vColor*2.3*(1.+dust*1.5),edge*fade);
-        #include <colorspace_fragment>
-      }`,
-  });
-  const shafts = new THREE.Mesh(mergeGeometries(light), beams); shafts.renderOrder = 3;
-  interior.add(shafts);
-  interior.add(new THREE.Mesh(mergeGeometries(patches), new THREE.MeshBasicMaterial({
-    vertexColors: true, transparent: true, opacity: 0.70, color: new THREE.Color(1.8, 1.8, 1.8), depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-  })));
+  const shafts = new THREE.Mesh(mergeGeometries(light), createAbbeyLightMaterial('shaft'));
+  shafts.name = 'Abbey bounded window shafts'; shafts.renderOrder = 2;
+  const lightPatches = new THREE.Mesh(mergeGeometries(patches), createAbbeyLightMaterial('patch'));
+  lightPatches.name = 'Abbey bounded window patches'; lightPatches.renderOrder = 1;
+  interior.add(shafts, lightPatches);
   interior.visible = false;
   // Culling uses the existing player uniform; no additional frame loop or lights/shadows.
   exterior.children[0].onBeforeRender = () => {

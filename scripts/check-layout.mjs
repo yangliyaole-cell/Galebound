@@ -47,7 +47,7 @@ try {
   const { x: sx, z: sz } = L.START;
   const sy = H.heightAt(sx, sz);
   const { waterFragmentSample } = await server.ssrLoadModule('/src/world/water.ts');
-  const { abbeyGroundMask, abbeyInteriorWeight, createAbbeyLighting, ABBEY_GROUND_MASK_GLSL } = await server.ssrLoadModule('/src/world/abbey-space.ts');
+  const { abbeyGroundMask, abbeyInteriorWeight, createAbbeyLighting, ABBEY_LIGHTING, ABBEY_GROUND_MASK_GLSL } = await server.ssrLoadModule('/src/world/abbey-space.ts');
   const { cityPlotsOverlap } = await server.ssrLoadModule('/src/world/structures/city-parcels.ts');
   check('uploaded bathymetry, actual water geometry, fragment depth alpha and blue color', () => {
     assert.ok(texture.version > 0 && texture.source.version > 0, 'height texture was never scheduled for GPU upload');
@@ -132,7 +132,7 @@ try {
     assert.equal(props, 0); assert.equal(visibleIndoor, 0); assert.ok(suppressed > 0);
     return `${suppressed} indoor roots tested, 0 visible grass/flowers, 0 indoor scatter props`;
   });
-  check('abbey lighting fades to 45 percent and restores the outdoor lights', () => {
+  check('abbey lighting scopes attenuation to rendering and restores the active style', () => {
     abbey.traverse((o) => assert.ok(!o.isLight, 'abbey added a real-time light'));
     const sun = new THREE.DirectionalLight(0xfff0cf, 3), ambient = new THREE.HemisphereLight(0xcfe6ff, 0x7fa04a, 1.5);
     const fog = new THREE.Fog(0xcfe4f2, 110, 1500), originalHaze = fog.color.clone(), lighting = createAbbeyLighting(sun, ambient, fog);
@@ -140,9 +140,54 @@ try {
     assert.equal(abbeyInteriorWeight(p), 1); lighting.update(1 / 60, p);
     assert.ok(lighting.weight > 0 && lighting.weight < 0.1, 'abrupt entry lighting');
     for (let i = 0; i < 240; i++) lighting.update(1 / 60, p);
-    assert.ok(Math.abs(sun.intensity / 3 - 0.45) < 0.001 && Math.abs(ambient.intensity / 1.5 - 0.45) < 0.001);
+    assert.ok(Math.abs(sun.intensity / 3 - ABBEY_LIGHTING.sun) < 0.001 && Math.abs(ambient.intensity / 1.5 - ABBEY_LIGHTING.ambient) < 0.001);
     p.set(L.START.x, 38, L.START.z); for (let i = 0; i < 240; i++) lighting.update(1 / 60, p);
     assert.equal(sun.intensity, 3); assert.equal(ambient.intensity, 1.5); assert.ok(fog.color.equals(originalHaze));
+  });
+  const { ABBEY_OPTICS, abbeyOpticalEnvelope } = await server.ssrLoadModule('/src/world/abbey-light.ts');
+  const { cinematic } = await server.ssrLoadModule('/src/render/styles/cinematic.ts');
+  check('abbey optics cannot add HDR energy or wash out the opaque traveller', () => {
+    const optics = [];
+    abbey.traverse((o) => { if (o.isMesh && o.material.userData.abbeyOptics) optics.push(o); });
+    assert.equal(optics.length, 2);
+    for (const mesh of optics) {
+      const mat = mesh.material, kind = mat.userData.abbeyOptics.kind, cap = ABBEY_OPTICS[kind];
+      assert.equal(mat.blending, THREE.NormalBlending); assert.equal(mat.depthTest, true); assert.equal(mat.depthWrite, false);
+      assert.equal(mat.uniforms.uLimits.value.x, cap.radiance); assert.equal(mat.uniforms.uLimits.value.y, cap.alpha);
+      assert.ok(cap.radiance < cinematic.post.bloom[0]);
+      for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) {
+        const sample = abbeyOpticalEnvelope(kind, i / 20, j / 20);
+        assert.ok(sample.alpha >= 0 && sample.alpha <= cap.alpha && sample.radiance <= cap.radiance);
+      }
+      if (kind === 'shaft') {
+        assert.ok(mat.fragmentShader.includes('smoothstep(1.,1.25,length(delta))'));
+        assert.equal(mesh.geometry.attributes.position.count, 10 * 2 * 4);
+      }
+      let surface = 0.10;
+      for (let i = 0; i < 52; i++) surface = cap.radiance * cap.alpha + surface * (1 - cap.alpha);
+      assert.ok(surface <= cap.radiance && surface < cinematic.post.bloom[0]);
+    }
+    return `10 shafts: RGB<=${ABBEY_OPTICS.shaft.radiance}, alpha<=${ABBEY_OPTICS.shaft.alpha}; patches: RGB<=${ABBEY_OPTICS.patch.radiance}, alpha<=${ABBEY_OPTICS.patch.alpha}`;
+  });
+  check('cinematic style switches, screenshot frames and outdoors keep their own light/fog values', () => {
+    const sun = new THREE.DirectionalLight(0xffffff, 3), hemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.5);
+    let fog = new THREE.Fog(0xcfe4f2, 110, 1500);
+    const lighting = createAbbeyLighting(sun, hemi, () => fog), p = new THREE.Vector3(L.ABBEY.x, L.ABBEY.floor, L.ABBEY.z);
+    for (const preset of [null, cinematic, null, cinematic]) {
+      const si = preset?.sun[1] ?? 3, hi = preset?.hemisphere[2] ?? 1.5;
+      sun.intensity = si; hemi.intensity = hi; fog = new THREE.Fog(preset?.fog[0] ?? 0xcfe4f2, 110, 1500);
+      const color = fog.color.clone();
+      for (let i = 0; i < 24; i++) { // Same settling period as shot=1; simulation need not tick.
+        lighting.update(1, p);
+        assert.ok(Math.abs(sun.intensity / si - ABBEY_LIGHTING.sun) < (i === 0 ? 0.05 : 0.003));
+        lighting.restore(); assert.equal(sun.intensity, si); assert.equal(hemi.intensity, hi); assert.ok(fog.color.equals(color));
+      }
+    }
+    p.set(L.START.x, 38, L.START.z);
+    for (let i = 0; i < 240; i++) { lighting.update(1 / 60, p); lighting.restore(); }
+    lighting.update(1 / 60, p);
+    assert.equal(sun.intensity, cinematic.sun[1]); assert.equal(hemi.intensity, cinematic.hemisphere[2]);
+    return `cinematic indoor sun=${(cinematic.sun[1] * ABBEY_LIGHTING.sun).toFixed(3)}, hemi=${(cinematic.hemisphere[2] * ABBEY_LIGHTING.ambient).toFixed(3)}; outdoor restored exactly`;
   });
   check('spawn grounded and outside solids', () => {
     assert.ok(Number.isFinite(sy) && sy > 20);

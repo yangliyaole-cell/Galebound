@@ -98,7 +98,7 @@ async function boot(): Promise<void> {
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.06;
   scene.add(sun, sun.target);
-  const abbeyLighting = createAbbeyLighting(sun, hemisphere, scene.fog);
+  const abbeyLighting = createAbbeyLighting(sun, hemisphere, () => scene.fog instanceof THREE.Fog ? scene.fog : null);
 
   hud.loading('正在铺草、引水…');
   await nextFrame();
@@ -257,7 +257,6 @@ async function boot(): Promise<void> {
     }
     follow.update(dt, player);
     shared.uPlayer.value.copy(player.pos);
-    abbeyLighting.update(dt, player.pos);
 
     if (started) {
       // Light orbs: walk or fly through one to gather it.
@@ -372,8 +371,13 @@ async function boot(): Promise<void> {
     }
     const begin = sample ? performance.now() : 0;
     const pipeline = styles!.pipeline;
-    if (pipeline) pipeline.render();
-    else renderer.render(scene, camera);
+    abbeyLighting.update(shot ? 1 : dt, player.pos);
+    try {
+      if (pipeline) pipeline.render();
+      else renderer.render(scene, camera);
+    } finally {
+      abbeyLighting.restore();
+    }
     if (sample) {
       // A synchronous default-framebuffer readback also waits on SwiftShader's deferred work.
       const gl = renderer.getContext();
