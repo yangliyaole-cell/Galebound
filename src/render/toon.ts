@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from './glsl';
 import { LOD_VERTEX, LOD_FRAGMENT, LOD_DISCARD } from './lod';
 import { shared } from './uniforms';
+import { pbrTier } from './pbr/config';
+import { applyPbr, registerPbr } from './pbr/material';
+import type { PbrKind } from './pbr/library';
 
 // Four flat tones give the hand-painted, cel-shaded look.
 const ramp = new THREE.DataTexture(new Uint8Array([105, 175, 230, 255]), 4, 1, THREE.RedFormat);
@@ -10,6 +13,8 @@ ramp.magFilter = THREE.NearestFilter;
 ramp.needsUpdate = true;
 
 export interface ToonOptions {
+  /** Cinematic alternative; all other styles keep the original Toon material. */
+  pbr?: PbrKind;
   vertexColors?: boolean;
   lod?: boolean;
   relief?: number;
@@ -51,10 +56,16 @@ export function toon(color: number, options: ToonOptions = {}): THREE.MeshToonMa
       );
     };
   }
+  if (options.pbr && pbrTier() !== 'low') {
+    const standard = new THREE.MeshStandardMaterial({ color, vertexColors: options.vertexColors ?? false, side: mat.side });
+    patch(standard, { ...options, texture: undefined, relief: 0 });
+    applyPbr(standard, options.pbr);
+    registerPbr(mat, standard);
+  }
   return mat;
 }
 
-function patch(mat: THREE.MeshToonMaterial, o: ToonOptions): void {
+function patch(mat: THREE.MeshToonMaterial | THREE.MeshStandardMaterial, o: ToonOptions): void {
   const sway = o.sway ?? 0;
   const size = o.textureSize ?? 2;
   mat.customProgramCacheKey = () =>

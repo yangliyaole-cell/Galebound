@@ -21,10 +21,10 @@ function getMaterials(detail = false): Record<Mat, THREE.Material> {
   });
   const textures = textureSets.get(resolution)!;
   const materials = {
-    stone: toon(0xffffff, { vertexColors: true, texture: textures.stone, textureSize: 2.6, relief: relief ? 0.085 : 0, ...range }),
-    plaster: toon(0xffffff, { vertexColors: true, texture: textures.plaster, textureSize: 3.4, ...range }),
-    roof: toon(0xffffff, { vertexColors: true, texture: textures.roof, textureSize: 2.2, relief: relief ? 0.045 : 0, ...range }),
-    wood: toon(0xffffff, { vertexColors: true, texture: textures.wood, textureSize: 1.5, relief: relief ? 0.025 : 0, ...range }),
+    stone: toon(0xffffff, { pbr: 'masonry', vertexColors: true, texture: textures.stone, textureSize: 2.6, relief: relief ? 0.085 : 0, ...range }),
+    plaster: toon(0xffffff, { pbr: 'plaster', vertexColors: true, texture: textures.plaster, textureSize: 3.4, ...range }),
+    roof: toon(0xffffff, { pbr: 'roof', vertexColors: true, texture: textures.roof, textureSize: 2.2, relief: relief ? 0.045 : 0, ...range }),
+    wood: toon(0xffffff, { pbr: 'wood', vertexColors: true, texture: textures.wood, textureSize: 1.5, relief: relief ? 0.025 : 0, ...range }),
     plain: toon(0xffffff, { vertexColors: true, ...range }),
     cloth: toon(0xffffff, { vertexColors: true, doubleSided: true, ...range }),
   };
