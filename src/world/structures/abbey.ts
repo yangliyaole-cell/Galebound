@@ -81,13 +81,13 @@ export function buildAbbey(): THREE.Group {
       const start = new THREE.Vector3(wx - side * 0.4, y + 10, gz);
       const end = new THREE.Vector3(x + side * 4.5, y + 0.12, gz + 3);
       if (k % 2 === 0) {
-      shaft(start, end, color);
-      const patch = new THREE.PlaneGeometry(3.2, 4.8).rotateX(-Math.PI / 2).rotateY(side * 0.35).translate(end.x, y + 0.07, end.z);
-      patches.push(tint(patch, color));
-      const pewIndex = Math.max(0, Math.min(7, Math.round((25 - (end.z - z)) / 5.1)));
-      const seatPatch = new THREE.PlaneGeometry(3.4, 0.80).rotateX(-Math.PI / 2)
-        .translate(x + side * 4.8, y + 0.9, z + 25 - pewIndex * 5.1);
-      patches.push(tint(seatPatch, color));
+        shaft(start, end, color);
+        const patch = new THREE.PlaneGeometry(3.2, 4.8).rotateX(-Math.PI / 2).rotateY(side * 0.35).translate(end.x, y + 0.07, end.z);
+        patches.push(tint(patch, color));
+        const pewIndex = Math.max(0, Math.min(7, Math.round((25 - (end.z - z)) / 5.1)));
+        const seatPatch = new THREE.PlaneGeometry(3.4, 0.80).rotateX(-Math.PI / 2)
+          .translate(x + side * 4.8, y + 0.9, z + 25 - pewIndex * 5.1);
+        patches.push(tint(seatPatch, color));
       }
       // Each wall pier reaches the floor. Above the glazing only overhead collision is needed.
       const pierZ = gz + 4.5;

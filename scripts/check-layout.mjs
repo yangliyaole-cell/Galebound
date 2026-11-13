@@ -189,6 +189,20 @@ try {
     assert.equal(sun.intensity, cinematic.sun[1]); assert.equal(hemi.intensity, cinematic.hemisphere[2]);
     return `cinematic indoor sun=${(cinematic.sun[1] * ABBEY_LIGHTING.sun).toFixed(3)}, hemi=${(cinematic.hemisphere[2] * ABBEY_LIGHTING.ambient).toFixed(3)}; outdoor restored exactly`;
   });
+  check('abbey representative linear-luminance model drops glare without changing outdoor exposure', () => {
+    // A bounded illustrative mixture, not a rendered screenshot measurement.
+    // Weights: bare stone / one shaft / floor patch / two shafts plus patch.
+    const weights = [0.4, 0.25, 0.25, 0.1], oldBase = 0.16, tintY = 0.4;
+    const base = oldBase * (0.7 * (4.9 * ABBEY_LIGHTING.sun / 1.35) + 0.3 * (0.85 * ABBEY_LIGHTING.ambient / 0.675));
+    const oldShaft = tintY * 2.3 * (1 + 1.5 * 0.4) * 0.21, oldPatch = tintY * 1.8 * 0.70;
+    const mix = (dst, kind) => dst * (1 - ABBEY_OPTICS[kind].alpha) + tintY * ABBEY_OPTICS[kind].radiance * ABBEY_OPTICS[kind].alpha;
+    const oldValues = [oldBase, oldBase + oldShaft, oldBase + oldPatch, oldBase + oldPatch + 2 * oldShaft];
+    const newValues = [base, mix(base, 'shaft'), mix(base, 'patch'), mix(mix(mix(base, 'patch'), 'shaft'), 'shaft')];
+    const mean = (values) => values.reduce((sum, y, i) => sum + y * weights[i], 0);
+    const before = mean(oldValues), after = mean(newValues);
+    assert.ok(after < before * 0.4);
+    console.log(`  LUMA MODEL before=${before.toFixed(4)}, after=${after.toFixed(4)}, linear reduction=${((1 - after / before) * 100).toFixed(1)}% (illustrative, not GPU measurement)`);
+  });
   check('spawn grounded and outside solids', () => {
     assert.ok(Number.isFinite(sy) && sy > 20);
     assert.equal(C.solidAt(sx, sy + 0.5, sz), false);
