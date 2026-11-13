@@ -15,6 +15,11 @@ import { HORIZON_COLOR, createSky } from './world/sky';
 import { createGrass } from './world/grass';
 import { createScatter } from './world/scatter';
 import { Wind, createWindFx } from './world/wind';
+import { toon } from './render/toon';
+import { createFlags } from './world/flags';
+import { buildCity } from './world/structures/city';
+import { buildLandmarks } from './world/structures/landmarks';
+import { buildCrops, buildVillage } from './world/structures/village';
 
 const params = new URLSearchParams(location.search);
 const num = (key: string, fallback: number): number =>
@@ -79,6 +84,17 @@ async function boot(): Promise<void> {
   scene.add(createTerrain());
   scene.add(createWater(heightTex, sunDir, HORIZON_COLOR));
   scene.add(createGrass(quality.grassNear, quality.grassFar, quality.flowers, heightTex));
+
+  hud.loading('正在砌墙盖瓦…');
+  await nextFrame();
+  const detail = quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0;
+  const village = buildVillage(detail);
+  const landmarks = buildLandmarks();
+  scene.add(village.object, landmarks.object);
+  await nextFrame();
+  const city = buildCity(detail);
+  scene.add(city.object, createFlags(city.flags));
+  scene.add(buildCrops(detail === 0 ? 0.4 : 1, toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.05, doubleSided: true })));
 
   hud.loading('正在种树…');
   await nextFrame();
@@ -158,6 +174,7 @@ async function boot(): Promise<void> {
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, dt);
     scatter.update(camera.position);
+    for (const s of landmarks.spinners) s.wheel.rotation.z += s.speed * (0.1 + shared.uWindStrength.value) * dt;
 
     if (started) {
       hud.update(dt, wind, follow.yaw, player.yaw);

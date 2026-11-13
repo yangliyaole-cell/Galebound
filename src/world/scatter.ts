@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Quality } from '../core/quality';
 import { toon } from '../render/toon';
-import { addRound } from './colliders';
+import { addRound, surfaceTop } from './colliders';
 import { heightAt, normalAt, sstep } from './heightmap';
 import { CITY, FOREST, HALF, SIZE, START, VILLAGE } from './layout';
 import { blossomDensity, cobbleAt, fieldAt, forestDensity, roadAt } from './maps';
@@ -217,8 +217,11 @@ export function createScatter(quality: Quality): {
   const rand = seededRandom(9);
   const pick = seededRandom(10);
   const normal = new THREE.Vector3();
+  // Not on a road, a field, or anything that has been built.
   const clear = (x: number, z: number): boolean =>
-    roadAt(x, z) < 0.12 && cobbleAt(x, z) < 0.12 && fieldAt(x, z) < 0.1;
+    roadAt(x, z) < 0.12 && cobbleAt(x, z) < 0.12 && fieldAt(x, z) < 0.1 &&
+    surfaceTop(x, z) - heightAt(x, z) < 0.05 && surfaceTop(x + 2, z + 2) - heightAt(x + 2, z + 2) < 0.05 &&
+    surfaceTop(x - 2, z - 2) - heightAt(x - 2, z - 2) < 0.05;
 
   // The great tree beside the starting point, as in the concept art.
   place('great', START.x - 9, START.z - 3, 2.6);

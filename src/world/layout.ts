@@ -41,6 +41,11 @@ export const LATE_HILLS = [
 
 type Pt = [number, number];
 
+/** Gates sit in the middle of a wall segment; segments are 18 degrees wide. */
+export const SOUTH_GATE_ANGLE = Math.PI / 2;
+export const EAST_GATE_ANGLE = Math.PI / 5;
+export const WALL_SEGMENTS = 20;
+
 function smooth(points: Pt[], perSegment = 10): Pt[] {
   const curve = new THREE.SplineCurve(points.map(([x, z]) => new THREE.Vector2(x, z)));
   return curve.getPoints((points.length - 1) * perSegment).map((p) => [p.x, p.y] as Pt);
@@ -73,17 +78,15 @@ function cityStreets(): Road[] {
     const a = (i / 48) * Math.PI * 2;
     ring.push([x + Math.cos(a) * 118, z + Math.sin(a) * 118]);
   }
-  const eastGate: Pt = [x + Math.cos(0.52) * wall, z + Math.sin(0.52) * wall];
+  const eastGate: Pt = [x + Math.cos(EAST_GATE_ANGLE) * wall, z + Math.sin(EAST_GATE_ANGLE) * wall];
   return [
     { kind: 'cobble', width: 6, pts: spiral },
     { kind: 'cobble', width: 4.5, pts: ring },
     { kind: 'cobble', width: 6, pts: [[x, z + wall + 6], [x, z + 108]] },
-    { kind: 'cobble', width: 5, pts: [eastGate, [x + Math.cos(0.52) * 112, z + Math.sin(0.52) * 112]] },
+    { kind: 'cobble', width: 5, pts: [eastGate, [x + Math.cos(EAST_GATE_ANGLE) * 112, z + Math.sin(EAST_GATE_ANGLE) * 112]] },
   ];
 }
 
-export const EAST_GATE_ANGLE = 0.52;
-export const SOUTH_GATE_ANGLE = Math.PI / 2;
 
 export const ROADS: Road[] = [
   { kind: 'dirt', width: 3.6, pts: smooth([[2, 92], [6, 40], [-12, -20], [2, -90], [12, -150], [20, -205], [20, -220]]) },
@@ -93,7 +96,7 @@ export const ROADS: Road[] = [
   { kind: 'dirt', width: 3, pts: smooth([[18, -200], [-50, -208], [-140, -216], [-230, -238], [-296, -264], [-316, -280]]) },
   { kind: 'dirt', width: 2.6, pts: smooth([[6, 90], [60, 130], [140, 190], [215, 235], [246, 250], [300, 330], [350, 430], [376, 492]]) },
   { kind: 'dirt', width: 2.6, pts: smooth([[-6, 92], [-70, 70], [-160, 20], [-240, -20], [-300, 40], [-360, 120], [-420, 200]]) },
-  { kind: 'dirt', width: 3, pts: smooth([[272, -553], [330, -520], [400, -480], [470, -455], [540, -430], [608, -410]]) },
+  { kind: 'dirt', width: 3, pts: smooth([[266, -534], [330, -510], [400, -480], [470, -455], [540, -430], [608, -410]]) },
   ...cityStreets(),
 ];
 
