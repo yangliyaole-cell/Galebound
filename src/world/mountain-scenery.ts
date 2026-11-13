@@ -1,12 +1,18 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { shared } from '../render/uniforms';
 import { Builder } from './build';
 import { heightAt, normalAt } from './heightmap';
-import { roadClearance, smooth } from './layout';
-import { MOUNTAIN_HAMLETS, WATERFALLS, waterLevelAt } from './mountain-layout';
+import { roadClearance } from './layout';
+import { MOUNTAIN_HAMLETS, waterLevelAt } from './mountain-layout';
 import { seededRandom } from './noise';
 import { addHouse } from './structures/house';
+import { structureDetail } from './structure-detail';
+import { buildReferenceScenes } from './scenes';
+import { batchSettlementDetails } from './scenes/batch-details';
+import { installShotCapture } from './scenes/shot-capture';
+import { createWaterfallScene } from './scenes/waterfalls';
+
+installShotCapture();
 
 /** One merged waterfall mesh and one instanced mist/smoke mesh. No lights or shadows. */
 export function buildMountainScenery(): THREE.Group {
@@ -35,64 +41,10 @@ export function buildMountainScenery(): THREE.Group {
     }
     group.userData[`hamlet:${village.x},${village.z}`] = taken.length;
   }
-  // A pale blue glacier tongue follows the high western rock, merged with the villages.
-  const icePath = smooth([[-941, -805], [-910, -818], [-875, -824], [-833, -814], [-803, -797], [-764, -783]], 5);
-  const ice: number[] = [];
-  for (let i = 0; i < icePath.length - 1; i++) {
-    const a = icePath[i], c = icePath[i + 1], dx = c[0] - a[0], dz = c[1] - a[1], len = Math.hypot(dx, dz);
-    const width = 5 + 9 * Math.sin(i / icePath.length * Math.PI);
-    const v = (p: number[], side: number): number[] => {
-      const x = p[0] - dz / len * width * side, z = p[1] + dx / len * width * side;
-      return [x, heightAt(x, z) + 0.45, z];
-    };
-    const a1 = v(a, -1), a2 = v(a, 1), c1 = v(c, -1), c2 = v(c, 1);
-    ice.push(...a1, ...a2, ...c1, ...a2, ...c2, ...c1);
-  }
-  const glacier = new THREE.BufferGeometry(); glacier.setAttribute('position', new THREE.Float32BufferAttribute(ice, 3)); glacier.computeVertexNormals();
-  b.add('plain', glacier, 0xa6d5e4);
   group.add(b.build(false));
-  const falls: THREE.BufferGeometry[] = [];
-  for (const f of WATERFALLS) {
-    // A bowed cascade, with a skirt that widens into spray at its foot.
-    const points: number[] = [], uv: number[] = [], idx: number[] = [];
-    const dx = f.bx - f.x, dz = f.bz - f.z, len = Math.hypot(dx, dz), nx = -dz / len, nz = dx / len;
-    for (let i = 0; i <= 12; i++) {
-      const t = i / 12, bow = Math.sin(t * Math.PI) * 2.2;
-      const x = f.x + dx * t + dx / len * bow, z = f.z + dz * t + dz / len * bow;
-      const y = f.y + (f.bottom - f.y) * t;
-      const w = f.width * (0.7 + 0.55 * t * t);
-      for (const side of [-1, 1]) { points.push(x + nx * w / 2 * side, y + 0.35, z + nz * w / 2 * side); uv.push((side + 1) / 2, t); }
-      if (i < 12) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
-    }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); falls.push(g);
-    for (let k = 0; k < 7; k++) smoke.push([f.bx + (rand() - 0.5) * f.width * 1.5, f.bottom + 1 + rand() * 3, f.bz + (rand() - 0.5) * 8, 3.5 + rand() * 2]);
-  }
-  const fallMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
-    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: shared.uTime }]),
-    vertexShader: `#include <common>
-      #include <fog_pars_vertex>
-      varying vec2 vUv; void main(){ vUv=uv; vec4 mvPosition=modelViewMatrix*vec4(position,1.);
-      gl_Position=projectionMatrix*mvPosition;
-      #include <fog_vertex>
-      }`,
-    fragmentShader: `#include <common>
-      #include <fog_pars_fragment>
-      uniform float uTime; varying vec2 vUv;
-      void main(){ float stripes=sin(vUv.x*65.+sin(vUv.y*18.-uTime*5.)*1.8)*.5+.5;
-        float grain=sin(vUv.x*153.+vUv.y*49.-uTime*9.)*.5+.5;
-        float edge=smoothstep(0.,.12,vUv.x)*smoothstep(1.,.88,vUv.x);
-        vec3 col=mix(vec3(.48,.78,.87),vec3(.96,.99,1.),.45+.4*stripes);
-        gl_FragColor=vec4(col,edge*(.48+.27*grain));
-        #include <colorspace_fragment>
-        #include <fog_fragment>
-      }`,
-  });
-  fallMat.uniforms.uTime = shared.uTime;
-  const waterfall = new THREE.Mesh(mergeGeometries(falls), fallMat); waterfall.renderOrder = 2; group.add(waterfall);
-  // Slow, broad mountain wisps, plus the cottage chimneys and cascade spray.
-  for (let k = 0; k < 13; k++) smoke.push([-800 + rand() * 310, 80 + rand() * 50, -760 + rand() * 340, 13 + rand() * 13]);
+  group.add(createWaterfallScene(structureDetail()));
+  // This legacy batch now owns cottage smoke only. Valley clouds and spray are
+  // authored once in scenes/atmosphere, avoiding two overlapping opaque fog banks.
   const quad = new THREE.PlaneGeometry(2, 2), mistGeo = new THREE.InstancedBufferGeometry();
   mistGeo.setAttribute('position', quad.attributes.position); mistGeo.setAttribute('uv', quad.attributes.uv); mistGeo.setIndex(quad.index);
   mistGeo.setAttribute('aBase', new THREE.InstancedBufferAttribute(new Float32Array(smoke.flat()), 4)); mistGeo.instanceCount = smoke.length;
@@ -118,5 +70,7 @@ export function buildMountainScenery(): THREE.Group {
   });
   mistMat.uniforms.uTime = shared.uTime;
   const mist = new THREE.Mesh(mistGeo, mistMat); mist.frustumCulled = false; mist.renderOrder = 2; group.add(mist);
+  batchSettlementDetails(group);
+  group.add(buildReferenceScenes(structureDetail()));
   return group;
 }

@@ -10,6 +10,7 @@ import { buildPalace } from './palace';
 import { planCityParcels } from './city-parcels';
 import { buildTerraceWalls } from './city-terraces';
 import { addHouse } from './house';
+import { batchSettlementDetails } from '../scenes/batch-details';
 import { stall } from './village';
 
 const STONE = 0xdad3c3;
@@ -231,5 +232,5 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
       b.box('plain', lx, y + 3.2, lz, 0.36, 0.46, 0.36, 0, 0xffe9a8, 0);
     }
   }
-  return { object: b.build(), flags, info: { plaza, houseCount: parcels.length, southGate: { x: SOUTH_GATE.x, z: SOUTH_GATE.z + 8 } } };
+  return { object: batchSettlementDetails(b.build()), flags, info: { plaza, houseCount: parcels.length, southGate: { x: SOUTH_GATE.x, z: SOUTH_GATE.z + 8 } } };
 }
