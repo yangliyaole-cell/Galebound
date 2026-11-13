@@ -5,6 +5,7 @@ import { seededRandom } from './noise';
 import { GROUND_GLSL, groundUniforms } from './terrain';
 import { SIZE } from './layout';
 import { ABBEY_GROUND_MASK_GLSL } from './abbey-space';
+import { TERRAIN_HEIGHT_GLSL, heightSamplingUniforms } from './heightmap';
 
 /** An upright card three rows tall, so it can bend. The tuft is painted on it. */
 function bladeGeometry(width: number): THREE.BufferGeometry {
@@ -49,10 +50,9 @@ function createLayer(
 
   const mat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
   // Programs are cached by shader text; the tile size is baked in, so key on it.
-  mat.customProgramCacheKey = () => `grass-${tile}-${width}-abbey-mask`;
+  mat.customProgramCacheKey = () => `grass-${tile}-${width}-abbey-mask-conform`;
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, groundUniforms, {
-      uHeight: { value: heightTex },
+    Object.assign(shader.uniforms, groundUniforms, heightSamplingUniforms(heightTex), {
       uTuft: { value: tuft },
       uTime: shared.uTime,
       uWindDir: shared.uWindDir,
@@ -67,6 +67,8 @@ function createLayer(
         `#include <common>
         attribute vec4 aCell;
         uniform sampler2D uHeight;
+        uniform float uCell;
+        uniform int uN;
         uniform float uTime;
         uniform vec2 uWindDir;
         uniform float uWindStrength;
@@ -77,39 +79,42 @@ function createLayer(
         varying vec2 vTuftUv;
         varying float vGrassAllowed;
         ${GROUND_GLSL}
-        float terrainHeight(vec2 xz) { return texture2D(uHeight, worldUv(xz)).r; }`,
+        ${TERRAIN_HEIGHT_GLSL}`,
       )
       .replace(
         '#include <beginnormal_vertex>',
         `const float TILE = ${tile.toFixed(1)};
         vec2 rel = mod(aCell.xy - uPlayer.xz + TILE * 0.5, TILE) - TILE * 0.5;
         vec2 root = uPlayer.xz + rel;
-        float ground = terrainHeight(root);
-        vec3 objectNormal = normalize(vec3(
-          terrainHeight(root - vec2(3.0, 0.0)) - terrainHeight(root + vec2(3.0, 0.0)),
-          6.0,
-          terrainHeight(root - vec2(0.0, 3.0)) - terrainHeight(root + vec2(0.0, 3.0))));
+        float cs = cos(aCell.z);
+        float sn = sin(aCell.z);
+        vec2 foot = root + vec2(position.x * cs, position.x * sn);
+        float groundRoot;
+        vec3 rootNormal;
+        terrainSample(root, groundRoot, rootNormal);
+        float ground;
+        vec3 objectNormal;
+        terrainSample(foot, ground, objectNormal);
         float flatness = texture2D(uBiome, worldUv(root)).a;
         float grassAmount;
         vec3 grassTint;
-        groundColor(vec3(root.x, ground, root.y), flatness, 1000.0, grassAmount, grassTint);
+        groundColor(vec3(root.x, groundRoot, root.y), flatness, 1000.0, grassAmount, grassTint);
         float edge = 1.0 - smoothstep(TILE * 0.36, TILE * 0.49, length(rel));
-        float bladeHeight = aCell.w * smoothstep(0.35, 0.8, grassAmount) * edge * step(0.25, ground);`,
+        float bladeHeight = aCell.w * smoothstep(0.35, 0.8, grassAmount) * edge * step(0.25, groundRoot);`,
       )
       .replace(
         '#include <begin_vertex>',
         `vGrassAllowed = step(0.001, bladeHeight) * abbeyGroundMask(root);
         float tip = position.y;
-        float cs = cos(aCell.z);
-        float sn = sin(aCell.z);
-        vec3 transformed = vec3(root.x + position.x * cs, ground - 0.05 + tip * bladeHeight, root.y + position.x * sn);
+        vec3 lift = normalize(mix(vec3(0.0, 1.0, 0.0), objectNormal, 0.6));
+        vec3 transformed = vec3(foot.x, ground - 0.02, foot.y) + lift * (tip * bladeHeight);
         // Wind: slow rolling gusts plus a quick shiver, both travelling downwind.
         float roll = gNoise((root - uWindTravel) * 0.045);
         float shiver = sin(dot(root, uWindDir) * 1.1 - uTime * 3.0 + gHash(aCell.xy) * 6.28) * 0.5 + 0.5;
         float bend = (0.05 + uWindStrength * (0.75 * roll + 0.22 * shiver)) * tip * tip * bladeHeight;
         // The player pushes blades aside.
         vec2 away = root - uPlayer.xz;
-        float push = (1.0 - smoothstep(0.2, 1.1, length(away))) * step(abs(uPlayer.y - ground), 1.2);
+        float push = (1.0 - smoothstep(0.2, 1.1, length(away))) * step(abs(uPlayer.y - groundRoot), 1.2);
         transformed.xz += uWindDir * bend + normalize(away + 0.001) * push * 0.45 * tip;
         transformed.y -= (bend * bend * 0.6 + push * 0.3 * tip) * step(0.01, bladeHeight);
         // Mirror half the tufts so they do not all look alike.
@@ -180,6 +185,8 @@ function createFlowers(count: number, tile: number, heightTex: THREE.Texture): T
       attribute vec4 aCell;
       attribute float aKind;
       uniform sampler2D uHeight;
+      uniform float uCell;
+      uniform int uN;
       uniform sampler2D uBiome;
       uniform sampler2D uSplat;
       uniform vec3 uPlayer;
@@ -188,6 +195,7 @@ function createFlowers(count: number, tile: number, heightTex: THREE.Texture): T
       uniform float uWindStrength;
       varying vec3 vColor;
       ${ABBEY_GROUND_MASK_GLSL}
+      ${TERRAIN_HEIGHT_GLSL}
       float hash1(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
       float noise1(vec2 p) {
         vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -198,7 +206,7 @@ function createFlowers(count: number, tile: number, heightTex: THREE.Texture): T
         vec2 rel = mod(aCell.xy - uPlayer.xz + TILE * 0.5, TILE) - TILE * 0.5;
         vec2 root = uPlayer.xz + rel;
         vec2 uv = root / ${SIZE.toFixed(1)} + 0.5;
-        float ground = texture2D(uHeight, uv).r;
+        float ground = terrainHeight(root);
         vec4 biome = texture2D(uBiome, uv);
         vec4 splat = texture2D(uSplat, uv);
         float allowed = step(aCell.w, biome.g * 1.15) * step(max(splat.r, max(splat.g, splat.b)), 0.25)
@@ -242,8 +250,7 @@ function createFlowers(count: number, tile: number, heightTex: THREE.Texture): T
         #include <fog_fragment>
       }`,
   });
-  Object.assign(mat.uniforms, {
-    uHeight: { value: heightTex },
+  Object.assign(mat.uniforms, heightSamplingUniforms(heightTex), {
     uBiome: groundUniforms.uBiome,
     uSplat: groundUniforms.uSplat,
     uPlayer: shared.uPlayer,

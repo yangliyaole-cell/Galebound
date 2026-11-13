@@ -52,14 +52,17 @@ try {
   check('uploaded bathymetry, actual water geometry, fragment depth alpha and blue color', () => {
     assert.ok(texture.version > 0 && texture.source.version > 0, 'height texture was never scheduled for GPU upload');
     const { data, width, height } = texture.image;
+    assert.equal(texture.type, THREE.FloatType, 'height texture should be R32F');
     const sampleTexture = (x, z) => {
       const u = x / L.SIZE + 0.5, v = z / L.SIZE + 0.5;
       if (u <= 0 || u >= 1 || v <= 0 || v >= 1) return -22;
-      const gx = u * width - 0.5, gz = v * height - 0.5;
+      const nn = width - 1, cellSize = L.SIZE / nn;
+      const gx = Math.min(Math.max((x + L.HALF) / cellSize, 0), nn - 1e-4);
+      const gz = Math.min(Math.max((z + L.HALF) / cellSize, 0), nn - 1e-4);
       const ix = Math.floor(gx), iz = Math.floor(gz), fx = gx - ix, fz = gz - iz;
-      const at = (i, j) => THREE.DataUtils.fromHalfFloat(data[Math.max(0, Math.min(height - 1, j)) * width + Math.max(0, Math.min(width - 1, i))]);
-      return (at(ix, iz) * (1 - fx) + at(ix + 1, iz) * fx) * (1 - fz) +
-        (at(ix, iz + 1) * (1 - fx) + at(ix + 1, iz + 1) * fx) * fz;
+      const at = (i, j) => data[Math.max(0, Math.min(height - 1, j)) * width + Math.max(0, Math.min(width - 1, i))];
+      return fx + fz <= 1 ? at(ix, iz) + (at(ix + 1, iz) - at(ix, iz)) * fx + (at(ix, iz + 1) - at(ix, iz)) * fz
+        : at(ix + 1, iz + 1) + (at(ix, iz + 1) - at(ix + 1, iz + 1)) * (1 - fx) + (at(ix + 1, iz) - at(ix + 1, iz + 1)) * (1 - fz);
     };
     const points = [['coast', 0, 560, 0], ['sea', 0, 700, 0], ['mirror', L.LAKE.x, L.LAKE.z, 0],
       ['river', L.BRIDGE.x, L.BRIDGE.z, 0], ['alpine', -744, -722, 94], ['off-map sea', 0, 1300, 0]];
@@ -73,7 +76,7 @@ try {
       if (Math.abs(x) < L.HALF && Math.abs(z) < L.HALF) assert.ok(level > H.heightAt(x, z) + 0.5, `${name}: water below actual terrain mesh`);
       console.log(`  WATER ${name}: level=${level}, bed=${ground.toFixed(3)}, depth=${result.depth.toFixed(3)}, alpha=${result.alpha.toFixed(3)}, color=#${new THREE.Color().fromArray(result.color).getHexString()}`);
     }
-    return 'half-float upload + sea/lake/river/alpine meshes verified';
+    return 'float32 upload + sea/lake/river/alpine meshes verified';
   });
   check('dense city parcels have clear roof gaps and rising contour shelves', () => {
     const plots = builtHouses.filter((h) => L.insideCity(h.spec.x, h.spec.z)).map((h) => h.spec);
