@@ -239,6 +239,9 @@ export class CapeBinding {
     }
     output.needsUpdate = true;
     this.render.geometry.computeVertexNormals();
+    // CPU cloth invalidates the imported bind-pose bounds, including raycasts/debug inspection.
+    this.render.geometry.computeBoundingBox();
+    this.render.geometry.computeBoundingSphere();
     this.updateMs = performance.now() - begin;
   }
 }

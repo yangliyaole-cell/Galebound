@@ -255,6 +255,7 @@ export class Character {
     const distance = Math.max(2.8, Math.min(8, Number(params.get('dist') ?? 3.6) || 3.6));
     const target = this.root.position.clone().add(new THREE.Vector3(0, 0.95, 0));
     camera.position.copy(target).add(new THREE.Vector3(Math.sin(bearing) * distance, 0.85, Math.cos(bearing) * distance));
+    camera.position.y = Math.max(camera.position.y, groundAt(camera.position.x, camera.position.z) + 0.6);
     camera.lookAt(target); camera.fov = 48; camera.near = 0.05; camera.updateProjectionMatrix();
     // Retain the requested staging origin for external screenshot notes/debugging.
     this.root.userData.capeShot = { sequence, seconds: Math.round(seconds * 60) / 60, origin: origin.toArray(), heading,
@@ -313,4 +314,64 @@ export class Character {
     chest.localToWorld(this.pinB.set(0.095, 0.29, -0.075));
     this.scarf.update(dt, time, this.pinA, this.pinB, this.air, groundAt, collider);
   }
+}
+
+/** teleport() updates Player first; preview must use that pose before its very first cloth step. */
+export function prepareCapeShotFromPlayer(
+  player: { character: Character; pos: THREE.Vector3; yaw: number }, params: URLSearchParams,
+  groundAt: (x: number, z: number) => number, camera: THREE.PerspectiveCamera,
+): void {
+  player.character.root.position.copy(player.pos);
+  player.character.root.rotation.y = player.yaw;
+  player.character.prepareCapeShot(params, groundAt, camera);
+  player.pos.copy(player.character.root.position);
+  player.yaw = player.character.root.rotation.y;
+}
+
+/** Shared by the browser ready gate and the Node scene regression; no renderer required. */
+export function inspectCapeShotScene(scene: THREE.Scene, terrain: THREE.Group, character: Character,
+  camera: THREE.PerspectiveCamera, groundAt: (x: number, z: number) => number, requireCape = true) {
+  scene.updateMatrixWorld(true); camera.updateMatrixWorld(true);
+  const issues: string[] = [];
+  const visible = new Set<THREE.Object3D>();
+  scene.traverseVisible(object => visible.add(object));
+  let terrainMeshes = 0;
+  terrain.traverseVisible(object => { if (object instanceof THREE.Mesh && visible.has(object)) terrainMeshes++; });
+  if (!scene.userData.worldBuilt) issues.push('World construction has not completed');
+  if (!terrainMeshes) issues.push('Terrain is absent from the visible scene');
+  const cameraClearance = camera.position.y - groundAt(camera.position.x, camera.position.z);
+  if (!Number.isFinite(cameraClearance) || cameraClearance < 0.2) issues.push('Cape camera is below or too close to terrain');
+  const root = character.root;
+  if (root.position.y < groundAt(root.position.x, root.position.z) - 0.05) issues.push('Character staging pose is below terrain');
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  const vertex = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  let capeMeshes = 0, vertices = 0, inView = 0, area = 0, maxBodyDistance = 0;
+  for (const object of visible) {
+    if (!(object instanceof THREE.Mesh) || !object.name.endsWith('_SoftCloth')) continue;
+    capeMeshes++;
+    const material = object.material as THREE.MeshStandardMaterial;
+    if (!material.visible || material.opacity < 0.99 || material.side !== THREE.DoubleSide) issues.push('Cape material is hidden or not double sided');
+    const geometry = object.geometry, position = geometry.attributes.position, index = geometry.index;
+    if (!position || !index) { issues.push('Cape has no indexed cloth surface'); continue; }
+    vertices += position.count;
+    for (let n = 0; n < position.count; n++) {
+      vertex.fromBufferAttribute(position, n).applyMatrix4(object.matrixWorld);
+      if (![vertex.x, vertex.y, vertex.z].every(Number.isFinite)) { issues.push('Non-finite cape vertex'); break; }
+      maxBodyDistance = Math.max(maxBodyDistance, vertex.distanceTo(root.position));
+      if (frustum.containsPoint(vertex)) inView++;
+    }
+    for (let n = 0; n < index.count; n += 3) {
+      a.fromBufferAttribute(position, index.getX(n)).applyMatrix4(object.matrixWorld);
+      b.fromBufferAttribute(position, index.getX(n + 1)).applyMatrix4(object.matrixWorld).sub(a);
+      c.fromBufferAttribute(position, index.getX(n + 2)).applyMatrix4(object.matrixWorld).sub(a);
+      area += b.cross(c).length() * 0.5;
+    }
+  }
+  if (requireCape) {
+    if (!capeMeshes) issues.push('No visible soft cape is attached to the scene');
+    if (area < 0.05 || !Number.isFinite(area)) issues.push('Cape surface is degenerate');
+    if (maxBodyDistance > 4) issues.push('Cape has separated from the character');
+    if (!vertices || inView / vertices < 0.7) issues.push('Cape is outside the screenshot camera');
+  }
+  return { ok: issues.length === 0, issues, terrainMeshes, capeMeshes, vertices, inView, area, maxBodyDistance, cameraClearance };
 }
