@@ -9,6 +9,7 @@ import { seededRandom } from './world/noise';
 import { Hud } from './ui/hud';
 import { FollowCamera } from './player/camera';
 import { Player } from './player/controller';
+import { prepareCapeShotFromPlayer, inspectCapeShotScene } from './player/character';
 import { buildHeightmap, createHeightTexture, heightAt } from './world/heightmap';
 import { START, ZONES } from './world/layout';
 import { buildBiome, buildSplat } from './world/maps';
@@ -33,11 +34,15 @@ import { buildLandmarks } from './world/structures/landmarks';
 import { buildCrops, buildVillage } from './world/structures/village';
 
 const params = new URLSearchParams(location.search);
-const shot = params.get('shot') === '1';
+const capeShot = params.get('shot') === 'cape';
+const shot = params.get('shot') === '1' || capeShot;
 const debugWindow = window as unknown as Record<string, unknown>;
+const shotState = { worldBuilt: false, assetsReady: false, shadersReady: false, renderedFrames: 0,
+  scene: undefined as ReturnType<typeof inspectCapeShotScene> | undefined };
 if (shot) {
   document.documentElement.classList.add('shot');
   debugWindow.__galeShotReady = false;
+  debugWindow.__galeShotState = shotState;
 }
 const num = (key: string, fallback: number): number => {
   const value = params.has(key) ? Number(params.get(key)) : fallback;
@@ -106,9 +111,13 @@ async function boot(): Promise<void> {
 
   hud.loading('正在铺草、引水…');
   await nextFrame();
-  scene.add(createTerrain());
+  const terrain = createTerrain();
+  terrain.name = 'Terrain';
+  scene.add(terrain);
   scene.add(createWater(heightTex, sunDir, HORIZON_COLOR));
-  scene.add(createGrass(quality.grassNear, quality.grassFar, quality.flowers, heightTex));
+  const grass = createGrass(quality.grassNear, quality.grassFar, quality.flowers, heightTex);
+  grass.name = 'Grass';
+  scene.add(grass);
 
   hud.loading('正在砌墙盖瓦…');
   await nextFrame();
@@ -141,6 +150,7 @@ async function boot(): Promise<void> {
   scene.add(createWindFx(quality.particles, wind, shot ? seededRandom(553) : Math.random));
 
   const player = new Player(quality.outline);
+  player.character.capeTier = quality.tier;
   if (params.get('hero') !== 'classic') {
     hud.loading('正在整理旅人的行装…');
     await nextFrame();
@@ -148,6 +158,8 @@ async function boot(): Promise<void> {
     player.character.rig.setMaskVisible?.(params.get('mask') !== 'off');
   }
   scene.add(player.character.root, player.character.cloth);
+  scene.userData.worldBuilt = shotState.worldBuilt = terrain.children.length > 0 && grass.children.length > 0;
+  shotState.assetsReady = params.get('hero') === 'classic' || !!player.character.rig.setCapeState;
   if (!shot && save.pos && !params.has('x')) {
     player.pos.set(save.pos[0], save.pos[1], save.pos[2]);
     player.yaw = save.yaw;
@@ -234,7 +246,8 @@ async function boot(): Promise<void> {
   hud.cinemaLabel(styles.current === 'cinematic');
 
   // Handles for automated checks; not used by the game itself.
-  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt, style: styles };
+  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt, style: styles,
+    capeStats: () => player.character.rig.capeStats?.() ?? { tier: quality.tier, available: false } };
 
   hud.ready();
   let last = performance.now() / 1000;
@@ -331,10 +344,13 @@ async function boot(): Promise<void> {
     shared.uTime.value = 12;
     wind.update(0);
     const idle = { moveX: 0, moveY: 0, run: false, takeJump: () => false } as unknown as Input;
-    for (let i = 0; i < 90; i++) {
+    if (capeShot) {
+      prepareCapeShotFromPlayer(player, params, heightAt, camera);
+    } else for (let i = 0; i < 90; i++) {
       player.update(1 / 60, 12, idle, follow.yaw, wind);
       follow.update(1 / 60, player);
     }
+    if (capeShot) shared.uTime.value = Number(player.character.root.userData.capeShot.seconds);
     shared.uPlayer.value.copy(player.pos);
     life.update(0, 12, player.pos);
     sun.target.position.copy(player.pos);
@@ -347,6 +363,14 @@ async function boot(): Promise<void> {
       console.error('Shader compilation failed', renderer.getContext().getShaderInfoLog(vertex),
         renderer.getContext().getShaderInfoLog(fragment));
     };
+    if (capeShot) {
+      shotState.scene = inspectCapeShotScene(scene, terrain, player.character, camera, heightAt, params.get('hero') !== 'classic');
+      if (!shotState.scene.ok) throw new Error(shotState.scene.issues.join('; '));
+      if (!shotState.assetsReady) throw new Error('Detailed soft cape asset did not load');
+    }
+    // Construction and GLTF textures have completed. Wait for scene programs before render warmup.
+    await renderer.compileAsync(scene, camera);
+    shotState.shadersReady = true;
   }
 
   type Measurement = { remaining: number; frames: number; total: number; calls: number; triangles: number;
@@ -421,12 +445,22 @@ async function boot(): Promise<void> {
           pixelRatio: renderer.getPixelRatio(), style: styles!.current, extraPasses: pipeline?.extraPasses ?? 0 });
       }
     }
-    if (shot && ++shotFrames === 24 && !debugWindow.__galeShotError) {
-      renderer.getContext().finish();
-      debugWindow.__galeShotReady = true;
+    if (shot) shotState.renderedFrames = ++shotFrames;
+    if (shot && shotFrames === 24 && !debugWindow.__galeShotError) {
+      if (capeShot) shotState.scene = inspectCapeShotScene(scene, terrain, player.character, camera, heightAt, params.get('hero') !== 'classic');
+      if (shotState.worldBuilt && shotState.assetsReady && shotState.shadersReady && (!capeShot || shotState.scene?.ok)) {
+        renderer.getContext().finish();
+        debugWindow.__galeShotReady = true;
+      } else debugWindow.__galeShotError = shotState.scene?.issues.join('; ') || 'Screenshot world or assets are not ready';
     }
     if (!shot) resolution.tick(dt);
   });
 }
 
-void boot();
+void boot().catch((error: unknown) => {
+  if (shot) {
+    debugWindow.__galeShotReady = false;
+    debugWindow.__galeShotError = error instanceof Error ? error.message : String(error);
+  }
+  console.error('Could not prepare Galebound', error);
+});
