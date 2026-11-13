@@ -4,6 +4,7 @@ import { shared } from '../render/uniforms';
 import { grid } from './heightmap';
 import { HALF, SIZE, FIELDS } from './layout';
 import { ALPINE_LAKES } from './mountain-layout';
+import { ABBEY_GROUND_MASK_GLSL } from './abbey-space';
 
 const parcelTintGLSL = FIELDS.map((f) => {
   const tint = new THREE.Color({ wheat: 0xc9b66f, tilled: 0xa67a60, cabbage: 0x78a861, lavender: 0x9d8bb7 }[f.crop]);
@@ -35,6 +36,7 @@ export const GROUND_GLSL = /* glsl */ `
   uniform vec3 uSoil;
   ${NOISE_GLSL}
   ${CLOUD_GLSL}
+  ${ABBEY_GROUND_MASK_GLSL}
   float lakeLevel(vec2 p) { float level=0.; ${lakeLevelGLSL} return level; }
   vec3 parcelColor(vec2 p) { vec3 c = uSoil; ${parcelTintGLSL} return c; }
   vec2 worldUv(vec2 xz) { return xz / ${SIZE.toFixed(1)} + 0.5; }
@@ -108,7 +110,7 @@ export const GROUND_GLSL = /* glsl */ `
     col = mix(col, mix(uDirtDark, uDirtLight, smoothstep(0.3, 0.7, fine)) * (0.8 + 0.42 * near.g) * (0.92 + 0.16 * wide.r), road);
 
     grassAmount = (1.0 - road) * (1.0 - cobble) * (1.0 - field) * (1.0 - sand) *
-      (1.0 - rock) * (1.0 - snow) * (1.0 - alpine * 0.85) * step(lakeLevel(wp.xz) + 0.25, wp.y);
+      (1.0 - rock) * (1.0 - snow) * (1.0 - alpine * 0.85) * step(lakeLevel(wp.xz) + 0.25, wp.y) * abbeyGroundMask(wp.xz);
     return col;
   }
 `;

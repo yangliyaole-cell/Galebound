@@ -3,6 +3,22 @@ import { CLOUD_GLSL, NOISE_GLSL } from '../render/glsl';
 import { shared } from '../render/uniforms';
 import { SIZE, WATER_LEVEL } from './layout';
 import { ALPINE_LAKES, ALPINE_STREAM } from './mountain-layout';
+import { sstep } from './heightmap';
+
+/** CPU reference for checking the fragment's depth/foam/alpha/color inputs.
+ * Heights come from the actual uploaded half-float texture in check-layout. */
+export function waterFragmentSample(ground: number, level: number, wobble = 0.5, lapPhase = 0.5): {
+  depth: number; alpha: number; foam: number; color: number[];
+} {
+  const depth = Math.max(level - ground, 0);
+  const shore = 1 - sstep(0, 0.55, depth - wobble * 0.3);
+  const lap = sstep(0.55, 0.8, lapPhase) * (1 - sstep(0.4, 1.6, depth));
+  const foam = Math.max(0, Math.min(1, shore + lap * 0.6));
+  const alpha = Math.max(0.5 + (0.94 - 0.5) * sstep(0, 2.6, depth), foam) * sstep(0, 0.06, depth);
+  const color = new THREE.Color(0x62d2cf).lerp(new THREE.Color(0x1f6fb5), sstep(0, 6, depth))
+    .lerp(new THREE.Color(0xffffff), foam * 0.9).toArray();
+  return { depth, alpha, foam, color };
+}
 
 /** One flat sheet for sea, lake and river; the terrain's height decides its look. */
 export function createWater(heightTex: THREE.Texture, sunDir: THREE.Vector3, horizon: number): THREE.Mesh {

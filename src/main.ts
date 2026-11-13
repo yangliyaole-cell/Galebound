@@ -25,6 +25,7 @@ import { createLife } from './world/life';
 import { createOrbs } from './world/orbs';
 import { buildCity } from './world/structures/city';
 import { buildAbbey } from './world/structures/abbey';
+import { createAbbeyLighting } from './world/abbey-space';
 import { buildLandmarks } from './world/structures/landmarks';
 import { buildCrops, buildVillage } from './world/structures/village';
 
@@ -97,6 +98,7 @@ async function boot(): Promise<void> {
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.06;
   scene.add(sun, sun.target);
+  const abbeyLighting = createAbbeyLighting(sun, hemisphere, scene.fog);
 
   hud.loading('正在铺草、引水…');
   await nextFrame();
@@ -255,6 +257,7 @@ async function boot(): Promise<void> {
     }
     follow.update(dt, player);
     shared.uPlayer.value.copy(player.pos);
+    abbeyLighting.update(dt, player.pos);
 
     if (started) {
       // Light orbs: walk or fly through one to gather it.

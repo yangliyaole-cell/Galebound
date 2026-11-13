@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { fbm } from './noise';
 import { ALPINE_LAKES, alpineLakeMetric, alpineChannel, waterLevelAt } from './mountain-layout';
-import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, ROADS, SIZE, START, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
+import { ABBEY, CITY, HALF, HILLS, LATE_HILLS, PLATEAU, RIVER, ROADS, SIZE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt, lakeMetric, riverWidthAt, distToPolyline } from './layout';
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const clamp = (x: number, a: number, b: number): number => Math.min(b, Math.max(a, x));
@@ -82,6 +82,16 @@ function analyticHeight(x: number, z: number): number {
   for (const [px, pz, radius, rise] of [[-939, -775, 145, 210], [-900, -972, 122, 175], [-736, -988, 103, 145]]) {
     const d = Math.hypot(x - px, z - pz) / radius;
     if (d < 1) h += rise * Math.pow(1 - d, 1.45) * (0.9 + 0.1 * Math.sin(Math.atan2(z - pz, x - px) * 5));
+  }
+  // Preserve the palace silhouette while breaking the outer town into inhabited
+  // contour shelves. Override the mountain rim here so the palace remains highest.
+  const edge = cityRadiusAt(a);
+  if (r < edge + 65) {
+    const q = cityTerraceMetric(x, z);
+    const steps = CITY_TERRACE_EDGES.reduce((sum, t) => sum + sstep(t - 0.028, t + 0.028, q), 0);
+    const ridge = (Math.sin(a * 2 + 0.5) * 2.2 + Math.cos(a * 5) * 1.1) * sstep(92, 140, r);
+    const shelf = CITY.top + 5 - steps * 6 + ridge;
+    h = lerp(h, shelf, 1 - sstep(edge - 1, edge + 65, r));
   }
   // Abbey cliff and its southern approach. The interior and threshold share one plane.
   const abbeyD = Math.hypot((x - ABBEY.x) / 51, (z - ABBEY.z) / 64);

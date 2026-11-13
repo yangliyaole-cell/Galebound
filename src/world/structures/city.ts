@@ -3,11 +3,13 @@ import { Builder, archedProfile, orbAt, place } from '../build';
 import { addBox, addRound } from '../colliders';
 import type { FlagSpot } from '../flags';
 import { heightAt } from '../heightmap';
-import { CITY, CITY_STREETS, SOUTH_GATE, cityWallPolygon, cityRadiusAt, insideCity, roadClearance, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
+import { CITY, SOUTH_GATE, cityWallPolygon, cityRadiusAt, insideCity, roadClearance, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
 import { seededRandom } from '../noise';
 import { wallRing } from './common';
 import { buildPalace } from './palace';
-import { ROOFS, SHUTTERS, SLATES, WALLS, addHouse } from './house';
+import { planCityParcels } from './city-parcels';
+import { buildTerraceWalls } from './city-terraces';
+import { addHouse } from './house';
 import { stall } from './village';
 
 const STONE = 0xdad3c3;
@@ -15,7 +17,6 @@ const PALE = 0xe6e0d1;
 const SLATE = 0x66799a;
 const BANNER = 0xc8452f;
 
-const pick = <T>(list: T[], rand: () => number): T => list[Math.floor(rand() * list.length)];
 
 interface Line {
   ax: number;
@@ -160,6 +161,7 @@ function fountain(b: Builder, x: number, z: number, rand: () => number): void {
 export interface CityInfo {
   plaza: { x: number; z: number };
   southGate: { x: number; z: number };
+  houseCount: number;
 }
 
 export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpot[]; info: CityInfo } {
@@ -210,52 +212,14 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
     { x: cathedralAt.x, z: cathedralAt.z, r: 21 },
     ...ring.gates.map((g) => ({ x: g.x, z: g.z, r: 13 })),
   ];
-  // Parcels grow outwards from crooked streets, with a second, irregular back row.
-  // A small spatial hash prevents overlaps without an O(N²) placement pass.
-  const parcels = new Map<string, { x: number; z: number; r: number }[]>();
-  let count = 0;
-  for (const street of CITY_STREETS) {
-    let travel = 0, next = rand() * 9;
-    for (let i = 0; i < street.pts.length - 1; i++) {
-      const [ax, az] = street.pts[i], [bx, bz] = street.pts[i + 1];
-      const len = Math.hypot(bx - ax, bz - az);
-      while (next <= travel + len) {
-        const t = (next - travel) / len;
-        next += 10 + rand() * 7;
-        const nx = -(bz - az) / len, nz = (bx - ax) / len;
-        for (const side of [-1, 1]) for (let row = 0; row < 2; row++) {
-          if (rand() < (row ? 0.48 : 0.12)) continue;
-          const w = 5.4 + rand() * 4, d = 5.3 + rand() * 3.1;
-          const r = Math.hypot(w, d) / 2 + 0.8;
-          const off = street.width / 2 + r + 1.5 + rand() * 2 + row * (11 + rand() * 4);
-          const x = ax + (bx - ax) * t + nx * off * side;
-          const z = az + (bz - az) * t + nz * off * side;
-          if (!insideCity(x, z, r + 7) || Math.hypot(x - cx, z - cz) < 94 + r) continue;
-          if (roadClearance(x, z) < r || keepOut.some((q) => Math.hypot(q.x - x, q.z - z) < q.r + r)) continue;
-          if (distToLine(x, z, water) < r + 3) continue;
-          const gx = Math.floor(x / 20), gz = Math.floor(z / 20);
-          let occupied = false;
-          for (let ix = gx - 1; ix <= gx + 1; ix++) for (let iz = gz - 1; iz <= gz + 1; iz++) {
-            if (parcels.get(`${ix},${iz}`)?.some((q) => Math.hypot(q.x - x, q.z - z) < q.r + r)) occupied = true;
-          }
-          if (occupied) continue;
-          const key = `${gx},${gz}`;
-          if (!parcels.has(key)) parcels.set(key, []);
-          parcels.get(key)!.push({ x, z, r });
-          addHouse(b, {
-            x, z, w, d, floors: 1 + Math.floor(rand() * 3.8),
-            roof: rand() < 0.18 ? pick(SLATES, rand) : pick(ROOFS, rand), wall: pick(WALLS, rand),
-            timber: rand() < 0.35, shutters: pick(SHUTTERS, rand), chimney: rand() < 0.7,
-            rot: Math.atan2(-nx * side, -nz * side) + (rand() - 0.5) * 0.16,
-            ridgeAlongFront: rand() < 0.6, simple: detail > 1 ? 1 : 2,
-          }, rand);
-          count++;
-          if (count % 37 === 5) orbAt(`city-roof-${count}`, x, z, 1.2);
-        }
-      }
-      travel += len;
-    }
-  }
+  const parcels = planCityParcels(keepOut, (x, z) => distToLine(x, z, water));
+  parcels.forEach((h, i) => {
+    addHouse(b, { ...h, simple: detail > 1 ? 1 : 2 }, rand);
+    // Keep the existing four city roof ids; increased density must not add orbs.
+    const count = i + 1;
+    if (count <= 116 && count % 37 === 5) orbAt(`city-roof-${count}`, h.x, h.z, 1.2);
+  });
+  buildTerraceWalls(b, parcels);
 
   // Lamps along the avenue from the south gate.
   for (let k = 0; k < 6; k++) {
@@ -267,5 +231,5 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
       b.box('plain', lx, y + 3.2, lz, 0.36, 0.46, 0.36, 0, 0xffe9a8, 0);
     }
   }
-  return { object: b.build(), flags, info: { plaza, southGate: { x: SOUTH_GATE.x, z: SOUTH_GATE.z + 8 } } };
+  return { object: b.build(), flags, info: { plaza, houseCount: parcels.length, southGate: { x: SOUTH_GATE.x, z: SOUTH_GATE.z + 8 } } };
 }

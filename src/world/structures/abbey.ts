@@ -8,7 +8,7 @@ import { ABBEY } from '../layout';
 import { beam } from './common';
 
 const STONE = 0xd4c9b4, WARM = 0xe9dcc0, SLATE = 0x5b708b;
-const glassColors = [0xca454b, 0x467ec9, 0xe6b64e, 0x4eaf87];
+const glassColors = [0xff3256, 0x3884ff, 0xffc348, 0x38dc9a];
 export const ABBEY_ENTRY = { x: ABBEY.x, z: ABBEY.entranceZ, facing: '+Z (south)', width: 6.8 };
 export const ABBEY_INTERIOR_RANGE = 155;
 /** A pointed window shape with its foot at y=0. */
@@ -65,19 +65,19 @@ export function buildAbbey(): THREE.Group {
       // Colored shafts slant inward. Two crossing tapered planes keep them legible from the aisle.
       const color = glassColors[(k + 7) % 4];
       const start = new THREE.Vector3(wx - side * 0.4, y + 10, gz);
-      const end = new THREE.Vector3(x + side * 2, y + 0.12, gz + 5);
+      const end = new THREE.Vector3(x - side * 3, y + 0.12, gz + 8);
       for (let cross = 0; cross < 2; cross++) {
         const v = cross ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
-        const vertices = [start.clone().addScaledVector(v, -1.3), start.clone().addScaledVector(v, 1.3),
-          end.clone().addScaledVector(v, 4.8), end.clone().addScaledVector(v, -4.8)];
+        const vertices = [start.clone().addScaledVector(v, -2.1), start.clone().addScaledVector(v, 2.1),
+          end.clone().addScaledVector(v, 7.5), end.clone().addScaledVector(v, -7.5)];
         const g = new THREE.BufferGeometry().setFromPoints(vertices); g.setIndex([0, 1, 2, 0, 2, 3]);
         g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
         light.push(tint(g, color));
       }
-      const patch = new THREE.PlaneGeometry(5.5, 8).rotateX(-Math.PI / 2).rotateY(side * 0.35).translate(end.x, y + 0.035, end.z);
+      const patch = new THREE.PlaneGeometry(8, 10.5).rotateX(-Math.PI / 2).rotateY(side * 0.35).translate(end.x, y + 0.07, end.z);
       patches.push(tint(patch, color));
       const pewIndex = Math.max(0, Math.min(7, Math.round((25 - (end.z - z)) / 5.1)));
-      const seatPatch = new THREE.PlaneGeometry(3.8, 0.85).rotateX(-Math.PI / 2)
+      const seatPatch = new THREE.PlaneGeometry(4.8, 0.95).rotateX(-Math.PI / 2)
         .translate(x + side * 4.8, y + 0.9, z + 25 - pewIndex * 5.1);
       patches.push(tint(seatPatch, color));
       // Each wall pier reaches the floor. Above the glazing only overhead collision is needed.
@@ -152,7 +152,9 @@ export function buildAbbey(): THREE.Group {
     addBox(tx + side * 8, z - 9, 0.75, 9.5, 0, y + 21);
   }
   // Near-only warm interior: columns, open arcades, ribbed ceiling, pews and altar.
-  inside.box('plain', x, y + 0.01, z, 34.5, 0.01, 72, 0, 0xbca783, 0);
+  inside.box('stone', x, y + 0.01, z, 34.5, 0.01, 72, 0, 0x625a50, 0);
+  inside.box('cloth', x, y + 0.035, z + 1, 3.1, 0.018, 54, 0, 0x79313a, 0);
+  for (const side of [-1, 1]) inside.box('cloth', x + side * 1.49, y + 0.055, z + 1, 0.055, 0.005, 54, 0, 0xb58a4b, 0);
   for (const side of [-1, 1]) {
     for (let k = -3; k <= 3; k++) {
       const cx = x + side * 9.5, cz = z + k * 9;
@@ -192,12 +194,13 @@ export function buildAbbey(): THREE.Group {
     fragmentShader: `uniform float uTime; varying vec2 vUv; varying vec3 vColor; varying vec3 vPos;
       void main(){ float edge=pow(max(0.,sin(vUv.x*3.14159)),1.6);
         float grain=sin(vPos.x*2.3+vPos.z*3.7+sin(uTime*.23))*sin(vPos.y*4.1-uTime*.4);
-        float dust=pow(max(0.,grain),12.); float fade=(1.-vUv.y)*.07+.025;
-        gl_FragColor=vec4(vColor*(1.+dust*1.5),edge*fade); }`,
+        float dust=pow(max(0.,grain),12.); float fade=(1.-vUv.y)*.20+.11;
+        gl_FragColor=vec4(vColor*2.3*(1.+dust*1.5),edge*fade); }`,
   });
-  interior.add(new THREE.Mesh(mergeGeometries(light), beams));
+  const shafts = new THREE.Mesh(mergeGeometries(light), beams); shafts.renderOrder = 3;
+  interior.add(shafts);
   interior.add(new THREE.Mesh(mergeGeometries(patches), new THREE.MeshBasicMaterial({
-    vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    vertexColors: true, transparent: true, opacity: 0.70, color: new THREE.Color(1.8, 1.8, 1.8), depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   })));
   interior.visible = false;
   // Culling uses the existing player uniform; no additional frame loop or lights/shadows.

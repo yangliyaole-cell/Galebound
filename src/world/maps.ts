@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { fbm } from './noise';
+import { fbm, seededRandom } from './noise';
 import { heightAt, normalAt, sstep } from './heightmap';
 import {
   BLOSSOM, CITY, FIELDS, FOREST, HALF, PLATEAU, PLAZAS, ROADS, SIZE, START, STONES, VILLAGE, WINDMILL,
-  WATCHTOWER, LIGHTHOUSE, ABBEY, cityWallPolygon, cityEdgeDistance, insideCity, fieldPolygon, inPolygon, roadClearance,
+  WATCHTOWER, LIGHTHOUSE, ABBEY, cityWallPolygon, cityEdgeDistance, fieldPolygon, inPolygon, roadClearance,
 } from './layout';
 
 let splatSize = 0;
@@ -27,11 +27,20 @@ export function buildSplat(size: number): THREE.CanvasTexture {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  ctx.fillStyle = 'rgb(0,130,0)';
+  // Grass and small dirt/gravel patches between houses; only lanes and squares
+  // receive full cobbles. Keep this paint independent of building generation.
+  ctx.save();
   ctx.beginPath();
   cityWallPolygon.forEach(([x, z], i) => i ? ctx.lineTo(px(x), px(z)) : ctx.moveTo(px(x), px(z)));
-  ctx.closePath();
-  ctx.fill();
+  ctx.closePath(); ctx.clip();
+  const rand = seededRandom(208);
+  for (let i = 0; i < 420; i++) {
+    const x = CITY.x + (rand() - 0.5) * 600, z = CITY.z + (rand() - 0.5) * 600, r = 3 + rand() * 5;
+    const g = ctx.createRadialGradient(px(x), px(z), 0, px(x), px(z), r * s);
+    g.addColorStop(0, `rgba(115,12,0,${0.5 + rand() * 0.4})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(px(x - r), px(z - r), r * 2 * s, r * 2 * s);
+  }
+  ctx.restore();
   ctx.fillStyle = 'rgb(0,255,0)';
   for (const [x, z, r] of PLAZAS) {
     ctx.beginPath();
@@ -75,7 +84,7 @@ function splat(x: number, z: number, channel: number): number {
 }
 export const roadAt = (x: number, z: number): number => splatSize ? splat(x, z, 0) : 1 - sstep(-0.7, 1, roadClearance(x, z, 'dirt'));
 export const cobbleAt = (x: number, z: number): number => splatSize ? splat(x, z, 1) : Math.max(
-  insideCity(x, z) ? 0.51 : 0, 1 - sstep(-0.7, 1, roadClearance(x, z, 'cobble')),
+  1 - sstep(-0.7, 1, roadClearance(x, z, 'cobble')),
   ...PLAZAS.map(([px, pz, r]) => 1 - sstep(r - 1, r + 1, Math.hypot(x - px, z - pz))));
 export const fieldAt = (x: number, z: number): number => splatSize ? splat(x, z, 2) : +FIELDS.some((f) => inPolygon(x, z, fieldPolygon(f)));
 

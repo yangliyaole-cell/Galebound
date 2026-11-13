@@ -9,7 +9,7 @@ export const HALF = SIZE / 2;
 export const WATER_LEVEL = 0;
 
 export const START = { x: 0, z: 100 };
-export const CITY = { x: 120, z: -640, wall: 175, hill: 295, plateau: 78, top: 104 };
+export const CITY = { x: 120, z: -640, wall: 195, hill: 345, plateau: 78, top: 104 };
 export const WINDMILL = { x: 340, z: -80 };
 export const LAKE = { x: -430, z: -300, rx: 130, rz: 100 };
 export const ISLAND = { x: -452, z: -306 };
@@ -45,8 +45,8 @@ export type Pt = [number, number];
 export const SOUTH_GATE_ANGLE = Math.PI / 2;
 export const EAST_GATE_ANGLE = Math.PI / 5;
 export const WALL_SEGMENTS = 28;
-const rawCityRadius = (a: number): number => CITY.wall *
-  (1 + 0.16 * Math.sin(a * 3 + 0.4) + 0.105 * Math.cos(a * 2 - 0.7) + 0.045 * Math.sin(a * 7));
+const rawCityRadius = (a: number): number => Math.max(129, CITY.wall *
+  (1 + 0.32 * Math.sin(a * 3 + 0.4) + 0.16 * Math.cos(a * 2 - 0.7) + 0.055 * Math.sin(a * 7)));
 const wallAngles = Array.from({ length: WALL_SEGMENTS }, (_, i) => i / WALL_SEGMENTS * Math.PI * 2 + 0.025 * Math.sin(i * 3.7))
   .filter((a) => [SOUTH_GATE_ANGLE, EAST_GATE_ANGLE].every((g) => Math.abs(a - g) > 0.17));
 wallAngles.push(SOUTH_GATE_ANGLE - 0.12, SOUTH_GATE_ANGLE + 0.12, EAST_GATE_ANGLE - 0.12, EAST_GATE_ANGLE + 0.12);
@@ -70,6 +70,16 @@ export function cityEdgeDistance(x: number, z: number): number {
   return Math.hypot(x - CITY.x, z - CITY.z) - cityRadiusAt(Math.atan2(z - CITY.z, x - CITY.x));
 }
 export const insideCity = (x: number, z: number, inset = 0): boolean => cityEdgeDistance(x, z) < -inset;
+/** Five inhabited shelves rise toward the unchanged palace shelf. */
+export const CITY_TERRACE_EDGES = [0.16, 0.34, 0.52, 0.70, 0.88];
+export function cityTerraceMetric(x: number, z: number): number {
+  const r = Math.hypot(x - CITY.x, z - CITY.z);
+  return (r - 90) / Math.max(30, cityRadiusAt(Math.atan2(z - CITY.z, x - CITY.x)) - 90);
+}
+export function cityShelfPoint(a: number, t: number): Pt {
+  const r = 90 + (cityRadiusAt(a) - 90) * t;
+  return [CITY.x + Math.cos(a) * r, CITY.z + Math.sin(a) * r];
+}
 export function cityGate(a: number): { x: number; z: number } {
   // The two vertices deliberately bracketing the gate form one complete wall segment.
   const p = cityWallPolygon[wallAngles.indexOf(a - 0.12)];
@@ -126,6 +136,9 @@ export const CITY_STREETS: Road[] = [
   road('east-lane', 'cobble', 4.5, [[EAST_GATE.x, EAST_GATE.z], cp(124, 57), cp(102, 89), cp(58, 110), cp(20, 122), cp(-33, 119)]),
   road('north-alley', 'cobble', 2.4, [cp(120, -22), cp(147, -65), cp(115, -114), cp(59, -143), cp(5, -126)]),
   road('west-alley', 'cobble', 2.5, [cp(-76, 105), cp(-144, 96), cp(-165, 42), cp(-156, -10), cp(-126, -64)]),
+  road('east-ridge', 'cobble', 3.0, [cp(124, 57), cityShelfPoint(0.4, 0.82), cityShelfPoint(0.02, 0.8), cityShelfPoint(-0.35, 0.84), cityShelfPoint(-0.7, 0.77), cp(76, -98)]),
+  road('west-ridge', 'cobble', 2.7, [cp(-76, 105), cityShelfPoint(2.3, 0.80), cityShelfPoint(2.6, 0.84), cityShelfPoint(2.95, 0.76), cityShelfPoint(3.3, 0.84), cityShelfPoint(3.6, 0.8), cp(-126, -64)]),
+  road('north-ridge', 'cobble', 2.8, [cp(-75, -111), cityShelfPoint(4.0, 0.77), cityShelfPoint(4.4, 0.83), cityShelfPoint(4.8, 0.80), cityShelfPoint(5.2, 0.83), cp(115, -114)]),
 ];
 // Trim switchbacks to the shared irregular ridge. The gate approaches keep their
 // exact endpoints; the market occupies a separate parcel beside the lanes.
@@ -148,8 +161,8 @@ export const ROADS: Road[] = [
   road('lake-road', 'dirt', 3.0, [[5, -180], [-48, -187], [-90, -204], [-147, -205], [-189, -224], [-231, -231], [-260, -257], [-283, -245], [-298, -249], [-300, -261], [-300, -282]]),
   road('coastal-trail', 'dirt', 2.8, [[6, 90], [56, 108], [83, 152], [148, 176], [185, 220], [237, 258], [265, 287], [303, 337], [312, 388], [354, 426], [376, 492]]),
   road('grove-trail', 'dirt', 2.4, [[-6, 92], [-62, 89], [-107, 57], [-165, 39], [-209, -2], [-242, -16], [-288, 14], [-306, 74], [-363, 103], [-386, 160], [-420, 200]]),
-  road('highland-road', 'dirt', 3.0, [[EAST_GATE.x, EAST_GATE.z], [309, -506], [340, -473], [393, -490], [444, -465], [471, -417], [527, -397], [579, -420], [608, -410]]),
-  road('abbey-pilgrimage', 'dirt', 2.8, [[-300, -282], [-299, -334], [-325, -391], [-383, -426], [-460, -436], [-507, -456], [-535, -486], [-558, -486], [-572, -450], [-600, -450]]),
+  road('highland-road', 'dirt', 3.0, [[EAST_GATE.x, EAST_GATE.z], [EAST_GATE.x + 20 * Math.cos(EAST_GATE_ANGLE), EAST_GATE.z + 20 * Math.sin(EAST_GATE_ANGLE)], [370, -469], [393, -490], [444, -465], [471, -417], [527, -397], [579, -420], [608, -410]]),
+  road('abbey-pilgrimage', 'dirt', 2.8, [[18, -330], [-44, -347], [-111, -330], [-181, -352], [-252, -360], [-325, -391], [-383, -426], [-460, -436], [-507, -456], [-535, -486], [-558, -486], [-572, -450], [-600, -450]]),
   road('field-path', 'dirt', 2.2, [[-48, -187], [-59, -157], [-80, -135], [-70, -102], [-37, -71], [-17, -28]]),
   road('north-hamlets', 'dirt', 2.5, [[-626, -713], [-602, -686], [-582, -676], [-561, -641], [-546, -596], [-549, -542], [-540, -490], [-553, -435], [-580, -407], [-600, -411], [-600, -450]]),
   road('west-hamlet', 'dirt', 2.4, [[-770, -400], [-749, -375], [-710, -369], [-678, -343], [-640, -350], [-613, -319], [-603, -263], [-582, -206], [-529, -172], [-465, -157], [-403, -169], [-334, -211], [-300, -249]]),
