@@ -1,0 +1,81 @@
+{
+  "report": [
+    {
+      "motion": "idle",
+      "finite": true,
+      "maxExtent": 1.8830708797927371,
+      "maxBoneError": 1.6688670683923246e-8
+    },
+    {
+      "motion": "walk",
+      "finite": true,
+      "maxExtent": 1.876689206009441,
+      "maxBoneError": 1.668867068227721e-8
+    },
+    {
+      "motion": "run",
+      "finite": true,
+      "maxExtent": 1.8646427356966688,
+      "maxBoneError": 1.6688670692115934e-8
+    },
+    {
+      "motion": "jump",
+      "finite": true,
+      "maxExtent": 1.8586880380382607,
+      "maxBoneError": 1.6688670660777293e-8
+    },
+    {
+      "motion": "fall",
+      "finite": true,
+      "maxExtent": 1.8757266090831746,
+      "maxBoneError": 1.6688670757719923e-8
+    },
+    {
+      "motion": "glide",
+      "finite": true,
+      "maxExtent": 1.1083878497525705,
+      "maxBoneError": 1.668867066840602e-8
+    },
+    {
+      "motion": "land",
+      "finite": true,
+      "maxExtent": 1.6551687773259267,
+      "maxBoneError": 1.6688670663581925e-8
+    },
+    {
+      "motion": "swim",
+      "finite": true,
+      "maxExtent": 1.5869018105894472,
+      "maxBoneError": 1.6688670710748468e-8
+    }
+  ],
+  "blinkClosed": true,
+  "stats": {
+    "tris": 155072,
+    "meshes": 21,
+    "skins": 21,
+    "drawCalls": 44
+  },
+  "maskToggle": true,
+  "cape": {
+    "panels": 1,
+    "opened": true,
+    "closed": true,
+    "legacyHidden": true
+  },
+  "transition": {
+    "phases": 3,
+    "finite": true,
+    "maxExtent": 1.364267039189378
+  },
+  "world": {
+    "loaded": true,
+    "cape": true,
+    "legacyHidden": true,
+    "movement": true,
+    "jump": true,
+    "missingAssetFallback": true,
+    "classicSwitch": true
+  },
+  "errors": []
+}

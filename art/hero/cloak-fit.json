@@ -1,0 +1,11 @@
+{
+  "pieces": 1,
+  "continuous_pattern": true,
+  "leading_edge_rest_m": 1.3585,
+  "leading_edge_flight_m": 1.1253,
+  "leading_edge_stretch_ratio": 0.8284,
+  "flight_center_hem_y_m": 1.055,
+  "flight_span_m": 2.18,
+  "wall_mm": 1.4,
+  "glyph_projection_max_error_mm": 0.0
+}

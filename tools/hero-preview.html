@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><title>Galebound · 角色工作台</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#e6e3dc;color:#273b39;font:14px system-ui,sans-serif}canvas{display:block;width:100vw;height:100vh}header{position:absolute;top:36px;left:42px;pointer-events:none}small{letter-spacing:4px;font-size:11px}h1{font:normal 38px Georgia,serif;margin:12px 0}p{color:#677472;line-height:1.8}nav{position:absolute;bottom:35px;left:42px;display:flex;gap:8px;flex-wrap:wrap}button,select{border:1px solid #a7b2ab;background:#f4f2eb;padding:10px 16px;border-radius:5px;color:inherit;cursor:pointer}button.active{background:#2a4642;color:#fff}aside{position:absolute;right:40px;top:40px;text-align:right;line-height:1.9;color:#677472}footer{position:absolute;right:40px;bottom:40px;color:#677472;font-size:12px}
+</style>
+<header><small>GALEBOUND / CHARACTER ATELIER</small><h1>蒙面冒险者</h1><p>设计表重建 · 高领披风 · 星芒纹章<br>拖动旋转，滚轮缩放</p></header>
+<aside id="info"></aside><nav><select id="model"><option value="detail">参考设定版</option><option value="classic">原版</option></select><select id="motion"><option value="idle">站立</option><option value="walk">行走</option><option value="run">奔跑</option><option value="jump">跳跃</option><option value="fall">下落</option><option value="glide">滑翔 / 展开披风</option><option value="land">落地</option><option value="swim">游泳</option></select><button id="mask">摘下面具</button><button id="pause">暂停</button><button id="front">正面</button><button id="side">侧面</button><button id="back">背面</button><button id="reference">设计表</button><button id="wire">线框</button></nav><footer>BLENDER SOURCE / GLTF 2.0 / LIVE GAME RIG</footer>
+<dialog id="reference-sheet" style="max-width:94vw;max-height:92vh;border:1px solid #a7b2ab;background:#f4f2eb;padding:12px"><button id="close-reference" style="display:block;margin:0 0 8px auto">关闭</button><img alt="用户提供的蒙面冒险者角色设计表" src="/art/hero/design-reference.png" style="max-width:89vw;max-height:80vh;display:block"></dialog>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Character } from '/src/player/character.ts';
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;document.body.prepend(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color('#e6e3dc');scene.fog=new THREE.Fog('#e6e3dc',9,20);
+const camera=new THREE.PerspectiveCamera(31,innerWidth/innerHeight,.01,50);camera.position.set(2.5,1.9,4.5);
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.91,0);controls.update();controls.enableDamping=true;controls.minDistance=.6;controls.maxDistance=9;
+scene.add(new THREE.HemisphereLight(0xe5efff,0xb7ac91,2.1));
+const light=new THREE.DirectionalLight(0xffe8cc,2.6);light.position.set(-3,5,4);light.castShadow=true;light.shadow.mapSize.set(2048,2048);Object.assign(light.shadow.camera,{left:-2,right:2,top:3,bottom:-2,near:.1,far:12});light.shadow.bias=-.0002;scene.add(light);
+const fill=new THREE.DirectionalLight(0xd4e6ff,1.3);fill.position.set(3,2,-3);scene.add(fill);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0xe6e3dc,roughness:1}));floor.rotation.x=-Math.PI/2;floor.position.y=-.015;floor.receiveShadow=true;scene.add(floor);
+const circle=new THREE.Mesh(new THREE.CylinderGeometry(.67,.7,.035,96),new THREE.MeshStandardMaterial({color:0xc8c9bb,roughness:.95}));circle.position.y=-.027;circle.receiveShadow=true;scene.add(circle);
+let char,paused=false,wire=false,time=0,last=performance.now();
+async function select(model){if(char){scene.remove(char.root,char.cloth);}char=new Character(true);if(model==='detail'&&char.loadModel)await char.loadModel();scene.add(char.root,char.cloth);char.update(1/60,0,state(),()=>0);document.querySelector('#model').value=model;document.querySelector('#info').innerHTML=(model==='classic'?'原版 · 程序化模型':'参考设定版 · 白面具 / 星芒披风')+'<br>1.88 m · Blender / 游戏骨架';maskVisible=true;document.querySelector('#mask').textContent='摘下面具';window.heroPreview.ready=true;}
+function state(){const motion=document.querySelector('#motion').value;return{motion,speed:motion==='run'?7.2:motion==='walk'?2.7:0,turn:0,dive:0,velocity:new THREE.Vector3(),wind:new THREE.Vector3(.35,0,-.3)}}
+function stats(){let tris=0,meshes=0,skins=0;char.root.traverse(o=>{if(o.isMesh&&!o.userData.outline){meshes++;skins+=o.isSkinnedMesh?1:0;tris+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3}});return{tris,meshes,skins,drawCalls:renderer.info.render.calls};}
+let maskVisible=true;
+window.heroPreview={ready:false,select,stats,get character(){return char},scene,camera,renderer,controls};
+document.querySelector('#mask').onclick=e=>{maskVisible=!maskVisible;char.rig.setMaskVisible?.(maskVisible);e.target.textContent=maskVisible?'摘下面具':'戴上面具'};
+document.querySelector('#model').onchange=e=>select(e.target.value);document.querySelector('#pause').onclick=e=>{paused=!paused;e.target.textContent=paused?'播放':'暂停'};
+document.querySelector('#front').onclick=()=>{camera.position.set(0,.96,4.9);controls.target.set(0,.96,0)};
+document.querySelector('#back').onclick=()=>{camera.position.set(0,.96,-4.9);controls.target.set(0,.96,0)};
+document.querySelector('#side').onclick=()=>{camera.position.set(4.9,.96,0);controls.target.set(0,.96,0)};
+document.querySelector('#reference').onclick=()=>document.querySelector('#reference-sheet').showModal();
+document.querySelector('#close-reference').onclick=()=>document.querySelector('#reference-sheet').close();
+document.querySelector('#wire').onclick=()=>{wire=!wire;char.root.traverse(o=>{if(o.isMesh&&!o.userData.outline)o.material.wireframe=wire})};
+addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()});
+await select(new URLSearchParams(location.search).get('model')??'detail');
+renderer.setAnimationLoop(()=>{const now=performance.now(),dt=Math.min((now-last)/1000,.033);last=now;if(!paused){time+=dt;char.update(dt,time,state(),()=>0)}controls.update();renderer.render(scene,camera)});
+</script>
+</html>

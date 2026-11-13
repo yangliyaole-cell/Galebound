@@ -12,3 +12,5 @@ npm run preview  # 预览构建结果
 ```
 
 部署方式见 PLAN.md 的"部署"一节。
+
+主角 Blender 工程、GLB、预览与继续编辑说明见 [art/hero/README.md](art/hero/README.md)。

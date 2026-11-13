@@ -1,0 +1,9 @@
+{
+  "sample_count": 1259,
+  "inner_gap_min_mm": 2.538,
+  "inner_gap_median_mm": 4.621,
+  "inner_gap_p95_mm": 11.362,
+  "inner_gap_max_mm": 14.831,
+  "wall_mm": 1.8,
+  "ridge_term": false
+}

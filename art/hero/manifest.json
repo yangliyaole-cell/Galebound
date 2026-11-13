@@ -1,0 +1,150 @@
+{
+  "name": "Masked Adventurer / reference reconstruction",
+  "revision": 4,
+  "height_m": 1.878,
+  "triangles": 155072,
+  "source_triangles": 190852,
+  "meshes": 21,
+  "bones": 16,
+  "materials": 21,
+  "glb_bytes": 7550120,
+  "joints": {
+    "body": {
+      "parent": null,
+      "offset": [
+        0,
+        1.0,
+        0
+      ]
+    },
+    "spine": {
+      "parent": "body",
+      "offset": [
+        0,
+        0.06,
+        0
+      ]
+    },
+    "chest": {
+      "parent": "spine",
+      "offset": [
+        0,
+        0.19,
+        0
+      ]
+    },
+    "head": {
+      "parent": "chest",
+      "offset": [
+        0,
+        0.315,
+        0
+      ]
+    },
+    "armL": {
+      "parent": "chest",
+      "offset": [
+        0.185,
+        0.18,
+        -0.004
+      ]
+    },
+    "foreL": {
+      "parent": "armL",
+      "offset": [
+        0.017,
+        -0.28,
+        0.006
+      ]
+    },
+    "handL": {
+      "parent": "foreL",
+      "offset": [
+        0.012,
+        -0.265,
+        0.006
+      ]
+    },
+    "armR": {
+      "parent": "chest",
+      "offset": [
+        -0.185,
+        0.18,
+        -0.004
+      ]
+    },
+    "foreR": {
+      "parent": "armR",
+      "offset": [
+        -0.017,
+        -0.28,
+        0.006
+      ]
+    },
+    "handR": {
+      "parent": "foreR",
+      "offset": [
+        -0.012,
+        -0.265,
+        0.006
+      ]
+    },
+    "legL": {
+      "parent": "body",
+      "offset": [
+        0.085,
+        -0.03,
+        0
+      ]
+    },
+    "shinL": {
+      "parent": "legL",
+      "offset": [
+        0,
+        -0.47,
+        0.006
+      ]
+    },
+    "footL": {
+      "parent": "shinL",
+      "offset": [
+        0,
+        -0.445,
+        -0.003
+      ]
+    },
+    "legR": {
+      "parent": "body",
+      "offset": [
+        -0.085,
+        -0.03,
+        0
+      ]
+    },
+    "shinR": {
+      "parent": "legR",
+      "offset": [
+        0,
+        -0.47,
+        0.006
+      ]
+    },
+    "footR": {
+      "parent": "shinR",
+      "offset": [
+        0,
+        -0.445,
+        -0.003
+      ]
+    }
+  },
+  "mask_objects": [
+    "Traveler_Mask",
+    "Traveler_Mask_Interior",
+    "Traveler_Mask_Strap"
+  ],
+  "cape_objects": [
+    "Traveler_Cape"
+  ],
+  "reference": "design-reference.png"
+}
