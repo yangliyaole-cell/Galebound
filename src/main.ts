@@ -30,7 +30,8 @@ import { buildLandmarks } from './world/structures/landmarks';
 import { buildCrops, buildVillage } from './world/structures/village';
 
 const params = new URLSearchParams(location.search);
-const shot = params.get('shot') === '1';
+const capeShot = params.get('shot') === 'cape';
+const shot = params.get('shot') === '1' || capeShot;
 const debugWindow = window as unknown as Record<string, unknown>;
 if (shot) {
   document.documentElement.classList.add('shot');
@@ -136,6 +137,7 @@ async function boot(): Promise<void> {
   scene.add(createWindFx(quality.particles, wind, shot ? seededRandom(553) : Math.random));
 
   const player = new Player(quality.outline);
+  player.character.capeTier = quality.tier;
   if (params.get('hero') !== 'classic') {
     hud.loading('正在整理旅人的行装…');
     await nextFrame();
@@ -228,7 +230,8 @@ async function boot(): Promise<void> {
   hud.cinemaLabel(styles.current === 'cinematic');
 
   // Handles for automated checks; not used by the game itself.
-  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt, style: styles };
+  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt, style: styles,
+    capeStats: () => player.character.rig.capeStats?.() ?? { tier: quality.tier, available: false } };
 
   hud.ready();
   let last = performance.now() / 1000;
@@ -324,10 +327,15 @@ async function boot(): Promise<void> {
     shared.uTime.value = 12;
     wind.update(0);
     const idle = { moveX: 0, moveY: 0, run: false, takeJump: () => false } as unknown as Input;
-    for (let i = 0; i < 90; i++) {
+    if (capeShot) {
+      player.character.prepareCapeShot(params, heightAt, camera);
+      player.pos.copy(player.character.root.position);
+      player.yaw = player.character.root.rotation.y;
+    } else for (let i = 0; i < 90; i++) {
       player.update(1 / 60, 12, idle, follow.yaw, wind);
       follow.update(1 / 60, player);
     }
+    if (capeShot) shared.uTime.value = Number(player.character.root.userData.capeShot.seconds);
     shared.uPlayer.value.copy(player.pos);
     life.update(0, 12, player.pos);
     sun.target.position.copy(player.pos);

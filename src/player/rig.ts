@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { CapeStats } from './cape-sim';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { outlineMaterial, toon } from '../render/toon';
 
@@ -106,8 +107,10 @@ export interface Rig {
   setBlink?: (closed: boolean) => void;
   /** Optional removable Blender mask and its straps/inlays. */
   setMaskVisible?: (visible: boolean) => void;
-  /** Reference cloak: blend the hanging panels into flight wings and flutter. */
-  setCapeState?: (glide: number, trail: number, time: number, wind: number) => void;
+  /** Soft cloak: continuous flight target, world-space inertia and posed body contact. */
+  setCapeState?: (glide: number, dt: number, time: number, wind: THREE.Vector3, velocity: THREE.Vector3,
+    groundAt: (x: number, z: number) => number) => void;
+  capeStats?: () => CapeStats & { updateMs: number; renderVertices: number; renderTriangles: number; drawCalls: number };
   armL: THREE.Group;
   armR: THREE.Group;
   foreL: THREE.Group;

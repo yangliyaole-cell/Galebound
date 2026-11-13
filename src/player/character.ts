@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ClothStrip } from './cloth';
+import { capePreviewAt, type CapePreviewMotion, type CapeTier } from './cape-sim';
 import { HERO_STYLE, REST, applyPose, blendPose, buildRig, type Pose, type Rig } from './rig';
 import { disposeProceduralHero, loadHeroRig } from './hero-model';
 
@@ -186,6 +187,7 @@ export class Character {
   private phase = 0;
   private blink = 2;
   private capeGlide = 0;
+  capeTier: CapeTier = 'medium';
 
   private readonly pinA = new THREE.Vector3();
   private readonly pinB = new THREE.Vector3();
@@ -204,7 +206,7 @@ export class Character {
 
   private async installModel(): Promise<void> {
     try {
-      const rig = await loadHeroRig();
+      const rig = await loadHeroRig(this.capeTier);
       disposeProceduralHero(this.root);
       this.root.clear();
       this.root.add(...rig.root.children);
@@ -215,6 +217,48 @@ export class Character {
       // The locally generated character remains playable if the asset is missing.
       console.warn('Could not load the detailed traveler; using the procedural hero.', error);
     }
+  }
+
+  /** Fixed-step debug take. A staging path keeps every take at the requested world location. */
+  prepareCapeShot(params: URLSearchParams, groundAt: (x: number, z: number) => number, camera: THREE.PerspectiveCamera): void {
+    const choice = params.get('capemotion') ?? 'idle';
+    const sequence: CapePreviewMotion = ['idle', 'run', 'jump', 'glide', 'turn'].includes(choice) ? choice as CapePreviewMotion : 'idle';
+    const requested = Number(params.get('capet') ?? 3);
+    const seconds = Number.isFinite(requested) ? Math.min(30, Math.max(0, requested)) : 3;
+    const origin = this.root.position.clone(), heading = this.root.rotation.y;
+    const elevation = origin.y - groundAt(origin.x, origin.z);
+    const velocity = new THREE.Vector3(), wind = new THREE.Vector3();
+    let lastDistance = 0;
+    const step = (time: number): void => {
+      const take = capePreviewAt(sequence, time);
+      const before = this.root.position.clone();
+      // Integrate the run around the turn; stopping never snaps the staging path back.
+      const travel = take.distance - lastDistance;
+      const yaw = heading + take.yaw;
+      this.root.position.x += Math.sin(yaw) * travel;
+      this.root.position.z += Math.cos(yaw) * travel;
+      this.root.position.y = groundAt(this.root.position.x, this.root.position.z) + elevation + take.height;
+      this.root.rotation.y = yaw;
+      velocity.copy(this.root.position).sub(before).multiplyScalar(60);
+      wind.fromArray(take.wind).applyAxisAngle(THREE.Object3D.DEFAULT_UP, heading);
+      this.update(1 / 60, time, { motion: take.motion, speed: take.speed, turn: take.turn, dive: 0, velocity, wind }, groundAt);
+      lastDistance = take.distance;
+    };
+    // Settle the hanging fabric before the sequence. Every capet starts from the same state.
+    for (let i = -90; i <= 0; i++) step(i / 60);
+    for (let i = 1; i <= Math.round(seconds * 60); i++) step(i / 60);
+    this.rig.setBlink?.(false);
+    // Camera is fixed in world space after the take, 3.6m off the original rear/side bearing.
+    // Keeping the original bearing exposes the actual tail lag during the turn take.
+    const angle = Number(params.get('capeangle') ?? -0.55);
+    const bearing = heading + Math.PI + (Number.isFinite(angle) ? angle : -0.55);
+    const distance = Math.max(2.8, Math.min(8, Number(params.get('dist') ?? 3.6) || 3.6));
+    const target = this.root.position.clone().add(new THREE.Vector3(0, 0.95, 0));
+    camera.position.copy(target).add(new THREE.Vector3(Math.sin(bearing) * distance, 0.85, Math.cos(bearing) * distance));
+    camera.lookAt(target); camera.fov = 48; camera.near = 0.05; camera.updateProjectionMatrix();
+    // Retain the requested staging origin for external screenshot notes/debugging.
+    this.root.userData.capeShot = { sequence, seconds: Math.round(seconds * 60) / 60, origin: origin.toArray(), heading,
+      camera: camera.position.toArray(), target: target.toArray() };
   }
 
   update(dt: number, time: number, state: CharacterState, groundAt: (x: number, z: number) => number): void {
@@ -240,7 +284,6 @@ export class Character {
     blendPose(this.pose, target, 1 - Math.exp(-dt * rate));
     applyPose(this.rig, this.pose);
     this.capeGlide += ((state.motion === 'glide' ? 1 : 0) - this.capeGlide) * (1 - Math.exp(-dt * 6));
-    this.rig.setCapeState?.(this.capeGlide, state.speed / 9, time, state.wind.length());
 
     this.blink -= dt;
     const closed = this.blink < 0.1;
@@ -251,7 +294,10 @@ export class Character {
     if (this.blink < 0) this.blink = 2.5 + Math.random() * 3;
 
     this.root.updateMatrixWorld(true);
-    if (this.rig.setCapeState) return;
+    if (this.rig.setCapeState) {
+      this.rig.setCapeState(this.capeGlide, dt, time, state.wind, state.velocity, groundAt);
+      return;
+    }
     this.air.copy(state.wind).sub(state.velocity);
     const rp = this.root.position;
     // The body cylinder only makes sense while upright.
