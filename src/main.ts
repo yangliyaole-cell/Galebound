@@ -1,3 +1,4 @@
+import { setStructureDetail, updateStructureDetails } from './world/structure-detail';
 import * as THREE from 'three';
 import { DynamicResolution, pickQuality } from './core/quality';
 import { Input } from './core/input';
@@ -109,6 +110,7 @@ async function boot(): Promise<void> {
   hud.loading('正在砌墙盖瓦…');
   await nextFrame();
   const detail = quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0;
+  setStructureDetail(detail);
   const village = buildVillage(detail);
   const landmarks = buildLandmarks();
   scene.add(village.object, landmarks.object);
@@ -285,6 +287,7 @@ async function boot(): Promise<void> {
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, dt);
     scatter.update(camera.position);
+    updateStructureDetails(camera.position);
     for (const s of landmarks.spinners) s.wheel.rotation.z += s.speed * (0.1 + shared.uWindStrength.value) * dt;
 
     if (started) {
@@ -334,6 +337,7 @@ async function boot(): Promise<void> {
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, 0);
     scatter.update(camera.position);
+    updateStructureDetails(camera.position);
     renderer.debug.onShaderError = (_gl, _program, vertex, fragment) => {
       debugWindow.__galeShotError = 'Shader compilation failed';
       console.error('Shader compilation failed', renderer.getContext().getShaderInfoLog(vertex),

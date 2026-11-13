@@ -1,20 +1,27 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { seededRandom, fbm } from './noise';
+import { structureDetail, registerStructureDetail, STRUCTURE_DETAIL_RANGE, detailCounters } from './structure-detail';
 import { toon } from '../render/toon';
 import { plasterTexture, roofTexture, stoneTexture, woodTexture } from '../render/textures';
 
 export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'cloth';
 
-let materials: Record<Mat, THREE.Material> | null = null;
-function getMaterials(): Record<Mat, THREE.Material> {
-  materials ??= {
-    stone: toon(0xffffff, { vertexColors: true, texture: stoneTexture(), textureSize: 2.6 }),
-    plaster: toon(0xffffff, { vertexColors: true, texture: plasterTexture(), textureSize: 3.4 }),
-    roof: toon(0xffffff, { vertexColors: true, texture: roofTexture(), textureSize: 2.2 }),
-    wood: toon(0xffffff, { vertexColors: true, texture: woodTexture(), textureSize: 1.5 }),
-    plain: toon(0xffffff, { vertexColors: true }),
-    cloth: toon(0xffffff, { vertexColors: true, doubleSided: true }),
+const materialSets = new Map<string, Record<Mat, THREE.Material>>();
+function getMaterials(detail = false): Record<Mat, THREE.Material> {
+  const relief = structureDetail() > 0;
+  const key = `${relief}-${detail}`;
+  if (materialSets.has(key)) return materialSets.get(key)!;
+  const range = detail ? { detailRange: STRUCTURE_DETAIL_RANGE, detailCounters } : {};
+  const materials = {
+    stone: toon(0xffffff, { vertexColors: true, texture: stoneTexture(), textureSize: 2.6, relief: relief ? 0.085 : 0, ...range }),
+    plaster: toon(0xffffff, { vertexColors: true, texture: plasterTexture(), textureSize: 3.4, ...range }),
+    roof: toon(0xffffff, { vertexColors: true, texture: roofTexture(), textureSize: 2.2, relief: relief ? 0.045 : 0, ...range }),
+    wood: toon(0xffffff, { vertexColors: true, texture: woodTexture(), textureSize: 1.5, relief: relief ? 0.025 : 0, ...range }),
+    plain: toon(0xffffff, { vertexColors: true, ...range }),
+    cloth: toon(0xffffff, { vertexColors: true, doubleSided: true, ...range }),
   };
+  materialSets.set(key, materials);
   return materials;
 }
 
@@ -32,6 +39,47 @@ export function place(x: number, y: number, z: number, rot = 0): THREE.Matrix4 {
  */
 export class Builder {
   private readonly parts = new Map<Mat, THREE.BufferGeometry[]>();
+  private readonly detailParts = new Map<string, Map<Mat, THREE.BufferGeometry[]>>();
+  private detailing = false;
+
+  /** Decorative geometry is spatially merged and culled/faded, absent on low. */
+  detail(generate: () => void): void {
+    if (!structureDetail()) return;
+    const previous = this.detailing;
+    this.detailing = true;
+    try { generate(); } finally { this.detailing = previous; }
+  }
+
+  /** Chipped, bevelled masonry with a single bevel segment, not a sharp box. */
+  block(x: number, y: number, z: number, w: number, h: number, d: number, rot: number, color: number, bevel = 0.04): void {
+    const edge = Math.min(bevel, w * 0.15, h * 0.15, d * 0.15);
+    const shape = new THREE.Shape();
+    shape.moveTo(-w / 2 + edge, edge); shape.lineTo(w / 2 - edge, edge);
+    shape.lineTo(w / 2 - edge, h - edge); shape.lineTo(-w / 2 + edge, h - edge); shape.closePath();
+    const g = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.001, d - edge * 2), bevelEnabled: true, bevelSize: edge, bevelThickness: edge, bevelSegments: 1, steps: 1 }).translate(0, 0, -d / 2 + edge);
+    this.add('stone', g, color, place(x, y, z, rot), 0.17);
+  }
+
+  /** Rounded fractured rock: coordinate noise preserves shared edges and determinism. */
+  rock(x: number, y: number, z: number, w: number, h: number, d: number, rot: number, color: number, seed: number): void {
+    const g = new THREE.IcosahedronGeometry(1, structureDetail() ? 1 : 0);
+    const p = g.attributes.position;
+    const random = seededRandom(seed);
+    const offset = random() * 100;
+    for (let i = 0; i < p.count; i++) {
+      const px = p.getX(i), py = p.getY(i), pz = p.getZ(i);
+      const k = 0.86 + 0.14 * fbm(px * 3 + offset, pz * 3 + py * 2 + offset, 2);
+      // Stay within the old footprint; the base is buried rather than sliced flat.
+      p.setXYZ(i, px * k * w * 0.53, (py * k * 0.5 + 0.47) * h, pz * k * d * 0.53);
+    }
+    g.computeVertexNormals();
+    this.add('stone', g, color, place(x, y, z, rot), 0.22);
+    const colors = g.attributes.color;
+    for (let i = 0; i < colors.count; i++) {
+      const moss = Math.max(0, g.attributes.normal.getY(i)) * 0.16;
+      colors.setXYZ(i, colors.getX(i) * (1 - moss), colors.getY(i), colors.getZ(i) * (1 - moss * 1.7));
+    }
+  }
 
   /**
    * @param shade how much to darken the bottom of the solid, as cheap ambient occlusion
@@ -52,9 +100,17 @@ export class Builder {
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     if (matrix) g.applyMatrix4(matrix);
-    const list = this.parts.get(mat);
+    let parts = this.parts;
+    if (this.detailing) {
+      g.computeBoundingBox();
+      const centre = g.boundingBox!.getCenter(new THREE.Vector3());
+      const cell = `${Math.floor(centre.x / 128)},${Math.floor(centre.z / 128)}`;
+      if (!this.detailParts.has(cell)) this.detailParts.set(cell, new Map());
+      parts = this.detailParts.get(cell)!;
+    }
+    const list = parts.get(mat);
     if (list) list.push(g);
-    else this.parts.set(mat, [g]);
+    else parts.set(mat, [g]);
   }
 
   /** Box standing on (x, y, z), rotated about its vertical axis. */
@@ -111,6 +167,16 @@ export class Builder {
         .setPosition(Math.cos(angle) * mid, h - Math.sin(angle) * Math.abs(mid) + 0.08, 0);
       this.slab('roof', length, 0.2, d + overhang * 2, mat4.multiplyMatrices(world, local).clone(), color);
     }
+    this.detail(() => {
+      const rows = Math.ceil(length / 0.62);
+      for (const side of [-1, 1]) for (let row = 1; row < rows; row++) {
+        const t = row * length / rows;
+        const local = new THREE.Matrix4().makeRotationZ(-angle * side)
+          .setPosition(Math.cos(angle) * t * side, h - Math.sin(angle) * t + 0.205, 0);
+        detailCounters.roofCourses++;
+        this.slab('roof', 0.075, 0.06, d + overhang * 2 - 0.08, new THREE.Matrix4().multiplyMatrices(world, local), color);
+      }
+    });
     // Ridge cap.
     this.slab('roof', 0.36, 0.22, d + overhang * 2 + 0.1, mat4.multiplyMatrices(world, new THREE.Matrix4().setPosition(0, h + 0.14, 0)).clone(), color);
   }
@@ -132,6 +198,17 @@ export class Builder {
       group.add(mesh);
     }
     this.parts.clear();
+    const detailMats = getMaterials(true);
+    for (const [cell, parts] of this.detailParts) for (const [mat, list] of parts) {
+      const mesh = new THREE.Mesh(mergeGeometries(list), detailMats[mat]);
+      mesh.name = `structure-detail-${cell}-${mat}`;
+      // Thin relief receives shadows; it does not introduce detached/fading shadow casters.
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      registerStructureDetail(mesh);
+      group.add(mesh);
+    }
+    this.detailParts.clear();
     return group;
   }
 }

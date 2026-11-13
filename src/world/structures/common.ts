@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { Builder, archedProfile, place, type Mat } from '../build';
 import { addBox, addRound } from '../colliders';
+import { structureDetail, detailCounters } from '../structure-detail';
+import { seededRandom } from '../noise';
 import { heightAt } from '../heightmap';
 
 export const wallStairRamps: { x: number; z: number; theta: number; run: number; foot: number; head: number }[] = [];
@@ -190,12 +192,59 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
     }
     b.shape('stone', shape, o.thickness, place(cx, 0, cz, theta), o.color);
 
+    b.detail(() => {
+      const random = seededRandom(Math.round(cx * 91 + cz * 57));
+      const course = 0.82, columns = Math.ceil(L / 2.15), bw = L / columns;
+      for (let row = 0; row < Math.ceil((top(0) - base) / course); row++) {
+        for (let k = 0; k < columns; k++) {
+          const lx = -L / 2 + (k + 0.5 + (row % 2) * 0.48) * bw;
+          if (lx + bw / 2 > L / 2) continue;
+          const [px, pz] = local(lx, 0);
+          const y = base + row * course;
+          if (y + course > top(lx) - 0.06 || y < heightAt(px, pz) - 0.6) continue;
+          // Keep the gate's entire arch clear, including its springing curve.
+          if (gate && Math.abs(lx) < gate.width / 2 + bw / 2 + 0.12 && y < heightAt(cx, cz) + gate.height + 0.55) continue;
+          const [bx, bz] = local(lx, outward * (o.thickness / 2 + 0.015));
+          b.block(bx, y + 0.025, bz, bw - 0.055, course - 0.055, 0.13 + random() * 0.06, theta,
+            new THREE.Color(o.color).multiplyScalar(0.89 + random() * 0.16).getHex(), 0.035);
+          detailCounters.wallBlocks++;
+        }
+      }
+      // A low battered plinth stays below the player's step height.
+      for (let k = 0; k < columns; k++) {
+        const lx = -L / 2 + (k + 0.5) * bw;
+        if (gate && Math.abs(lx) < gate.width / 2 + bw / 2) continue;
+        const [px, pz] = local(lx, outward * (o.thickness / 2 - 0.04));
+        b.block(px, heightAt(px, pz) - 0.12, pz, bw - 0.025, 0.42, 0.52, theta, o.color, 0.05);
+      }
+      if (gate) {
+        const r = gate.width / 2, ground = heightAt(cx, cz), spring = ground + gate.height - r;
+        // Individual radial voussoirs, separated by fine mortar gaps.
+        for (let k = 0; k < 15; k++) {
+          const a = Math.PI * k / 15 + 0.014, c = Math.PI * (k + 1) / 15 - 0.014;
+          const ring = new THREE.Shape();
+          ring.moveTo(Math.cos(a) * (r + 0.035), spring + Math.sin(a) * (r + 0.035));
+          ring.lineTo(Math.cos(a) * (r + 0.52), spring + Math.sin(a) * (r + 0.52));
+          ring.lineTo(Math.cos(c) * (r + 0.52), spring + Math.sin(c) * (r + 0.52));
+          ring.lineTo(Math.cos(c) * (r + 0.035), spring + Math.sin(c) * (r + 0.035)); ring.closePath();
+          const [px, pz] = local(0, outward * (o.thickness / 2 + 0.09));
+          b.shape('stone', ring, 0.22, place(px, 0, pz, theta), k % 3 ? o.color : 0xe8dfcc);
+          detailCounters.archStones++;
+        }
+        for (const sign of [-1, 1]) for (let y = ground; y + 0.7 < spring; y += 0.75) {
+          const [px, pz] = local(sign * (r + 0.27), outward * (o.thickness / 2 + 0.08));
+          b.block(px, y, pz, 0.48, 0.72, 0.24, theta, o.color);
+        }
+      }
+    });
+
     // Battlements along the outer edge.
     const merlons = Math.floor(L / 2.3);
     for (let k = 0; k < merlons; k++) {
       const lx = -L / 2 + ((k + 0.5) * L) / merlons;
       const [mx, mz] = local(lx, outward * (o.thickness / 2 - 0.28));
-      b.box('stone', mx, top(lx) - 0.3, mz, 1.15, 1.3, 0.56, theta, o.color, 0);
+      if (structureDetail()) b.block(mx, top(lx) - 0.3, mz, 1.15, 1.3, 0.56, theta, o.color, 0.06);
+      else b.box('stone', mx, top(lx) - 0.3, mz, 1.15, 1.3, 0.56, theta, o.color, 0);
     }
 
     if (o.stairs.includes(i) && !gate) {
@@ -229,6 +278,21 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
     b.cyl('stone', v.x, base, v.z, r, r * 1.1, v.top - base, o.color, 16, 0.14);
     b.cyl('stone', v.x, v.top - 0.5, v.z, r + 0.35, r + 0.35, 0.5, o.color, 16, 0);
     addRound(v.x, v.z, r + 0.3, v.top);
+    b.detail(() => {
+      for (const h of [0.18, (v.top - v.ground) * 0.48, v.top - v.ground - 1.8]) {
+        const radius = r * (1.1 - 0.1 * (v.ground + h - base) / (v.top - base)) + 0.12;
+        b.cyl('stone', v.x, v.ground + h, v.z, radius, radius, 0.23, o.color, 16, 0.18);
+        detailCounters.towerBands++;
+      }
+      for (let k = 0; k < 8; k++) {
+        const a = k / 8 * Math.PI * 2;
+        const y = v.top - 3.8, radius = r * (1.1 - 0.1 * (y - base) / (v.top - base)) + 0.035;
+        const px = v.x + Math.sin(a) * radius, pz = v.z + Math.cos(a) * radius;
+        b.box('plain', px, y, pz, 0.19, 1.35, 0.045, a, 0x41453e, 0);
+        for (const sign of [-1, 1]) b.block(px + Math.cos(a) * sign * 0.2, y - 0.12, pz - Math.sin(a) * sign * 0.2, 0.17, 1.58, 0.12, a, o.color, 0.02);
+        b.block(px, y - 0.22, pz, 0.65, 0.14, 0.19, a, o.color, 0.025);
+      }
+    });
     // Open-sided top: posts carry the roof, so the wall walk passes through.
     for (let k = 0; k < 6; k++) {
       const a = v.a + (k / 6) * Math.PI * 2 + 0.5;
@@ -253,7 +317,22 @@ export function dryStoneWall(b: Builder, pts: [number, number][], rand: () => nu
       if (rand() < 0.12) continue;
       const t = (k + 0.5) / blocks, x = a[0] + t * dx, z = a[1] + t * dz;
       const h = 0.45 + rand() * 0.4;
-      b.box('stone', x, heightAt(x, z) - 0.15, z, len / blocks - 0.05, h, 0.7 + rand() * 0.2, rot + (rand() - 0.5) * 0.14, k % 4 ? 0xbebaa4 : 0xa4ad83);
+      const width = len / blocks - 0.05, depth = 0.7 + rand() * 0.2, angle = rot + (rand() - 0.5) * 0.14;
+      const ground = heightAt(x, z) - 0.15;
+      if (!structureDetail()) b.box('stone', x, ground, z, width, h, depth, angle, k % 4 ? 0xbebaa4 : 0xa4ad83);
+      else {
+        const random = seededRandom(Math.round(x * 71 + z * 97));
+        b.rock(x, ground - 0.08, z, width * 1.1, h * 0.5, depth * 1.08, angle, 0x9e9e89, k + i * 123);
+        // Alternating joints, two small stones over one footing and uneven coping.
+        for (let row = 0; row < 2; row++) for (let part = 0; part < 2; part++) {
+          if (row === 1 && random() < 0.14) continue;
+          const off = (part - 0.5) * width * 0.48 + (row ? 0.08 : -0.04);
+          b.rock(x + Math.cos(angle) * off, ground + h * (0.15 + row * 0.34), z - Math.sin(angle) * off,
+            width * 0.56, h * 0.5, depth * (0.91 - row * 0.1), angle + (random() - 0.5) * 0.22, row ? 0xb4b79a : 0xbebaa4, k * 13 + row * 3 + part);
+          detailCounters.dryCourses++;
+        }
+        b.rock(x, ground + h * 0.73, z, width * 0.97, h * 0.27, depth, angle, 0xb6bca0, k + 19);
+      }
     }
   }
 }

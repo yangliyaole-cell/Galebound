@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { measure, collisionDigest } from './detail-metrics.mjs';
 import { createServer } from 'vite';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import * as THREE from 'three';
@@ -27,6 +28,8 @@ try {
   const { buildAbbey, ABBEY_ENTRY } = await server.ssrLoadModule('/src/world/structures/abbey.ts');
   const low = process.argv.includes('--low');
   const detail = low ? 0 : process.argv.includes('--high') ? 2 : 1;
+  const detailModule = await server.ssrLoadModule('/src/world/structure-detail.ts');
+  detailModule.setStructureDetail(detail);
   H.buildHeightmap(low ? 8 : 4);
   const village = (await server.ssrLoadModule('/src/world/structures/village.ts')).buildVillage(detail);
   const landmarks = (await server.ssrLoadModule('/src/world/structures/landmarks.ts')).buildLandmarks();
@@ -37,7 +40,7 @@ try {
   const terrain = (await server.ssrLoadModule('/src/world/terrain.ts')).createTerrain();
   const water = (await server.ssrLoadModule('/src/world/water.ts')).createWater(texture, sun, 0xc5dfed);
   const grass = (await server.ssrLoadModule('/src/world/grass.ts')).createGrass(1000, 1200, 200, texture);
-  const scatter = (await server.ssrLoadModule('/src/world/scatter.ts')).createScatter({ treeDetailRange: 170, propRange: 420 }, sun);
+  const scatter = (await server.ssrLoadModule('/src/world/scatter.ts')).createScatter({ tier: low ? 'low' : detail === 2 ? 'high' : 'medium', treeDetailRange: low ? 90 : detail === 2 ? 260 : 170, propRange: low ? 260 : detail === 2 ? 600 : 420 }, sun);
   scatter.update(new THREE.Vector3(L.START.x, 40, L.START.z));
   const life = (await server.ssrLoadModule('/src/world/life.ts')).createLife(village.info, city.info, 7);
   life.update(1 / 60, 0, new THREE.Vector3(L.START.x, 40, L.START.z));
@@ -496,6 +499,11 @@ try {
     });
     return `${meshes} meshes (existing regional LOD included), ${instances.toLocaleString()} instances`;
   });
+  if (process.env.DETAIL_METRICS) {
+    const data = { tier: low ? 'low' : detail === 2 ? 'high' : 'medium', collision: collisionDigest(C.inspectColliders()), colliders: C.inspectColliders().length, views: measure([village.object, landmarks.object, city.object, abbey, terrain, water, grass, crops, life.object], scatter, detailModule.updateStructureDetails) };
+    writeFileSync(process.env.DETAIL_METRICS, JSON.stringify(data, null, 2));
+    console.log('METRICS ' + JSON.stringify(data));
+  }
   if (process.argv.includes('--preview')) {
     const colors = (h, water) => h < water ? '#5bafca' : h > 190 ? '#eef3f0' : h > 90 ? '#a5ad99' : h > 50 ? '#779465' : '#a6bd72';
     const chunks = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1024 -1024 2048 2048" width="1300" height="1300"><rect x="-1024" y="-1024" width="2048" height="2048" fill="#5bafca"/>'];

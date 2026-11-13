@@ -113,6 +113,8 @@ interface Species {
   /** Leaf cards drawn over the core when the tree is near. */
   cards: THREE.BufferGeometry | null;
   look: Look;
+  mid?: THREE.BufferGeometry;
+  midCards?: THREE.BufferGeometry | null;
   /** Plain lumpy shape for the distance. */
   lo: THREE.BufferGeometry;
   /** Height of the bare trunk, for collision. */
@@ -165,7 +167,7 @@ function makeSpecies(): Record<string, Species> {
   const bushParts: Part[] = [[0, 0.5, 0, 0.75], [0.6, 0.4, 0.2, 0.55], [-0.5, 0.42, -0.3, 0.6]];
   const greens = [0x4f9f3c, 0x5fae40, 0x488f3a, 0x6db648, 0x3f8a3c];
   const core = 0.5;
-  return {
+  const result: Record<string, Species> = {
     oak: {
       hi: mergeGeometries([trunk(0.2, 0.42, 3.4, 8, 0.25), ...boughs, puff(oakParts, 0, 1, 0.1, core, 0.8)]),
       cards: leafCards(oakParts, 9, 0.5, 1),
@@ -174,10 +176,10 @@ function makeSpecies(): Record<string, Species> {
       trunkHeight: 2.6, trunkRadius: 0.4, sway: true, shadow: true, tints: greens,
     },
     great: {
-      hi: mergeGeometries([trunk(0.26, 0.5, 3.6, 12, 0.3), ...boughs, puff(greatParts, 2, 4, 0.15, core, 0.8)]),
+      hi: mergeGeometries([trunk(0.26, 0.5, 3.6, 12, 0.3), ...boughs, puff(greatParts, 1, 4, 0.15, core, 0.9)]),
       cards: leafCards(greatParts, 22, 0.34, 4),
       look: 'leaf',
-      lo: mergeGeometries([trunk(0.26, 0.5, 3.6, 6, 0.3), puff(oakParts, 2, 4)]),
+      lo: mergeGeometries([trunk(0.26, 0.5, 3.6, 6, 0.3), puff(oakParts, 0, 4)]),
       trunkHeight: 2.6, trunkRadius: 0.48, sway: true, shadow: true, tints: [0x58a83e],
     },
     blossom: {
@@ -221,6 +223,23 @@ function makeSpecies(): Record<string, Species> {
       tints: [0xb3b0a4, 0xa5a297, 0xc0bcae, 0x9a988f],
     },
   };
+  // Independent small leaves close up; sparse larger clusters finish the mid crown.
+  // This RNG never participates in world placement or collision generation.
+  const crowns: Record<string, Part[]> = { oak: oakParts, great: greatParts, blossom: oakParts, cypress: cypressParts, pine: pineParts, bush: bushParts };
+  for (const [name, parts] of Object.entries(crowns)) {
+    const s = result[name];
+    s.mid = name === 'pine'
+      ? mergeGeometries([trunk(0.12, 0.3, 3, 6), ...pineCore(8, 0.95)])
+      : mergeGeometries([...(name === 'bush' ? [] : [trunk(0.18, name === 'great' ? 0.5 : 0.35, 3.4, 6)]), puff(parts, 1, 17, 0.12, 0.95, 0.98)]);
+    s.midCards = leafCards(parts, name === 'pine' ? 5 : 4, name === 'pine' ? 0.45 : 0.25, 17);
+    s.cards = leafCards(parts, name === 'great' ? 85 : 60, name === 'pine' ? 0.22 : 0.105, 17);
+    // Keep a full crown behind the leaves, so silhouette/brightness stay close in a fade.
+    if (name !== 'pine') s.hi = mergeGeometries([
+      ...(name === 'bush' ? [] : [trunk(0.2, name === 'great' ? 0.5 : 0.4, 3.4, 10), ...boughs]),
+      puff(parts, 1, 17, 0.12, 0.86, 0.98),
+    ]);
+  }
+  return result;
 }
 
 interface Instance {
@@ -235,18 +254,27 @@ interface Instance {
 const REGION = 256;
 const REGIONS = SIZE / REGION;
 
-interface RegionMeshes {
-  cx: number;
-  cz: number;
-  /** Meshes shown when near: trunk, core and leaf cards. */
-  hi: THREE.InstancedMesh[][];
-  lo: THREE.InstancedMesh[];
-  props: boolean[];
+/** Complementary screen-door fades: both representations share the same pixel test. */
+export const TREE_LOD = { near: 40, far: 160, nearFade: 8, farFade: 20 } as const;
+export function treeLodWeights(distance: number, low = false): [number, number, number] {
+  if (low) return [0, 0, 1];
+  const mid = THREE.MathUtils.smoothstep(distance, TREE_LOD.near - TREE_LOD.nearFade / 2, TREE_LOD.near + TREE_LOD.nearFade / 2);
+  const far = THREE.MathUtils.smoothstep(distance, TREE_LOD.far - TREE_LOD.farFade / 2, TREE_LOD.far + TREE_LOD.farFade / 2);
+  return [1 - mid, mid * (1 - far), far];
+}
+
+interface Batch {
+  list: Instance[];
+  matrices: THREE.Matrix4[];
+  colors: THREE.Color[];
+  tiers: THREE.InstancedMesh[][];
+  prop: boolean;
 }
 
 export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
   object: THREE.Group;
   update: (camera: THREE.Vector3) => void;
+  stats: () => { tiers: number[]; blended: number; total: number; allocatedInstances: number };
 } {
   const species = makeSpecies();
   const names = Object.keys(species);
@@ -359,74 +387,96 @@ export function createScatter(quality: Quality, sunDir: THREE.Vector3): {
     }
   }
 
-  const leafMat = toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.022 });
+  const leafMat = toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.022, lod: true });
   const looks: Record<Look, THREE.ShaderMaterial> = {
     leaf: foliageMaterial({ texture: leafTexture(), dark: [0.4, 0.58, 0.66], light: [1.4, 1.3, 0.7] }, sunDir),
     blossom: foliageMaterial({ texture: blossomTexture(), dark: [0.7, 0.5, 0.62], light: [1.1, 1.2, 1.2] }, sunDir),
     needle: foliageMaterial({ texture: needleTexture(), dark: [0.48, 0.62, 0.72], light: [1.25, 1.3, 0.85] }, sunDir),
   };
-  const stillMat = toon(0xffffff, { vertexColors: true, leafTint: true });
+  const stillMat = toon(0xffffff, { vertexColors: true, leafTint: true, lod: true });
   const group = new THREE.Group();
-  const regions: RegionMeshes[] = [];
+  group.name = 'scatter-three-lod';
+  group.userData.lod = TREE_LOD;
+  const batches: Batch[] = [];
   const dummy = new THREE.Object3D();
-  const color = new THREE.Color();
   const spin = seededRandom(11);
-
-  for (let rj = 0; rj < REGIONS; rj++) {
-    for (let ri = 0; ri < REGIONS; ri++) {
-      const region: RegionMeshes = {
-        cx: (ri + 0.5) * REGION - HALF,
-        cz: (rj + 0.5) * REGION - HALF,
-        hi: [], lo: [], props: [],
-      };
-      for (const name of names) {
-        const list = lists.get(name)![rj * REGIONS + ri];
-        if (!list.length) continue;
-        const s = species[name];
-        const mat = s.sway ? leafMat : stillMat;
-        const hi = new THREE.InstancedMesh(s.hi, mat, list.length);
-        const lo = new THREE.InstancedMesh(s.lo, mat, list.length);
-        const cards = s.cards ? new THREE.InstancedMesh(s.cards, looks[s.look], list.length) : null;
-        list.forEach((inst, i) => {
-          dummy.position.set(inst.x, inst.y, inst.z);
-          dummy.rotation.set(0, spin() * Math.PI * 2, 0);
-          dummy.scale.set(inst.sx, inst.sy, inst.sx);
-          dummy.updateMatrix();
-          hi.setMatrixAt(i, dummy.matrix);
-          lo.setMatrixAt(i, dummy.matrix);
-          cards?.setMatrixAt(i, dummy.matrix);
-          color.set(inst.tint).offsetHSL((spin() - 0.5) * 0.035, 0, (spin() - 0.5) * 0.07);
-          hi.setColorAt(i, color);
-          lo.setColorAt(i, color);
-          cards?.setColorAt(i, color);
-        });
-        hi.castShadow = s.shadow;
-        hi.receiveShadow = name === 'rock';
-        const near = cards ? [hi, cards] : [hi];
-        for (const m of [...near, lo]) {
-          m.matrixAutoUpdate = false;
-          m.computeBoundingSphere();
-          group.add(m);
-        }
-        region.hi.push(near);
-        region.lo.push(lo);
-        region.props.push(name === 'bush' || name === 'rock');
+  const low = quality.tier === 'low';
+  const stats = { tiers: [0, 0, 0], blended: 0, total: 0, allocatedInstances: 0 };
+  // A regional batch bounds only the instances currently assigned to that LOD.
+  // Compact into these fixed buffers; no per-frame meshes/materials or allocations.
+  for (let rj = 0; rj < REGIONS; rj++) for (let ri = 0; ri < REGIONS; ri++) {
+    for (const name of names) {
+      const list = lists.get(name)![rj * REGIONS + ri];
+      if (!list.length) continue;
+      const s = species[name];
+      const mat = s.sway ? leafMat : stillMat;
+      const definitions = low ? [[], [], [s.lo]] : [[s.hi, ...(s.cards ? [s.cards] : [])], [s.mid ?? s.hi, ...(s.midCards ? [s.midCards] : [])], [s.lo]];
+      const tiers = definitions.map((geos, tier) => geos.map((geo, part) => {
+        // The per-instance band belongs to this batch, never the shared species geometry.
+        const geometry = geo.clone();
+        geometry.setAttribute('aLodBand', new THREE.InstancedBufferAttribute(new Float32Array(list.length * 2), 2).setUsage(THREE.DynamicDrawUsage));
+        const m = new THREE.InstancedMesh(geometry, part === 1 ? looks[s.look] : mat, list.length);
+        m.name = `${name}-lod${tier}-${ri}-${rj}${part ? '-leaves' : ''}`;
+        m.userData.treeTier = tier;
+        m.userData.leafCards = part === 1;
+        m.count = 0;
+        m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        m.castShadow = part === 0 && s.shadow && tier < 2;
+        m.receiveShadow = name === 'rock';
+        m.matrixAutoUpdate = false;
+        group.add(m);
+        stats.allocatedInstances += list.length;
+        return m;
+      }));
+      const matrices: THREE.Matrix4[] = [], colors: THREE.Color[] = [];
+      for (const inst of list) {
+        dummy.position.set(inst.x, inst.y, inst.z);
+        dummy.rotation.set(0, spin() * Math.PI * 2, 0);
+        dummy.scale.set(inst.sx, inst.sy, inst.sx);
+        dummy.updateMatrix();
+        matrices.push(dummy.matrix.clone());
+        colors.push(new THREE.Color(inst.tint).offsetHSL((spin() - 0.5) * 0.035, 0, (spin() - 0.5) * 0.07));
       }
-      regions.push(region);
+      stats.total += list.length;
+      batches.push({ list, matrices, colors, tiers, prop: name === 'bush' || name === 'rock' });
     }
   }
-
-  const half = REGION * 0.71;
+  const previous = new THREE.Vector3(Infinity, Infinity, Infinity);
   return {
     object: group,
+    stats: () => ({ ...stats, tiers: [...stats.tiers] }),
     update: (camera) => {
-      for (const r of regions) {
-        const d = Math.max(0, Math.hypot(camera.x - r.cx, camera.z - r.cz) - half);
-        const detailed = d < quality.treeDetailRange;
-        for (let i = 0; i < r.hi.length; i++) {
-          const shown = !r.props[i] || d < quality.propRange;
-          for (const m of r.hi[i]) m.visible = shown && detailed;
-          r.lo[i].visible = shown && !detailed;
+      if (previous.distanceToSquared(camera) < 0.25) return;
+      previous.copy(camera);
+      stats.tiers.fill(0); stats.blended = 0;
+      for (const b of batches) {
+        for (const tier of b.tiers) for (const m of tier) m.count = 0;
+        b.list.forEach((inst, i) => {
+          const distance = Math.hypot(camera.x - inst.x, camera.y - inst.y, camera.z - inst.z);
+          if (b.prop && distance > quality.propRange) return;
+          const weights = treeLodWeights(distance, low);
+          if (weights.filter(w => w > 0).length > 1) stats.blended++;
+          let start = 0;
+          weights.forEach((weight, tier) => {
+            if (weight > 0) {
+              stats.tiers[tier]++;
+              for (const m of b.tiers[tier]) {
+                const j = m.count++;
+                m.setMatrixAt(j, b.matrices[i]);
+                m.setColorAt(j, b.colors[i]);
+                (m.geometry.attributes.aLodBand as THREE.InstancedBufferAttribute).setXY(j, start, start + weight);
+              }
+            }
+            start += weight;
+          });
+        });
+        for (const tier of b.tiers) for (const m of tier) {
+          m.visible = m.count > 0;
+          if (!m.count) continue;
+          m.instanceMatrix.needsUpdate = true;
+          m.instanceColor!.needsUpdate = true;
+          m.geometry.attributes.aLodBand.needsUpdate = true;
+          m.computeBoundingSphere();
         }
       }
     },

@@ -5,6 +5,7 @@ import { createFlags } from '../flags';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
 import { BLOSSOM, FOREST, ISLAND, LIGHTHOUSE, START, STONES, WATCHTOWER, WINDMILL } from '../layout';
+import { detailCounters } from '../structure-detail';
 import { seededRandom } from '../noise';
 import { beam, fence, dryStoneWall, wrapStairs } from './common';
 import { ROOFS, SHUTTERS, WALLS, addHouse } from './house';
@@ -28,7 +29,8 @@ function startRuins(b: Builder, rand: () => number): void {
       for (let k = 0; k < n; k++) {
         const jx = (rand() - 0.5) * 0.14;
         const top = k === n - 1;
-        b.box('stone', x + jx, ground + k * 0.95, z + jx, len, 0.95, 1.15, dirA + (rand() - 0.5) * 0.1, top ? MOSS : OLD, 0.12);
+        b.rock(x + jx, ground + k * 0.95, z + jx, len, 0.99, 1.15, dirA + (rand() - 0.5) * 0.1, top ? MOSS : OLD, i * 31 + k * 11);
+        detailCounters.rubble++;
       }
       if (n > 0) addBox(x, z, len / 2, 0.58, dirA, ground + n * 0.95);
     });
@@ -37,8 +39,21 @@ function startRuins(b: Builder, rand: () => number): void {
   for (let i = 0; i < 4; i++) {
     const x = START.x - 4 + rand() * 9;
     const z = START.z + 6 + rand() * 4;
-    b.box('stone', x, heightAt(x, z) - 0.3, z, 1.5, 0.8, 1.0, rand() * 3, OLD, 0.2);
+    b.rock(x, heightAt(x, z) - 0.3, z, 1.5, 0.8, 1.0, rand() * 3, OLD, i * 7 + 95);
+    detailCounters.rubble++;
   }
+  b.detail(() => {
+    const rubble = seededRandom(7703);
+    // Fragments nest inside the old stacks/fallen-stone area, clear of launch route.
+    for (let i = 0; i < 38; i++) {
+      const right = i % 2 === 0, a = rubble() * Math.PI * 2, r = rubble() * 1.7;
+      const x = START.x + (right ? 4.8 : -5.4) + Math.cos(a) * r;
+      const z = START.z + (right ? -4.2 : 6.0) + Math.sin(a) * r;
+      const size = 0.12 + rubble() * 0.32;
+      b.rock(x, heightAt(x, z) - size * 0.25, z, size * 1.3, size * 0.58, size, a, i % 4 ? OLD : MOSS, i * 17);
+      detailCounters.rubble++;
+    }
+  });
   // Broken pilgrim's arch and a hanging red banner, kept left of the launch corridor.
   const ax = START.x - 22, az = START.z + 7, ay = heightAt(ax, az);
   b.shape('stone', archedProfile(-6, 6, ay - 2,

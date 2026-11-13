@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from '../render/glsl';
+import { LOD_VERTEX, LOD_FRAGMENT, LOD_DISCARD } from '../render/lod';
 import { shared } from '../render/uniforms';
 import { seededRandom } from './noise';
 
@@ -24,6 +25,7 @@ export function foliageMaterial(look: FoliageLook, sunDir: THREE.Vector3): THREE
     vertexShader: /* glsl */ `
       #include <common>
       #include <fog_pars_vertex>
+      ${LOD_VERTEX}
       attribute vec2 aCorner;
       attribute vec2 aCard;
       uniform float uTime;
@@ -37,6 +39,7 @@ export function foliageMaterial(look: FoliageLook, sunDir: THREE.Vector3): THREE
       varying float vRand;
       ${NOISE_GLSL}
       void main() {
+        vLodBand = aLodBand;
         mat4 world = modelMatrix * instanceMatrix;
         vec4 wp = world * vec4(position, 1.0);
         vec3 origin = world[3].xyz;
@@ -65,6 +68,7 @@ export function foliageMaterial(look: FoliageLook, sunDir: THREE.Vector3): THREE
     fragmentShader: /* glsl */ `
       #include <common>
       #include <fog_pars_fragment>
+      ${LOD_FRAGMENT}
       uniform sampler2D uLeaf;
       uniform vec3 uSunDir;
       uniform vec3 uDark;
@@ -77,6 +81,7 @@ export function foliageMaterial(look: FoliageLook, sunDir: THREE.Vector3): THREE
       ${NOISE_GLSL}
       ${CLOUD_GLSL}
       void main() {
+        ${LOD_DISCARD}
         vec4 t = texture2D(uLeaf, vUv);
         if (t.a < 0.45) discard;
         vec3 n = normalize(vN);

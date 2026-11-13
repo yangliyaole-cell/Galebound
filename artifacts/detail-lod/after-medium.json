@@ -1,0 +1,40 @@
+{
+  "tier": "medium",
+  "collision": "e73b8c219d9d5cff055f08a3dfd48e03b36b5b907bc5921b1441fed6e7c053b0",
+  "colliders": 7910,
+  "views": [
+    {
+      "name": "spawn",
+      "calls": 239,
+      "triangles": 922388,
+      "instances": 7729,
+      "treeTiers": [
+        8,
+        147,
+        5115
+      ]
+    },
+    {
+      "name": "city",
+      "calls": 126,
+      "triangles": 578108,
+      "instances": 1231,
+      "treeTiers": [
+        0,
+        96,
+        5138
+      ]
+    },
+    {
+      "name": "aerial",
+      "calls": 161,
+      "triangles": 683006,
+      "instances": 3706,
+      "treeTiers": [
+        0,
+        0,
+        4846
+      ]
+    }
+  ]
+}
