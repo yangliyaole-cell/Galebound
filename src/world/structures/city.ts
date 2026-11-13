@@ -6,7 +6,8 @@ import { heightAt } from '../heightmap';
 import { CITY, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
 import { cobbleAt } from '../maps';
 import { seededRandom } from '../noise';
-import { wallRing, wrapStairs } from './common';
+import { wallRing } from './common';
+import { buildPalace } from './palace';
 import { ROOFS, SHUTTERS, SLATES, WALLS, addHouse } from './house';
 import { stall } from './village';
 
@@ -98,76 +99,6 @@ function aqueduct(b: Builder): Line {
   return { ax: start.x, az: start.z, bx: ex, bz: ez };
 }
 
-function castle(b: Builder, flags: FlagSpot[], rand: () => number): void {
-  const { x, z } = CITY;
-  const y = heightAt(x, z);
-  const ring = wallRing(b, {
-    x, z, radius: 31, segments: 8, phase: Math.PI / 8, height: 7, thickness: 2.6, towerRadius: 3.2,
-    gates: [{ angle: Math.PI, width: 5, height: 6.2 }], roof: SLATE, color: PALE, stairs: [1],
-  });
-  for (const t of ring.towers) flags.push({ x: t.x, y: t.top + 9.5, z: t.z, color: BANNER, size: 0.9 });
-  for (const t of ring.towers) b.cyl('wood', t.x, t.top + 7.8, t.z, 0.06, 0.06, 2.4, 0x4a4038, 5, 0);
-
-  // The keep: a square tower with a terrace, climbed by stairs on three sides.
-  const half = 7.5;
-  const terrace = y + 24;
-  b.box('stone', x, y - 3, z, half * 2, 27, half * 2, 0, PALE, 0.14);
-  addBox(x, z, half, half, 0, terrace);
-  for (let side = 0; side < 4; side++) {
-    for (let k = -3; k <= 3; k++) {
-      const u = k * 2.1;
-      const [mx, mz] = side === 0 ? [u, half - 0.3] : side === 1 ? [half - 0.3, u] : side === 2 ? [u, -half + 0.3] : [-half + 0.3, u];
-      // Leave gaps where the stairs arrive.
-      if (side === 2 && k < -1) continue;
-      b.box('stone', x + mx, terrace, z + mz, side % 2 ? 0.6 : 1.1, 1.1, side % 2 ? 1.1 : 0.6, 0, PALE, 0);
-    }
-    for (const h of [6, 12, 18]) {
-      const [wx, wz] = side === 0 ? [0, half + 0.02] : side === 1 ? [half + 0.02, 0] : side === 2 ? [0, -half - 0.02] : [-half - 0.02, 0];
-      for (const off of [-3, 3]) {
-        const ox = side % 2 ? 0 : off;
-        const oz = side % 2 ? off : 0;
-        b.box('plain', x + wx + ox, y + h, z + wz + oz, side % 2 ? 0.12 : 0.9, 1.8, side % 2 ? 0.9 : 0.12, 0, 0x34526d, 0);
-      }
-    }
-  }
-  wrapStairs(b, x, z, half, 0, y, terrace, 3, 2.6, STONE);
-
-  // A tall round tower against the west face, the one side the stairs leave free.
-  const tx = x - half - 1.6;
-  const tz = z - 1;
-  b.cyl('stone', tx, y - 3, tz, 3.2, 3.5, 37, PALE, 16, 0.12);
-  b.cyl('stone', tx, y + 33.5, tz, 3.7, 3.2, 0.9, PALE, 16, 0);
-  b.cone('roof', tx, y + 34.4, tz, 4.3, 9.5, SLATE, 16);
-  addRound(tx, tz, 3.4, y + 34.4);
-  flags.push({ x: tx, y: y + 45.6, z: tz, color: BANNER, size: 1.2 });
-  b.cyl('wood', tx, y + 43.6, tz, 0.07, 0.07, 3, 0x4a4038, 5, 0);
-
-  // The great spire on the terrace.
-  b.cyl('stone', x, terrace, z, 4.0, 4.3, 15, PALE, 16, 0.1);
-  b.cyl('stone', x, terrace + 14.4, z, 4.6, 4.0, 1.0, PALE, 16, 0);
-  b.cone('roof', x, terrace + 15.4, z, 5.3, 15, SLATE, 16);
-  addRound(x, z, 4.3, terrace + 15.4);
-  for (let k = 0; k < 6; k++) {
-    const a = (k / 6) * Math.PI * 2;
-    b.box('plain', x + Math.sin(a) * 4.12, terrace + 8, z + Math.cos(a) * 4.12, 0.8, 2.2, 0.14, a, 0x34526d, 0);
-  }
-  flags.push({ x, y: terrace + 33, z, color: BANNER, size: 1.6 });
-  b.cyl('wood', x, terrace + 30, z, 0.09, 0.09, 4.2, 0x4a4038, 5, 0);
-  orbAt('keep-terrace', x + 5.6, z - 5.6, 1.2);
-  orbAt('keep-air', x + 14, z + 30, 22);
-
-  // The great hall along the north wall.
-  const hall = addHouse(b, {
-    x: x + 3, z: z - 19.5, rot: 0, w: 22, d: 8, floors: 2, roof: SLATE, wall: 0xefe8d8,
-    timber: false, ridgeAlongFront: true, shutters: 0x6a4a3a, chimney: true, simple: 1,
-  }, rand);
-  orbAt('hall-roof', hall.spec.x, hall.spec.z, 1.2);
-  addHouse(b, {
-    x: x + 19, z: z + 9, rot: -Math.PI / 2, w: 8, d: 6, floors: 1, roof: SLATE, wall: 0xefe8d8,
-    timber: true, ridgeAlongFront: true, shutters: 0x6a4a3a, chimney: false, simple: 1,
-  }, rand);
-  orbAt('castle-wall', ring.towers[5].x, ring.towers[5].z, 1.3);
-}
 
 function cathedral(b: Builder, x: number, z: number, rot: number, flags: FlagSpot[]): void {
   const c = Math.cos(rot);
@@ -269,7 +200,7 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
   orbAt('wall-east', ring.towers[14].x, ring.towers[14].z, 1.3);
 
   const water = aqueduct(b);
-  castle(b, flags, rand);
+  buildPalace(b, flags);
 
   const plaza = { x: cx, z: cz + 108 };
   fountain(b, plaza.x, plaza.z, rand);

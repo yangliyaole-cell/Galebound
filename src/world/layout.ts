@@ -9,7 +9,7 @@ export const HALF = SIZE / 2;
 export const WATER_LEVEL = 0;
 
 export const START = { x: 0, z: 100 };
-export const CITY = { x: 120, z: -640, wall: 175, hill: 250, plateau: 38, top: 68 };
+export const CITY = { x: 120, z: -640, wall: 175, hill: 295, plateau: 78, top: 104 };
 export const WINDMILL = { x: 340, z: -80 };
 export const LAKE = { x: -430, z: -300, rx: 130, rz: 100 };
 export const ISLAND = { x: -452, z: -306 };
