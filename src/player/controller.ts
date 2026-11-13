@@ -42,6 +42,7 @@ export class Player {
   private landTimer = 0;
   private glideLock = 0;
   private glideSpeed = 0;
+  private glideTime = 0;
   private turn = 0;
   private dive = 0;
   private lift = 0;
@@ -236,15 +237,19 @@ export class Player {
     this.mode = 'glide';
     this.yaw = Math.atan2(hx, hz);
     this.glideSpeed = Math.max(speed, 8);
-    this.lift = 0;
+    // The gust takes hold at once; otherwise the first second is a plunge.
+    this.lift = wind.gust * sstep(0.05, 0.75, this.alignment);
+    this.glideTime = 0;
     this.onGlide(true);
   }
 
   private glide(dt: number, input: Input, wind: Wind, jump: boolean): void {
     const { pos, vel } = this;
     const ease = 1 - Math.exp(-dt * 4);
+    this.glideTime += dt;
     this.turn += (input.moveX - this.turn) * ease;
-    this.dive += (input.moveY - this.dive) * ease;
+    // Forward is usually still held from the run-up, so pitch input eases in.
+    this.dive += (input.moveY * Math.min(1, this.glideTime / 1.2) - this.dive) * ease;
     // Turning right swings the heading clockwise seen from above.
     this.yaw -= this.turn * 1.25 * dt;
     const hx = Math.sin(this.yaw);
@@ -256,9 +261,9 @@ export class Player {
     this.lift += (lift - this.lift) * (1 - Math.exp(-dt * 2));
     const diving = Math.max(0, this.dive);
     const flaring = Math.max(0, -this.dive);
-    const targetSpeed = 10.5 + this.lift * 3.5 + diving * 6 - flaring * 4;
+    const targetSpeed = 10.5 + this.lift * 3.5 + diving * 4.5 - flaring * 4;
     this.glideSpeed += (targetSpeed - this.glideSpeed) * (1 - Math.exp(-dt * 1.4));
-    let sink = 1.0 + (1 - this.lift) * 5.2 + diving * 5.5 - flaring * 0.6 * sstep(7, 11, this.glideSpeed);
+    let sink = 1.0 + (1 - this.lift) * 5.2 + diving * 2.6 - flaring * 0.6 * sstep(7, 11, this.glideSpeed);
     if (this.glideSpeed < 7.5) sink += (7.5 - this.glideSpeed) * 1.6;
     vel.y += (-Math.max(0.5, sink) - vel.y) * (1 - Math.exp(-dt * 3));
     vel.x = hx * this.glideSpeed + wind.velocity.x * 0.12;

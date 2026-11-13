@@ -6,7 +6,7 @@ import { shared } from './render/uniforms';
 import { Hud } from './ui/hud';
 import { FollowCamera } from './player/camera';
 import { Player } from './player/controller';
-import { buildHeightmap, createHeightTexture } from './world/heightmap';
+import { buildHeightmap, createHeightTexture, heightAt } from './world/heightmap';
 import { START, ZONES } from './world/layout';
 import { buildBiome, buildSplat } from './world/maps';
 import { createTerrain, groundUniforms } from './world/terrain';
@@ -179,17 +179,14 @@ async function boot(): Promise<void> {
   if (params.has('gust')) wind.force(num('gust', 0));
 
   // Handles for automated checks; not used by the game itself.
-  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs };
+  (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt };
 
   hud.ready();
   let last = performance.now() / 1000;
   window.addEventListener('focus', () => { last = performance.now() / 1000; });
   let titleAngle = 0;
-  renderer.setAnimationLoop((ms: number) => {
-    const time = ms / 1000;
-    const dt = Math.min(Math.max(time - last, 0), 0.05);
-    last = time;
-    if (document.hidden) return;
+  /** One step of the whole game, without drawing. */
+  const tick = (dt: number, time: number): void => {
     shared.uTime.value = time;
     wind.update(dt);
     input.poll(dt);
@@ -262,6 +259,23 @@ async function boot(): Promise<void> {
       }
     }
 
+  };
+
+  // Lets automated checks run the game faster than it can be drawn.
+  let simulated = 0;
+  ((window as unknown as Record<string, Record<string, unknown>>).__gale).sim = (seconds: number): void => {
+    for (let t = 0; t < seconds; t += 1 / 60) {
+      simulated += 1 / 60;
+      tick(1 / 60, last + simulated);
+    }
+  };
+
+  renderer.setAnimationLoop((ms: number) => {
+    const time = ms / 1000;
+    const dt = Math.min(Math.max(time - last, 0), 0.05);
+    last = time;
+    if (document.hidden) return;
+    tick(dt, time + simulated);
     renderer.render(scene, camera);
     resolution.tick(dt);
   });

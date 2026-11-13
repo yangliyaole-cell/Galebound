@@ -11,8 +11,8 @@ function addWildSpots(): void {
   // The first one is in plain sight, to show what to look for.
   orbAt('start-first', START.x + 4, START.z - 12, 1.2);
   // Hanging in the air along the natural glide lines off each height.
-  orbAt('air-start', START.x + 3, START.z - 62, 7);
-  orbAt('air-start-far', START.x + 8, START.z - 130, 9);
+  orbAt('air-start', START.x + 1, START.z - 62, 10.5);
+  orbAt('air-start-far', START.x + 2, START.z - 135, 14.5);
   orbAt('air-windmill', WINDMILL.x - 50, WINDMILL.z + 10, 9);
   orbAt('air-watch', WATCHTOWER.x + 10, WATCHTOWER.z - 55, 16);
   orbAt('air-plateau', PLATEAU.x - 175, PLATEAU.z + 60, 22);
