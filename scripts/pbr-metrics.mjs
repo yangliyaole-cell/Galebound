@@ -36,7 +36,15 @@ try {
   const {createPbrLighting}=await load('render/pbr/lighting');
   const capture=THREE.PMREMGenerator.prototype.fromScene;
   THREE.PMREMGenerator.prototype.fromScene=()=>new THREE.WebGLRenderTarget(16,16);
+  const materialStart=performance.now();
   const lighting=createPbrLighting({},scene,camera,sun,sunDir,sky,quality,height);
+  const materialSetup={ms:performance.now()-materialStart,attributeBytes:0,components:0};
+  const auditedGeometry=new Set();
+  scene.traverse(object=>{
+    if(!object.isMesh||auditedGeometry.has(object.geometry)||!object.geometry.userData.pbrNatural)return;
+    auditedGeometry.add(object.geometry);materialSetup.components+=object.geometry.userData.pbrNatural.components;
+    materialSetup.attributeBytes+=object.geometry.attributes.aPbrNatural.array.byteLength+object.geometry.attributes.aPbrNaturalNormal.array.byteLength;
+  });
   const count=(view,shadow=false)=>{
     const frustum=new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(view.projectionMatrix,view.matrixWorldInverse));
     let calls=0,triangles=0;
@@ -84,6 +92,6 @@ try {
   scatter.object.traverse(object=>{if(object.isInstancedMesh&&object.name.startsWith('rock-lod0'))for(let i=0;i<object.count;i++){object.getMatrixAt(i,matrix);position.setFromMatrixPosition(matrix);rocks.push({x:position.x,y:position.y,z:position.z,d:Math.hypot(position.x-18,position.z+330)});}});
   rocks.sort((a,b)=>a.d-b.d);
   const nearestRocks=rocks.slice(0,4).map(rock=>({...rock,stance:{x:rock.x,z:rock.z+4,ground:H.heightAt(rock.x,rock.z+4),blocked:C.solidAt(rock.x,H.heightAt(rock.x,rock.z+4)+.8,rock.z+4)}}));
-  const output={tier,scope:'CPU frustum/submission estimate: world + full tier grass/crops/scatter/life. Excludes sky/player/orbs/VFX/flags/postprocessing. Counts submitted triangles before alpha/LOD discard; no GPU timings.',views,shots,nearestRocks};
+  const output={tier,scope:'CPU frustum/submission estimate: world + full tier grass/crops/scatter/life. Excludes sky/player/orbs/VFX/flags/postprocessing. Counts submitted triangles before alpha/LOD discard; no GPU timings.',materialSetup,views,shots,nearestRocks};
   writeFileSync(`/tmp/galebound-pbr-metrics-${tier}.json`,JSON.stringify(output,null,2));console.log(JSON.stringify(output,null,2));
 }finally{await server.close();}

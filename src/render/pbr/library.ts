@@ -1,8 +1,9 @@
 import type { Tier } from '../../core/quality';
+import { MASONRY_LAYOUT_GLSL } from './masonry';
 
 export const PBR_MATERIALS = {
   stone: { id: 0, label: '粗石', relief: 0.11 },
-  masonry: { id: 1, label: '码砌石墙', relief: 0.075 },
+  masonry: { id: 1, label: '码砌石墙', relief: 0.14 },
   plaster: { id: 2, label: '灰泥', relief: 0.018 },
   wood: { id: 3, label: '木头', relief: 0.035 },
   roof: { id: 4, label: '红瓦', relief: 0.065 },
@@ -45,36 +46,41 @@ float pHeightBlend(float coverage,float underHeight,float overHeight,float width
   return smoothstep(-width,width,(coverage-.5)*2.0+(overHeight-underHeight)*.65);
 }
 PbrSurface pStone(vec2 p) {
-  float macro=pNoise(p*.065+81.7), grain=pFbm(p*2.3), pores=pFiltered(p*47.0);
-  float vein=1.0-smoothstep(.025,.11,abs(pFbm(p*.72+vec2(0,grain*.8))-.47));
-  float pits=smoothstep(.67,.84,pores)*.16;
-  float h=.2+grain*.5+macro*.17-vein*.13-pits;
-  vec3 hue=mix(vec3(.83,.88,.93),vec3(1.08,1.01,.89),macro);
-  return PbrSurface(hue*(.78+grain*.35-vein*.055),h,clamp(.79+pores*.19-vein*.06,.62,1.0),1.0-vein*.16-pits*.65);
+  // Metre-scale folds dominate. Small mineral detail is sparse and low amplitude.
+  float large=pFbm(p*.46+81.7), middle=pFbm(p*1.85+vec2(large*.8,0));
+  float small=pFiltered(p*11.0);
+  float weather=smoothstep(.52,.72,pNoise(p*.73+19.0));
+  float fissure=(1.0-smoothstep(.012,.052,abs(pNoise(p*vec2(.8,2.3))-.51)))*weather;
+  float h=.22+large*.53+middle*.25+(small-.5)*.022-fissure*.095;
+  vec3 hue=mix(vec3(.69,.79,.88),vec3(1.16,1.055,.86),large);
+  vec3 albedo=hue*(.72+middle*.48)*(1.0-weather*.08-fissure*.045);
+  return PbrSurface(albedo,h,.79+middle*.14+small*.035,1.0-fissure*.12-weather*.035);
 }
+${MASONRY_LAYOUT_GLSL}
 PbrSurface pMasonry(vec2 p) {
-  // Random split in every two-course band, then independently jittered block ends.
-  float band=floor(p.y/1.25), by=fract(p.y/1.25)*1.25;
-  float split=.42+pHash(vec2(band,15.0))*.36;
-  float upper=step(split,by), row=band*2.0+upper;
-  float courseH=mix(split,1.25-split,upper), y=by-upper*split;
-  float width=.82+pHash(vec2(row,31.0))*.62;
-  float x=p.x/width+pHash(vec2(row,6.0))*5.0, cell=floor(x);
-  float start=cell+(pHash(vec2(cell,row))-.5)*.44;
-  if(x<start) { cell-=1.0; start=cell+(pHash(vec2(cell,row))-.5)*.44; }
-  float end=cell+1.0+(pHash(vec2(cell+1.0,row))-.5)*.44;
-  if(x>end) { cell+=1.0; start=end; end=cell+1.0+(pHash(vec2(cell+1.0,row))-.5)*.44; }
-  vec2 id=vec2(cell,row), local=vec2((x-start)*width,y);
-  float edge=min(min(local.x,(end-x)*width),min(y,courseH-y));
-  float chips=pFiltered(p*22.0)*.012+pNoise(p*7.0)*.016;
+  // Continuous domain warp bends courses; independent subdivisions break long grid lines.
+  vec2 warp=vec2(pNoise(p*.61+5.0),pNoise(p*.74+29.0))-.5;
+  vec2 q=p+warp*vec2(.15,.19);
+  vec2 origin,span; float seed;
+  pMasonryCell(q,origin,span,seed);
+  vec2 local=q-origin, toEdge=min(local,span-local);
+  float corner=min(span.x,span.y)*(.12+seed*.21);
+  float edge=min(min(toEdge.x,toEdge.y),(toEdge.x+toEdge.y-corner)*.7071);
+  float erosion=smoothstep(.5,.73,pNoise(p*4.3+seed*17.0));
+  float chips=pFiltered(p*7.0)*.008+erosion*(.012+seed*.024);
+  float joint=.012+seed*.025+pNoise(p*1.5)*.014;
+  float bevel=.028+seed*.052;
   float aa=max(fwidth(edge),.001);
-  float body=smoothstep(.018+chips-aa,.065+chips+aa,edge);
-  float wear=pHash(id+4.7), bulge=pow(max(0.0,sin(clamp(y/courseH,0.0,1.0)*3.14159)),.7);
-  PbrSurface stone=pStone(p+vec2(wear*19.0,pHash(id)*23.0));
-  stone.albedo*=mix(vec3(.83,.89,.96),vec3(1.11,1.04,.90),wear);
-  stone.height=.25+stone.height*.34+bulge*.12;
-  // Mortar remains rough and recessed, never a dark ink outline.
-  PbrSurface mortar=PbrSurface(vec3(.48,.46,.40)*( .94+pFiltered(p*19.0)*.12),.12,.98,.64);
+  float body=smoothstep(joint+chips-aa,joint+chips+bevel+aa,edge);
+  vec2 shape=(local/span-.5)*1.35;
+  float dome=sqrt(max(.02,1.0-dot(shape,shape)));
+  PbrSurface stone=pStone(p*.85+vec2(seed*31.0,seed*13.0));
+  stone.albedo*=mix(vec3(.76,.84,.94),vec3(1.21,1.115,.92),seed)*(.82+seed*.36);
+  stone.height=.31+stone.height*.39+dome*.15+seed*.13-erosion*.025;
+  stone.ao*=.94+.06*body;
+  // Mortar is a continuous, shallowly eroded surface; depth varies with each stone's lift.
+  float mortarWear=pNoise(p*1.7+47.0);
+  PbrSurface mortar=PbrSurface(vec3(.55,.53,.47)*(.91+mortarWear*.18),.07+mortarWear*.045,.96,.76+mortarWear*.09);
   return pMix(mortar,stone,body);
 }
 PbrSurface pPlaster(vec2 p) {

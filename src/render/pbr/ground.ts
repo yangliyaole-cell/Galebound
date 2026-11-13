@@ -5,7 +5,6 @@ import { pbrUniforms, registerPbr } from './material';
 
 export function groundPbrGLSL(): string {
   return `${pbrLibrary(pbrTier())}
-  uniform sampler2D uPbrContact;
   PbrSurface pGround(vec3 wp,vec3 wn,vec3 turf,float dist) {
     vec3 weights=pWeights(wn);
     vec4 splat=texture2D(uSplat,worldUv(wp.xz));
@@ -30,6 +29,19 @@ export function groundPbrGLSL(): string {
     s=pMix(s,paving,cobble);
     float road=pHeightBlend(splat.r,s.height,dirt.height,.32);
     s=pMix(s,dirt,road);
+    float roadShoulder=groundRoadShoulder(wp.xz,splat.r)*(1.0-cobble)*(1.0-cliff);
+    s=pMix(s,dirt,roadShoulder*.48);
+    // Discrete embedded chips only on the worn verge, not uniform pepper across the road.
+    vec2 gravelCell=wp.xz*3.2, gravelId=floor(gravelCell);
+    float gravelSeed=pHash(gravelId+71.0);
+    vec2 gravelLocal=fract(gravelCell)-vec2(.3+gravelSeed*.4,.3+pHash(gravelId+19.0)*.4);
+    float gravelRadius=.085+pHash(gravelId+3.0)*.13;
+    float gravelAA=max(fwidth(gravelCell.x),fwidth(gravelCell.y));
+    float gravelShape=1.0-smoothstep(gravelRadius-gravelAA,gravelRadius+gravelAA,length(gravelLocal*vec2(.8,1.2)));
+    float gravel=gravelShape*step(.36,gravelSeed)*roadShoulder;
+    PbrSurface vergeStone=PbrSurface(mix(uRockDark,uRock,gravelSeed)*(.79+gravelSeed*.21),dirt.height+.18,.83,.95);
+    s=pMix(s,vergeStone,gravel);
+    s.roughness=mix(s.roughness,.81,roadShoulder*.35);
     float field=smoothstep(.35,.6,splat.b);
     PbrSurface tilled=dirt; tilled.albedo=parcelColor(wp.xz)*(.8+dirt.height*.3);
     s=pMix(s,tilled,field);
@@ -54,7 +66,7 @@ export function registerGroundPbr(legacy: THREE.MeshLambertMaterial, groundGLSL:
   if (pbrTier() === 'low') return;
   const mat=new THREE.MeshStandardMaterial({ roughness: .94, metalness: 0 });
   mat.name=`pbr-ground-${pbrTier()}`;
-  mat.customProgramCacheKey=()=>`pbr-ground-v1-${pbrTier()}`;
+  mat.customProgramCacheKey=()=>`pbr-ground-v2-${pbrTier()}`;
   mat.onBeforeCompile=(shader)=>{
     Object.assign(shader.uniforms,uniforms,pbrUniforms);
     shader.vertexShader=shader.vertexShader

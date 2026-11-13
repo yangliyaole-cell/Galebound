@@ -2,9 +2,13 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'vite';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WebGLProgram } from '../node_modules/three/src/renderers/webgl/WebGLProgram.js';
 import { ShaderChunk as sourceChunks } from '../node_modules/three/src/renderers/shaders/ShaderChunk.js';
 
+const gradient={addColorStop(){}};
+const canvasContext=new Proxy({}, {get:(object,key)=>object[key]??(key==='createRadialGradient'||key==='createLinearGradient'?()=>gradient:key==='getImageData'?(_x,_y,w,h)=>({data:new Uint8ClampedArray(w*h*4)}):()=>{}),set:(object,key,value)=>(object[key]=value,true)});
+globalThis.document={createElement:()=>({width:1,height:1,getContext:()=>canvasContext})};
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', logLevel: 'error' });
 let checks = 0;
 const check = (name, run) => { run(); checks++; console.log(`PASS ${name}`); };
@@ -47,7 +51,7 @@ const dumpProgram = (material, name, cascades, instancing = false) => {
     defines: { USE_CSM: 1, CSM_CASCADES: cascades, CSM_FADE: '' },
     precision: 'highp', outputColorSpace: THREE.LinearSRGBColorSpace, toneMapping: THREE.NoToneMapping,
     vertexNormals: true, instancingColor: instancing, vertexColors: material.vertexColors, opaque: true, instancing,
-    shadowMapEnabled: true, shadowMapType: THREE.PCFShadowMap,
+    doubleSided: material.side===THREE.DoubleSide, shadowMapEnabled: true, shadowMapType: THREE.PCFShadowMap,
     numDirLights: cascades, numDirLightShadows: cascades, numHemiLights: 1,
     envMap: material.isMeshStandardMaterial, envMapPMREM: material.isMeshStandardMaterial,
     envMapSize: 128, envMapMaxLod: 7,
@@ -83,6 +87,40 @@ try {
     const scene = new THREE.Scene();
     createPbrLighting({}, scene, new THREE.PerspectiveCamera(), new THREE.DirectionalLight(), new THREE.Vector3(0,1,0), new THREE.Group(), { tier: 'low' }, new THREE.Texture()).update('cinematic');
     assert.equal(scene.environment, null); assert.equal(scene.children.length, 0);
+  });
+  const { masonryCell } = await server.ssrLoadModule('/src/render/pbr/masonry.ts');
+  check('masonry partitions cover space with long / square / packing stones and a broad size distribution', () => {
+    const fract=value=>value-Math.floor(value);
+    const hash=(x,y)=>{let a=fract(x*.1031),b=fract(y*.1030),c=fract(x*.0973);const d=a*(b+33.33)+b*(c+33.33)+c*(a+33.33);a+=d;b+=d;c+=d;return fract((a+b)*c);};
+    const unique=new Map();
+    for(let y=-10;y<10;y+=.071)for(let x=-10;x<10;x+=.079){
+      const cell=masonryCell(x,y,hash);
+      assert.ok(x>=cell.x-1e-6 && x<=cell.x+cell.w+1e-6 && y>=cell.y-1e-6 && y<=cell.y+cell.h+1e-6);
+      assert.ok(cell.w>.02 && cell.h>.02);
+      unique.set(`${cell.x.toFixed(5)},${cell.y.toFixed(5)},${cell.w.toFixed(5)},${cell.h.toFixed(5)}`,cell);
+    }
+    const cells=[...unique.values()],areas=cells.map(c=>c.w*c.h).sort((a,b)=>a-b);
+    const long=cells.filter(c=>c.w/c.h>2.5 && c.w>1.3).length;
+    const square=cells.filter(c=>c.w/c.h>.7 && c.w/c.h<1.4).length;
+    const packing=cells.filter(c=>c.w*c.h<.22).length;
+    assert.ok(long>20 && square>20 && packing>20);
+    assert.ok(areas[Math.floor(areas.length*.9)]/areas[Math.floor(areas.length*.1)]>5);
+    console.log(`  MASONRY ${cells.length} blocks: long=${long}, square=${square}, packing=${packing}; area P90/P10=${(areas[Math.floor(areas.length*.9)]/areas[Math.floor(areas.length*.1)]).toFixed(2)}`);
+  });
+  const { classifyNaturalStone } = await server.ssrLoadModule('/src/render/pbr/natural-stone.ts');
+  check('merged rocks get a separate material mask and smooth shading; wall topology and positions stay intact', () => {
+    const rock=new THREE.IcosahedronGeometry(1,1).scale(1.7,.6,1.1).translate(6,31,102);
+    rock.computeVertexNormals();
+    const wall=new THREE.BoxGeometry(3,4,.5).toNonIndexed().translate(0,2,0);
+    const geometry=mergeGeometries([wall,rock]);
+    const positions=geometry.attributes.position.array.slice(),normals=geometry.attributes.normal.array.slice();
+    const audit=classifyNaturalStone(geometry),mask=geometry.attributes.aPbrNatural;
+    assert.equal(audit.components,1);assert.equal(audit.triangles,80);
+    for(let i=0;i<wall.attributes.position.count;i++)assert.equal(mask.getX(i),0);
+    for(let i=wall.attributes.position.count;i<mask.count;i++)assert.equal(mask.getX(i),1);
+    assert.deepEqual(geometry.attributes.position.array,positions);assert.deepEqual(geometry.attributes.normal.array,normals);
+    assert.equal(classifyNaturalStone(geometry),audit);
+    assert.ok(geometry.attributes.aPbrNaturalNormal.normalized);
   });
   for (const tier of ['medium', 'high']) {
     config.configurePbr(tier);
@@ -143,6 +181,11 @@ try {
         assert.equal(scene.children.includes(sun),false); assert.equal(sun.intensity,2.1); assert.equal(sun.color.getHex(),0xffe7d2);
         assert.equal(mesh.material,materials.pbrAlternative(legacy));
         assert.ok(rock.material instanceof THREE.MeshStandardMaterial); assert.equal(trunk.material,rockLegacy);
+        const rockShader=compile(rock.material);
+        assert.ok(rockShader.vertexShader.includes('vColor = vec4(1.0);'));
+        assert.ok(!rockShader.vertexShader.includes('vColor = vec4(color, 1.0);'));
+        assert.ok(rockShader.vertexShader.includes('instanceColor.rgb'));
+        assert.ok(rock.geometry.attributes.aPbrNaturalNormal);
         const { csm } = scene.userData.pbr;
         assert.equal(csm.lights.length,config.PBR_TIERS[tier].cascades);
         assert.equal(csm.breaks.at(-1),1);
@@ -163,6 +206,18 @@ try {
         }
         lighting.update('cinematic'); assert.equal(captures,1); assert.equal(mesh.material.defines.USE_CSM,1);
       } finally { THREE.PMREMGenerator.prototype.fromScene=originalCapture; }
+    });
+    const {createGrass}=await server.ssrLoadModule('/src/world/grass.ts');
+    check(`${tier}: actual near/far grass shares trampled verge and excludes solid rock footprints`,()=>{
+      const grass=createGrass(4,6,1,new THREE.Texture());
+      for(const [index,layer] of grass.children.slice(0,2).entries()){
+        const shader=compile(layer.material);
+        assert.equal(shader.uniforms.uPbrContact,materials.pbrUniforms.uPbrContact);
+        assert.ok(shader.vertexShader.includes('groundRoadShoulder'));
+        assert.ok(shader.vertexShader.includes('smoothstep(.78,.96,texture2D(uPbrContact'));
+        balanced(shader.vertexShader);resolve(shader.vertexShader);
+        if(dump)dumpProgram(layer.material,`${tier}-full-grass-${index}`,config.PBR_TIERS[tier].cascades);
+      }
     });
     if (dump) {
       const funcs=Object.keys(lib.PBR_MATERIALS).map(kind => `p${kind[0].toUpperCase()}${kind.slice(1)}`);
