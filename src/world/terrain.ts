@@ -68,14 +68,14 @@ export const GROUND_GLSL = /* glsl */ `
     g.grass = mix(g.grass, g.grass * vec3(0.8, 0.98, 0.78), cover.g * 0.55);
     g.grass = mix(g.grass, uGrassDry * 0.92, smoothstep(170.0, 520.0, wp.y + (mid - 0.5) * 120.0) * 0.7);
     // Beyond the walkable land, forest is painted rather than planted.
-    float woods = (1.0 - inside) * smoothstep(0.42, 0.6, gFbm(wp.xz * 0.0031 + 11.0) + (0.9 - ny) * 0.55) * (1.0 - smoothstep(700.0, 1050.0, wp.y));
+    float woods = (1.0 - inside) * smoothstep(0.36, 0.56, gFbm(wp.xz * 0.0031 + 11.0) + (0.9 - ny) * 0.6) * (1.0 - smoothstep(820.0, 1180.0, wp.y + (mid - 0.5) * 200.0));
     g.grass = mix(g.grass, uForestFloor * (0.62 + 0.3 * fine), woods * 0.85);
     vec3 col = g.grass;
     col = mix(col, col * vec3(1.08, 1.06, 0.86), biome.g * 0.35);
 
     // Altitude: turf thins to scree, then snow lies wherever it is not too steep.
     float alt = wp.y + (mid - 0.5) * 90.0 + (broad - 0.5) * 160.0;
-    float alpine = smoothstep(560.0, 900.0, alt);
+    float alpine = smoothstep(760.0, 1150.0, alt);
     g.rock = smoothstep(0.82, 0.64, ny + (fine - 0.5) * 0.12 + (mid - 0.5) * 0.1);
     g.rock = max(g.rock, alpine * smoothstep(0.98, 0.86, ny + (fine - 0.5) * 0.1));
     vec3 rockCol = mix(uRockDark, uRock, smoothstep(0.3, 0.7, gFbm3(wp.xz * 0.045 + wp.y * 0.08)));
@@ -88,7 +88,7 @@ export const GROUND_GLSL = /* glsl */ `
     col = mix(col, mix(uDirtDark, uRock, 0.55) * (0.85 + 0.3 * fine), scree * (0.25 + 0.75 * alpine));
     col = mix(col, rockCol, g.rock);
 
-    g.snow = smoothstep(uSnowLine - 130.0, uSnowLine + 170.0, alt) * smoothstep(0.34, 0.62, ny + (fine - 0.5) * 0.08);
+    g.snow = smoothstep(uSnowLine - 150.0, uSnowLine + 260.0, alt) * smoothstep(0.42, 0.7, ny + (fine - 0.5) * 0.1 + (mid - 0.5) * 0.12);
     col = mix(col, uSnow * (0.93 + 0.07 * fine), g.snow);
 
     // Shores: shingle where water laps, sand on the coast.
@@ -138,12 +138,12 @@ export const groundUniforms = {
   uDirtDark: { value: new THREE.Color(0xbf9b6c) },
   uDirtLight: { value: new THREE.Color(0xe4cd9c) },
   uSand: { value: new THREE.Color(0xe9dcae) },
-  uRock: { value: new THREE.Color(0xa7a59c) },
-  uRockDark: { value: new THREE.Color(0x7d8088) },
+  uRock: { value: new THREE.Color(0x938f86) },
+  uRockDark: { value: new THREE.Color(0x5d6370) },
   uSnow: { value: new THREE.Color(0xf6f9ff) },
   uCobble: { value: new THREE.Color(0xb9b3a4) },
   uSoil: { value: new THREE.Color(0x8a6a48) },
-  uSnowLine: { value: 1250 },
+  uSnowLine: { value: 1500 },
   uCloudDrift: shared.uCloudDrift,
 };
 

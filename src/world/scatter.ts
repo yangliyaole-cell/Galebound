@@ -10,6 +10,11 @@ import { heightAt, normalAt, sstep } from './heightmap';
 import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, inPolygon, cityRadiusAt } from './layout';
 import { blossomDensity, forestDensity } from './maps';
 import { fbm, seededRandom } from './noise';
+import { Forest } from './flora/forest';
+import type { TreeKind } from './flora/tree-models';
+
+/** Trees are grown and drawn by the forest; this size factor converts the old planting scales. */
+const TREE_SIZE: Record<TreeKind, number> = { oak: 0.8, great: 0.62, blossom: 0.9, cypress: 0.72, pine: 0.75 };
 import { waterLevelAt as surfaceAt } from './heightmap';
 const waterLevelAt = (x: number, z: number): number => Math.max(0, surfaceAt(x, z));
 
@@ -296,14 +301,16 @@ interface Batch {
   tree: boolean;
 }
 
-export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunDir: THREE.Vector3): {
+export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunDir: THREE.Vector3,
+  stage: { renderer: THREE.WebGLRenderer; sun: THREE.DirectionalLight; hemisphere: THREE.HemisphereLight }): {
   object: THREE.Group;
   update: (camera: THREE.Vector3) => void;
   stats: () => { tiers: number[]; trees: number[]; blended: number; total: number; allocatedInstances: number };
 } {
   const low = quality.tier === 'low';
   const species = makeSpecies(low ? 0 : quality.tier === 'high' ? 2 : 1);
-  const names = Object.keys(species);
+  const forest = new Forest();
+  const names = Object.keys(species).filter((name) => !(name in TREE_SIZE));
   const lists = new Map<string, Instance[][]>();
   for (const name of names) lists.set(name, Array.from({ length: REGIONS * REGIONS }, () => []));
 
@@ -314,6 +321,12 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
     if (ri < 0 || rj < 0 || ri >= REGIONS || rj >= REGIONS) return;
     const s = species[name];
     const y = heightAt(x, z) - sink * scale;
+    if (name in TREE_SIZE) {
+      pick();
+      forest.plant(name as TreeKind, x, y + sink * scale - 0.05, z, scale * TREE_SIZE[name as TreeKind]);
+      addRound(x, z, s.trunkRadius * scale, y + s.trunkHeight * scale);
+      return;
+    }
     lists.get(name)![rj * REGIONS + ri].push({
       x, y, z, sx: scale, sy: scale * squash,
       tint: s.tints[Math.floor(pick() * s.tints.length)],
@@ -481,11 +494,13 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
     const tris = (g: THREE.BufferGeometry | null | undefined): number => g ? (g.index?.count ?? g.attributes.position?.count ?? 0) / 3 : 0;
     return [name, { placed: lists.get(name)!.reduce((n, list) => n + list.length, 0), triangles: low ? [0, 0, tris(s.lo)] : [tris(s.hi) + tris(s.cards), tris(s.mid ?? s.hi) + tris(s.midCards), tris(s.lo)], cards: low ? [0, 0, 0] : [tris(s.cards) / 2, tris(s.midCards) / 2, 0] }];
   }));
+  group.add(forest.build(stage.renderer, stage.sun, stage.hemisphere, sunDir, low ? 0 : quality.tier === 'high' ? 2 : 1));
   const previous = new THREE.Vector3(Infinity, Infinity, Infinity);
   return {
     object: group,
     stats: () => ({ ...stats, tiers: [...stats.tiers], trees: [...stats.trees] }),
     update: (camera) => {
+      forest.update(camera);
       if (previous.distanceToSquared(camera) < 0.25) return;
       previous.copy(camera);
       stats.tiers.fill(0); stats.trees.fill(0); stats.blended = 0;

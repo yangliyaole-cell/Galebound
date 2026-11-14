@@ -1,23 +1,209 @@
 import * as THREE from 'three';
-import { NOISE_GLSL } from '../render/glsl';
+import { CLOUD_BASE, CLOUD_GLSL, CLOUD_TOP, NOISE_GLSL } from '../render/glsl';
 import { shared } from '../render/uniforms';
-import { fbm, seededRandom } from './noise';
+import { seededRandom } from './noise';
 
-export const HORIZON_COLOR = 0xcfe4f2;
+export const HORIZON_COLOR = 0xbcd6ec;
 
-function createDome(sunDir: THREE.Vector3): THREE.Mesh {
-  const mat = new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    depthWrite: false,
-    depthTest: false,
-    fog: false,
+/** Value noise in three dimensions from one 2D texture (two taps). */
+function noiseTexture(): THREE.DataTexture {
+  const size = 256, rand = seededRandom(9127);
+  const base = new Uint8Array(size * size);
+  for (let i = 0; i < base.length; i++) base[i] = rand() * 256;
+  const pixels = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const o = (y * size + x) * 4;
+    pixels[o] = base[y * size + x];
+    // Green is the layer above: red shifted by the stride between layers.
+    pixels[o + 1] = base[((y + 17) % size) * size + (x + 37) % size];
+    pixels[o + 2] = base[((y + 59) % size) * size + (x + 101) % size];
+    pixels[o + 3] = 255;
+  }
+  const tex = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.minFilter = tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Panorama layout: u is the bearing; v packs elevation so the horizon gets most of the rows. */
+const PANORAMA_GLSL = /* glsl */ `
+  const float SKY_LOW = -0.06;
+  vec2 skyUv(vec3 d) {
+    float e = asin(clamp(d.y, -1.0, 1.0));
+    return vec2(atan(d.z, d.x) / 6.2831853 + 0.5, pow(clamp((e - SKY_LOW) / (1.5707963 - SKY_LOW), 0.0, 1.0), 0.55));
+  }
+  vec3 skyDir(vec2 uv) {
+    float e = SKY_LOW + pow(uv.y, 1.0 / 0.55) * (1.5707963 - SKY_LOW);
+    float a = (uv.x - 0.5) * 6.2831853;
+    return vec3(cos(a) * cos(e), sin(e), sin(a) * cos(e));
+  }
+`;
+
+/** Clear-air colour along a direction: deep overhead, pale and warm toward the sun at the horizon. */
+const AIR_GLSL = /* glsl */ `
+  uniform vec3 uTop;
+  uniform vec3 uMid;
+  uniform vec3 uHorizon;
+  uniform vec3 uSunDir;
+  vec3 airColor(vec3 d) {
+    float h = max(d.y, 0.0);
+    vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.26, h));
+    col = mix(col, uTop, smoothstep(0.16, 0.9, h));
+    float toward = max(dot(d, uSunDir), 0.0);
+    col += vec3(1.0, 0.86, 0.62) * (pow(toward, 6.0) * 0.16 + pow(toward, 48.0) * 0.3) * (1.0 - 0.6 * h);
+    // Below the horizon the air is simply haze.
+    return mix(col, uHorizon * 0.96, smoothstep(0.0, -0.08, d.y));
+  }
+`;
+
+export interface Sky {
+  object: THREE.Group;
+  update: (camera: THREE.Camera, dt: number) => void;
+  /** Clouds as seen from the ground: rgb light, a how much sky shows through. */
+  panorama: { value: THREE.Texture };
+  /** Repaints the whole panorama at once, after the palette or the sun changes. */
+  repaint: () => void;
+}
+
+export function createSky(sunDir: THREE.Vector3, renderer: THREE.WebGLRenderer, detail: number): Sky {
+  const width = detail === 2 ? 4096 : detail === 1 ? 2048 : 1024, height = width / 4;
+  const steps = detail === 2 ? 150 : detail === 1 ? 80 : 40;
+  const targets = [0, 1].map(() => new THREE.WebGLRenderTarget(width, height, {
+    type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping,
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+  }));
+  const panorama = { value: targets[0].texture as THREE.Texture };
+  const eye = new THREE.Vector3(0, 60, 0);
+  const sunColor = new THREE.Color(1.0, 0.93, 0.8);
+  const noise = noiseTexture();
+
+  const marcher = new THREE.ShaderMaterial({
+    depthTest: false, depthWrite: false,
     uniforms: {
-      uTop: { value: new THREE.Color(0x1c69cc) },
-      uMid: { value: new THREE.Color(0x58a4e8) },
-      uHorizon: { value: new THREE.Color(HORIZON_COLOR) },
-      uCloudShade: { value: new THREE.Color(0xa9c2e0) },
-      uSunDir: { value: sunDir },
-      uCloudDrift: shared.uCloudDrift,
+      uNoise: { value: noise }, uEye: { value: eye }, uSunDir: { value: sunDir }, uSunColor: { value: sunColor },
+      uCloudDrift: shared.uCloudDrift, uCloudShade: { value: new THREE.Color(0x8fa9cf) },
+      uTop: { value: new THREE.Color(0x1859c2) }, uMid: { value: new THREE.Color(0x4a97e6) }, uHorizon: { value: new THREE.Color(HORIZON_COLOR) },
+    },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: /* glsl */ `
+      precision highp float;
+      uniform sampler2D uNoise;
+      uniform vec3 uEye;
+      uniform vec3 uSunColor;
+      uniform vec3 uCloudShade;
+      varying vec2 vUv;
+      ${NOISE_GLSL}
+      ${CLOUD_GLSL}
+      ${PANORAMA_GLSL}
+      ${AIR_GLSL}
+      float n3(vec3 x) {
+        vec3 p = floor(x), f = fract(x);
+        f = f * f * (3.0 - 2.0 * f);
+        vec2 t = textureLod(uNoise, (p.xy + vec2(37.0, 17.0) * p.z + f.xy + 0.5) / 256.0, 0.0).rg;
+        return mix(t.x, t.y, f.z);
+      }
+      float fbm3(vec3 p) {
+        float s = 0.5 * n3(p); p = p * 2.03 + 11.3;
+        s += 0.25 * n3(p); p = p * 2.02 + 5.1;
+        s += 0.125 * n3(p); p = p * 2.01 + 3.7;
+        s += 0.0625 * n3(p);
+        return s / 0.9375;
+      }
+      // The world is treated as flat nearby, but far cloud sinks toward the horizon as on a globe.
+      float altitude(vec3 p) { return p.y - dot(p.xz - uEye.xz, p.xz - uEye.xz) / 1.1e6; }
+      // Billows: folded noise has rounded tops and creased valleys, like cumulus.
+      float billow3(vec3 p) {
+        float s = 0.5 * (1.0 - abs(2.0 * n3(p) - 1.0)); p = p * 2.07 + 9.1;
+        s += 0.25 * (1.0 - abs(2.0 * n3(p) - 1.0)); p = p * 2.03 + 4.3;
+        s += 0.125 * (1.0 - abs(2.0 * n3(p) - 1.0));
+        return s / 0.875;
+      }
+      float density(vec3 p, bool fine) {
+        float h = (altitude(p) - ${CLOUD_BASE.toFixed(1)}) / ${(CLOUD_TOP - CLOUD_BASE).toFixed(1)};
+        if (h < 0.0 || h > 1.0) return 0.0;
+        float cover = cloudCover(p.xz);
+        if (cover < 0.01) return 0.0;
+        // Flat bases; towers rise highest where the cover is deepest.
+        float top = mix(0.2, 1.0, cover * cover);
+        float profile = smoothstep(0.0, 0.045, h) * smoothstep(top, top * 0.3, h);
+        vec3 q = p * 0.00105 + vec3(uCloudDrift.x, 0.0, uCloudDrift.y) * 3.0;
+        float shape = mix(fbm3(q), billow3(q * 1.6 + 2.0), 0.55);
+        float d = (shape + cover * profile - 1.0) * 2.2;
+        if (d <= 0.0) return 0.0;
+        if (fine) {
+          // Finer billows bite into the edges and leave the core solid.
+          float curl = billow3(q * 6.1 + 4.0);
+          d -= (1.0 - smoothstep(0.0, 0.42, d)) * (1.0 - curl) * 0.34;
+        }
+        return clamp(d, 0.0, 1.0) * 0.016;
+      }
+      void main() {
+        vec3 rd = skyDir(vUv);
+        vec3 ro = uEye;
+        vec4 result = vec4(0.0, 0.0, 0.0, 1.0);
+        float mu = dot(rd, uSunDir);
+        // Forward and back scattering lobes: silver linings toward the sun.
+        float g1 = 0.72, g2 = -0.2;
+        float phase = mix((1.0 - g2 * g2) / pow(1.0 + g2 * g2 - 2.0 * g2 * mu, 1.5),
+                          (1.0 - g1 * g1) / pow(1.0 + g1 * g1 - 2.0 * g1 * mu, 1.5), 0.55) * 0.25;
+        float t = 300.0;
+        // Interleaved gradient noise: an even dither that the panorama's filtering smooths away.
+        float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        if (rd.y > -0.02) {
+          for (int i = 0; i < ${steps}; i++) {
+            float stride = ${detail === 2 ? '42.0 + t * 0.019' : detail === 1 ? '60.0 + t * 0.03' : '90.0 + t * 0.05'};
+            vec3 p = ro + rd * (t + stride * jitter);
+            float d = density(p, true);
+            if (d > 0.0) {
+              // March toward the sun to see how much light survives to this point.
+              float shade = 0.0;
+              for (int k = 1; k <= 5; k++) shade += density(p + uSunDir * (float(k) * float(k) * 46.0), false) * float(k) * 92.0;
+              float beer = exp(-shade);
+              float powder = 1.0 - exp(-shade * 2.0 - d * 420.0);
+              float h = clamp((altitude(p) - ${CLOUD_BASE.toFixed(1)}) / ${(CLOUD_TOP - CLOUD_BASE).toFixed(1)}, 0.0, 1.0);
+              vec3 ambient = mix(uCloudShade * 0.5, mix(uMid, vec3(1.0), 0.6), smoothstep(0.0, 0.75, h));
+              vec3 lit = uSunColor * (beer * mix(0.55, 1.0, powder) * (0.72 + phase * 2.2) + exp(-shade * 0.18) * 0.16) * 3.1 + ambient * 0.86;
+              // Far cloud dissolves into the same haze as far land.
+              float haze = 1.0 - exp(-t * 0.000028);
+              lit = mix(lit, airColor(vec3(rd.x, 0.02, rd.z)) * 1.04, haze);
+              float a = 1.0 - exp(-d * stride);
+              result.rgb += lit * a * result.a;
+              result.a *= 1.0 - a;
+              if (result.a < 0.01) break;
+            }
+            t += stride;
+            if (t > 70000.0) break;
+          }
+        }
+        gl_FragColor = result;
+      }`,
+  });
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), marcher);
+  quad.frustumCulled = false;
+  const panoScene = new THREE.Scene();
+  panoScene.add(quad);
+  const panoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+  /** Renders rows [from, to) of a panorama. */
+  const paint = (target: THREE.WebGLRenderTarget, from: number, to: number): void => {
+    const previous = renderer.getRenderTarget(), auto = renderer.autoClear;
+    renderer.setRenderTarget(target);
+    renderer.autoClear = false;
+    target.scissorTest = true;
+    target.scissor.set(0, from, width, to - from);
+    target.viewport.set(0, 0, width, height);
+    renderer.render(panoScene, panoCamera);
+    renderer.setRenderTarget(previous);
+    renderer.autoClear = auto;
+  };
+  paint(targets[0], 0, height);
+
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(20000, 48, 24), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
+    uniforms: {
+      uTop: marcher.uniforms.uTop, uMid: marcher.uniforms.uMid, uHorizon: marcher.uniforms.uHorizon,
+      uCloudShade: marcher.uniforms.uCloudShade, uSunDir: { value: sunDir }, uClouds: panorama,
     },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
@@ -26,196 +212,44 @@ function createDome(sunDir: THREE.Vector3): THREE.Mesh {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uTop;
-      uniform vec3 uMid;
-      uniform vec3 uHorizon;
-      uniform vec3 uCloudShade;
-      uniform vec3 uSunDir;
-      uniform vec2 uCloudDrift;
+      uniform sampler2D uClouds;
       varying vec3 vDir;
-      ${NOISE_GLSL}
+      ${PANORAMA_GLSL}
+      ${AIR_GLSL}
       void main() {
         vec3 d = normalize(vDir);
-        float h = max(d.y, 0.0);
-        vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.22, h));
-        col = mix(col, uTop, smoothstep(0.18, 0.85, h));
-
+        vec3 col = airColor(d);
         float sun = max(dot(d, uSunDir), 0.0);
-        col += vec3(1.0, 0.92, 0.75) * (pow(sun, 900.0) * 2.5 + pow(sun, 9.0) * 0.12);
-
-        // High, thin cloud; the big cumulus are painted billboards.
-        vec2 uv = d.xz / (d.y + 0.25) * 1.1 + uCloudDrift * 6.0;
-        float n = gFbm(uv) + gNoise(uv * 6.0) * 0.06;
-        float cover = smoothstep(0.56, 0.64, n);
-        float towardSun = gFbm(uv + normalize(uSunDir.xz) * 0.14);
-        float lit = max(smoothstep(-0.05, 0.1, n - towardSun + 0.03), smoothstep(0.64, 0.74, n));
-        vec3 cloud = mix(uCloudShade, vec3(1.0), lit);
-        col = mix(col, cloud, cover * smoothstep(0.1, 0.3, d.y) * 0.9);
-
+        col += vec3(1.0, 0.93, 0.78) * (smoothstep(0.99990, 0.99996, sun) * 9.0 + pow(sun, 900.0) * 0.7);
+        vec4 cloud = texture2D(uClouds, skyUv(d));
+        col = col * cloud.a + cloud.rgb;
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
       }`,
-  });
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(20000, 48, 24), mat);
+  }));
   dome.renderOrder = -4;
   dome.frustumCulled = false;
-  return dome;
-}
-
-/** Paints one towering cumulus cloud: bright, lumpy top and a flat blue-grey base. */
-function cloudTexture(seed: number): THREE.CanvasTexture {
-  const w = 512;
-  const h = 288;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d')!;
-  const rand = seededRandom(seed);
-  const puffs: [number, number, number][] = [];
-  const base = h * 0.8;
-  for (let i = 0; i < 26; i++) {
-    const t = rand();
-    const x = w * (0.14 + 0.72 * t);
-    const tower = Math.sin(t * Math.PI) * (0.55 + rand() * 0.45);
-    const r = 26 + rand() * 46 * (0.4 + tower);
-    puffs.push([x, base - r * 0.75 - rand() * h * 0.42 * tower, r]);
-  }
-  const draw = (dx: number, dy: number, grow: number, style: string): void => {
-    ctx.fillStyle = style;
-    for (const [x, y, r] of puffs) {
-      ctx.beginPath();
-      ctx.arc(x + dx, y + dy, Math.max(2, r + grow), 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.fillRect(w * 0.16 + dx, base - 34 + dy, w * 0.68, 30);
-  };
-  draw(0, 0, 0, '#a7bfdc');
-  ctx.globalCompositeOperation = 'source-atop';
-  draw(-10, -12, -5, '#d5e3f3');
-  draw(-18, -22, -14, '#ffffff');
-  const shade = ctx.createLinearGradient(0, base - 70, 0, base);
-  shade.addColorStop(0, 'rgba(150,176,212,0)');
-  shade.addColorStop(1, 'rgba(150,176,212,0.95)');
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, 0, w, h);
-  // Fade the flat base into the haze.
-  ctx.globalCompositeOperation = 'destination-out';
-  const fade = ctx.createLinearGradient(0, base - 26, 0, base + 4);
-  fade.addColorStop(0, 'rgba(0,0,0,0)');
-  fade.addColorStop(1, 'rgba(0,0,0,1)');
-  ctx.fillStyle = fade;
-  ctx.fillRect(0, base - 26, w, 60);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function createCumulus(): THREE.Group {
   const group = new THREE.Group();
-  const rand = seededRandom(77);
-  const textures = [11, 23, 37, 51, 68].map(cloudTexture);
-  const count = 26;
-  for (let i = 0; i < count; i++) {
-    const tex = textures[i % textures.length];
-    const mat = new THREE.MeshBasicMaterial({
-      map: tex, depthWrite: false, depthTest: false, fog: false,
-      // Blended, but drawn in the opaque pass so the land always covers it.
-      blending: THREE.CustomBlending,
-      blendSrc: THREE.SrcAlphaFactor,
-      blendDst: THREE.OneMinusSrcAlphaFactor,
-    });
-    const width = 1300 + rand() * 1500;
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, width * 0.5625), mat);
-    const a = (i / count) * Math.PI * 2 + rand() * 0.18;
-    const r = 3900 + rand() * 500;
-    const y = 180 + rand() * rand() * 1300;
-    mesh.position.set(Math.cos(a) * r, y + width * 0.2, Math.sin(a) * r);
-    mesh.lookAt(0, mesh.position.y * 0.6, 0);
-    if (rand() < 0.5) mesh.scale.x = -1;
-    mesh.renderOrder = -3 + i * 0.001;
-    mesh.frustumCulled = false;
-    group.add(mesh);
-  }
-  return group;
-}
+  group.add(dome);
 
-/** A ring of distant ridges whose base dissolves into the horizon haze. */
-function createRidge(
-  radius: number,
-  minH: number,
-  maxH: number,
-  seed: number,
-  rock: number,
-  snowAbove: number,
-): THREE.Mesh {
-  const n = 300;
-  const positions: number[] = [];
-  const colors: number[] = [];
-  const indices: number[] = [];
-  const haze = new THREE.Color(HORIZON_COLOR);
-  const rockColor = new THREE.Color(rock);
-  const snow = new THREE.Color(0xffffff);
-  const c = new THREE.Color();
-
-  for (let i = 0; i <= n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const cx = Math.cos(a);
-    const sz = Math.sin(a);
-    // No mountains to the south, where the sea is.
-    const south = THREE.MathUtils.smoothstep(sz, 0.25, 0.75);
-    const ridge = Math.pow(fbm(cx * 3.2 + seed, sz * 3.2 + seed, 5), 1.6);
-    const jag = fbm(cx * 21 + seed, sz * 21, 2) - 0.5;
-    const h = (minH + (maxH - minH) * THREE.MathUtils.clamp(ridge * 1.25 + jag * 0.16, 0, 1)) * (1 - south);
-
-    positions.push(cx * radius, -60, sz * radius);
-    colors.push(haze.r, haze.g, haze.b);
-    positions.push(cx * (radius + 40), h * 0.55, sz * (radius + 40));
-    c.copy(haze).lerp(rockColor, 0.75);
-    colors.push(c.r, c.g, c.b);
-    positions.push(cx * (radius + 80), h, sz * (radius + 80));
-    c.copy(rockColor).lerp(snow, THREE.MathUtils.smoothstep(h, snowAbove, snowAbove * 1.25));
-    colors.push(c.r, c.g, c.b);
-
-    if (i < n) {
-      const b = i * 3;
-      indices.push(b, b + 3, b + 1, b + 1, b + 3, b + 4);
-      indices.push(b + 1, b + 4, b + 2, b + 2, b + 4, b + 5);
-    }
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geo.setIndex(indices);
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide, depthWrite: false, depthTest: false }),
-  );
-  mesh.frustumCulled = false;
-  return mesh;
-}
-
-export function createSky(sunDir: THREE.Vector3): {
-  object: THREE.Group;
-  update: (camera: THREE.Camera, dt: number) => void;
-} {
-  const group = new THREE.Group();
-  const dome = createDome(sunDir);
-  const cumulus = createCumulus();
-  const far = createRidge(3300, 120, 900, 3.7, 0x6f8fc4, 520);
-  far.renderOrder = -2;
-  const near = createRidge(2300, 60, 330, 11.2, 0x6f9aa6, 9999);
-  near.renderOrder = -1;
-  // The ranges are real land now; no painted ridges are needed.
-  void far; void near;
-  group.add(dome, cumulus);
+  // The panorama is repainted a band at a time into the spare target, then swapped in.
+  let current = 0, row = 0;
+  const band = Math.ceil(height / 24);
   return {
-    object: group,
-    update: (camera, dt) => {
-      // The sky is infinitely far away: it follows the camera.
+    object: group, panorama,
+    repaint() { row = 0; paint(targets[current], 0, height); },
+    update(camera, dt) {
       group.position.copy(camera.position);
-      group.position.y = 0;
-      cumulus.rotation.y += dt * 0.0016 * (0.4 + shared.uWindStrength.value);
+      if (dt <= 0) return;
+      if (row === 0) eye.set(camera.position.x, Math.max(20, camera.position.y), camera.position.z);
+      const spare = targets[1 - current];
+      paint(spare, row, Math.min(height, row + band));
+      row += band;
+      if (row >= height) {
+        row = 0;
+        current = 1 - current;
+        panorama.value = spare.texture;
+      }
     },
   };
 }

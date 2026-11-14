@@ -97,7 +97,7 @@ async function boot(): Promise<void> {
   groundUniforms.uDetail.value = groundDetailTexture();
 
   const sunDir = new THREE.Vector3(0.42, 0.72, 0.55).normalize();
-  const sky = createSky(sunDir);
+  const sky = createSky(sunDir, renderer, quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0);
   scene.add(sky.object);
   const hemisphere = new THREE.HemisphereLight(0xcfe6ff, 0x7fa04a, 1.5);
   scene.add(hemisphere);
@@ -137,7 +137,7 @@ async function boot(): Promise<void> {
 
   hud.loading('正在种树…');
   await nextFrame();
-  const scatter = createScatter(quality, sunDir);
+  const scatter = createScatter(quality, sunDir, { renderer, sun, hemisphere });
   scene.add(scatter.object);
 
   hud.loading('正在藏起光点…');
@@ -248,6 +248,8 @@ async function boot(): Promise<void> {
     await styles.set('default', false);
   }
   hud.cinemaLabel(styles.current === 'cinematic');
+  sky.repaint();
+  resize();
 
   // Handles for automated checks; not used by the game itself.
   (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt, style: styles,
