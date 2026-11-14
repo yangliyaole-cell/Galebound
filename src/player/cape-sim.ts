@@ -74,15 +74,25 @@ export function capePenetration(points: ArrayLike<number>, colliders: readonly C
   return deepest;
 }
 
-/** Also used after interpolating the render wall: no unchecked vertices between solver nodes. */
-export function resolveCapeCollisions(points: { length: number; [n: number]: number }, colliders: readonly CapeCapsule[], padding = 0.009): void {
-  const capsules = colliders.map(({ a, b, radius }) => {
+interface PreparedCapsule {
+  a: readonly number[]; x: number; y: number; z: number; r: number; r2: number; inverse: number;
+  minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number;
+}
+/** Capsule data that stays fixed while several solver passes resolve against the same body pose. */
+export function prepareCapsules(colliders: readonly CapeCapsule[], padding = 0.009): PreparedCapsule[] {
+  return colliders.map(({ a, b, radius }) => {
     const x = b[0] - a[0], y = b[1] - a[1], z = b[2] - a[2], r = radius + padding;
     return { a, x, y, z, r, r2: r * r, inverse: 1 / (x * x + y * y + z * z || 1),
       minX: Math.min(a[0], b[0]) - r, maxX: Math.max(a[0], b[0]) + r,
       minY: Math.min(a[1], b[1]) - r, maxY: Math.max(a[1], b[1]) + r,
       minZ: Math.min(a[2], b[2]) - r, maxZ: Math.max(a[2], b[2]) + r };
   });
+}
+/** Also used after interpolating the render wall: no unchecked vertices between solver nodes. */
+export function resolveCapeCollisions(points: { length: number; [n: number]: number }, colliders: readonly CapeCapsule[], padding = 0.009): void {
+  resolvePrepared(points, prepareCapsules(colliders, padding));
+}
+function resolvePrepared(points: { length: number; [n: number]: number }, capsules: readonly PreparedCapsule[]): void {
   for (let i = 0; i < points.length; i += 3) {
     for (let pass = 0; pass < 48; pass++) {
       let corrected = false;
@@ -117,7 +127,14 @@ export class CapeSimulation {
   private readonly acceleration: Float64Array;
   private readonly areas: Float64Array;
   private readonly pinned: Uint8Array;
-  private readonly edges: { a: number; b: number; stiffness: number; length: number }[] = [];
+  private readonly edgeList: { a: number; b: number; stiffness: number }[] = [];
+  // Packed for the solver's inner loop: endpoints, stiffness / combined weight, and per-step rest length.
+  private edgeA = new Int32Array(0);
+  private edgeB = new Int32Array(0);
+  private edgeK = new Float64Array(0);
+  private edgeWA = new Float64Array(0);
+  private edgeWB = new Float64Array(0);
+  private edgeLength = new Float64Array(0);
   private readonly triangles: number[] = [];
   private oldColliders: CapeCapsule[] = [];
   private initialized = false;
@@ -129,7 +146,7 @@ export class CapeSimulation {
     this.oldTargets = new Float64Array(rest); this.targets = new Float64Array(rest);
     this.acceleration = new Float64Array(rest.length); this.areas = new Float64Array(rest.length / 3);
     this.pinned = new Uint8Array(rest.length / 3);
-    const edge = (a: number, b: number, stiffness: number): void => { this.edges.push({ a: a * 3, b: b * 3, stiffness, length: 0 }); };
+    const edge = (a: number, b: number, stiffness: number): void => { this.edgeList.push({ a: a * 3, b: b * 3, stiffness }); };
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const n = r * cols + c;
       // Only the collar/shoulder saddle is fixed. The long front edges are FREE when hanging.
@@ -143,7 +160,14 @@ export class CapeSimulation {
       if (c + 2 < cols) edge(n, n + 2, 0.055);
       if (r + 2 < rows) edge(n, n + cols * 2, 0.055);
     }
-    this.stats = { tier, points: rest.length / 3, constraints: this.edges.length, ...CAPE_DETAIL[tier], maxPenetration: 0, maxSpeed: 0, simulationMs: 0, glideBlend: 0 };
+    // Drop constraints between two pinned points and fold the inverse weights into the stiffness.
+    const live = this.edgeList.filter((e) => this.pinned[e.a / 3] + this.pinned[e.b / 3] < 2);
+    this.edgeA = Int32Array.from(live, (e) => e.a); this.edgeB = Int32Array.from(live, (e) => e.b);
+    this.edgeWA = Float64Array.from(live, (e) => 1 - this.pinned[e.a / 3]);
+    this.edgeWB = Float64Array.from(live, (e) => 1 - this.pinned[e.b / 3]);
+    this.edgeK = Float64Array.from(live, (e, n) => e.stiffness / (this.edgeWA[n] + this.edgeWB[n]));
+    this.edgeLength = new Float64Array(live.length);
+    this.stats = { tier, points: rest.length / 3, constraints: this.edgeList.length, ...CAPE_DETAIL[tier], maxPenetration: 0, maxSpeed: 0, simulationMs: 0, glideBlend: 0 };
   }
 
   update(dt: number, time: number, frame: CapeFrame): void {
@@ -167,7 +191,8 @@ export class CapeSimulation {
         const old = this.oldColliders[n] ?? frame.colliders[n], next = frame.colliders[n];
         for (let k = 0; k < 3; k++) { c.a[k] = old.a[k] + (next.a[k] - old.a[k]) * alpha; c.b[k] = old.b[k] + (next.b[k] - old.b[k]) * alpha; }
       });
-      resolveCapeCollisions(this.targets, moving);
+      const prepared = prepareCapsules(moving);
+      resolvePrepared(this.targets, prepared);
       this.aerodynamics(time - dt + (step + 1) * h, frame);
       for (let n = 0; n < this.pinned.length; n++) {
         const i = n * 3, row = Math.floor(n / this.pattern.columns);
@@ -180,22 +205,26 @@ export class CapeSimulation {
           p[i + k] += speed * Math.exp(-1.6 * h) * h + force * h * h;
         }
       }
-      for (const e of this.edges) e.length = Math.hypot(this.targets[e.a] - this.targets[e.b], this.targets[e.a + 1] - this.targets[e.b + 1], this.targets[e.a + 2] - this.targets[e.b + 2]);
+      const ea = this.edgeA, eb = this.edgeB, ek = this.edgeK, wa = this.edgeWA, wb = this.edgeWB, rest = this.edgeLength, t = this.targets;
+      for (let e = 0; e < ea.length; e++) {
+        const a = ea[e], b = eb[e];
+        rest[e] = Math.hypot(t[a] - t[b], t[a + 1] - t[b + 1], t[a + 2] - t[b + 2]);
+      }
       for (let it = 0; it < iterations; it++) {
-        for (const { a, b, stiffness, length } of this.edges) {
-          const wa = 1 - this.pinned[a / 3], wb = 1 - this.pinned[b / 3];
-          if (!(wa + wb)) continue;
+        for (let e = 0; e < ea.length; e++) {
+          const a = ea[e], b = eb[e];
           const dx = p[b] - p[a], dy = p[b + 1] - p[a + 1], dz = p[b + 2] - p[a + 2];
           const distance = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
-          const correction = (distance - length) / distance * stiffness / (wa + wb);
-          p[a] += dx * correction * wa; p[a + 1] += dy * correction * wa; p[a + 2] += dz * correction * wa;
-          p[b] -= dx * correction * wb; p[b + 1] -= dy * correction * wb; p[b + 2] -= dz * correction * wb;
+          const correction = (distance - rest[e]) / distance * ek[e];
+          const ca = correction * wa[e], cb = correction * wb[e];
+          p[a] += dx * ca; p[a + 1] += dy * ca; p[a + 2] += dz * ca;
+          p[b] -= dx * cb; p[b + 1] -= dy * cb; p[b + 2] -= dz * cb;
         }
         // Interleave contact and distance solves, so the body cannot pull the cloth through itself.
-        resolveCapeCollisions(p, moving);
+        resolvePrepared(p, prepared);
       }
       if (frame.groundAt) for (let i = 0; i < p.length; i += 3) p[i + 1] = Math.max(p[i + 1], frame.groundAt(p[i], p[i + 2]) + 0.015);
-      resolveCapeCollisions(p, moving);
+      resolvePrepared(p, prepared);
       this.stats.maxSpeed = 0;
       for (let i = 0; i < p.length; i += 3) {
         const vx = (p[i] - q[i]) / h, vy = (p[i + 1] - q[i + 1]) / h, vz = (p[i + 2] - q[i + 2]) / h;
