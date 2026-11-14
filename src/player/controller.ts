@@ -1,8 +1,15 @@
 import * as THREE from 'three';
 import type { Input } from '../core/input';
 import { resolveWalls, supportHeight } from '../world/colliders';
-import { heightAt, normalAt, sstep } from '../world/heightmap';
-import { waterLevelAt } from '../world/mountain-layout';
+import { heightAt, normalAt, sstep, waterLevelAt as surfaceAt } from '../world/heightmap';
+import { HALF, WORLD_MARGIN } from '../world/layout';
+
+const EDGE = HALF - WORLD_MARGIN;
+/** Water surface here; where the ground is dry, a level safely below it. */
+const waterLevelAt = (x: number, z: number): number => {
+  const level = surfaceAt(x, z);
+  return level === -Infinity ? heightAt(x, z) - 3 : level;
+};
 import type { Wind } from '../world/wind';
 import { Character, type Motion } from './character';
 
@@ -16,11 +23,32 @@ const GRAVITY = 24;
 const STEP = 0.5;
 const RADIUS = 0.32;
 const HEIGHT = 1.7;
-/** Gliding starts only when facing within about 50 degrees of the wind. */
+/** Inside a gust this close to downwind, the cloths open by themselves. */
 const ALIGN = 0.64;
 const MIN_GLIDE_HEIGHT = 3;
 /** Lower bar when leaping out over ground that falls away ahead. */
 const MIN_LEAP_HEIGHT = 1.1;
+/** A jump press opens the cloths from this far up: a running hop is enough. */
+const MIN_TAKEOFF_HEIGHT = 0.7;
+
+// Glide flight model (path angles in radians, speeds in m/s).
+/** Gravity along the flight path; softer than on foot so dives feel floaty. */
+const GLIDE_G = 16;
+/** Hands-off path angle: about 10:1, so calm air is a long, gentle glide. */
+const NEUTRAL_PITCH = -0.1;
+const MAX_DIVE = 0.62;
+const MAX_CLIMB = 0.55;
+/** Below this airspeed the nose drops and climbing is impossible. */
+const STALL = 7;
+/** Quadratic drag, tuned for a hands-off cruise near 14 m/s. */
+const DRAG = 0.0081;
+/** Extra push while Shift tucks the arms in. */
+const TUCK_PUSH = 4;
+const MAX_AIRSPEED = 42;
+/** Fraction of gravity and drag felt while climbing. */
+const ZOOM = 0.5;
+/** Upward m/s per m/s of headwind. */
+const HEADWIND_LIFT = 0.42;
 
 export class Player {
   readonly pos = new THREE.Vector3();
@@ -46,9 +74,11 @@ export class Player {
   private turn = 0;
   private dive = 0;
   private lift = 0;
+  private pitch = NEUTRAL_PITCH;
+  private tuck = 0;
   private readonly normal = new THREE.Vector3();
   private readonly state = {
-    motion: 'idle' as Motion, speed: 0, turn: 0, dive: 0, velocity: this.vel, wind: new THREE.Vector3(),
+    motion: 'idle' as Motion, speed: 0, turn: 0, dive: 0, tuck: 0, velocity: this.vel, wind: new THREE.Vector3(),
   };
 
   constructor(outline: boolean) {
@@ -68,8 +98,8 @@ export class Player {
   }
 
   private keepInWorld(): void {
-    this.pos.x = Math.max(-1000, Math.min(1000, this.pos.x));
-    this.pos.z = Math.max(-1000, Math.min(900, this.pos.z));
+    this.pos.x = Math.max(-EDGE, Math.min(EDGE, this.pos.x));
+    this.pos.z = Math.max(-EDGE, Math.min(EDGE, this.pos.z));
   }
 
   update(dt: number, time: number, input: Input, cameraYaw: number, wind: Wind): void {
@@ -168,7 +198,7 @@ export class Player {
         vel.y = 0;
         this.onSplash();
       } else {
-        this.tryGlide(wind, jump);
+        this.tryGlide(wind, jump, mag > 0.05);
       }
     } else if (this.mode === 'glide') {
       this.glide(dt, input, wind, jump);
@@ -197,6 +227,7 @@ export class Player {
     s.speed = horizontal;
     s.turn = this.turn;
     s.dive = this.dive;
+    s.tuck = this.mode === 'glide' ? this.tuck || 0 : 0;
     s.wind.copy(wind.velocity);
     if (this.mode === 'glide') s.motion = 'glide';
     else if (this.mode === 'swim') s.motion = 'swim';
@@ -215,35 +246,50 @@ export class Player {
     this.vel.y = 0;
     if (this.mode === 'glide') this.onGlide(false);
     this.mode = 'ground';
-    this.turn = this.dive = 0;
+    this.turn = this.dive = this.tuck = 0;
     if (impact > 11) this.landTimer = 0.24;
     this.onLand(impact);
   }
 
-  /** Jump from a height, roughly downwind, during a gust: the cloths catch the air. */
-  private tryGlide(wind: Wind, jump: boolean): void {
+  /**
+   * Open the cloths. No gust is needed any more: a jump press in the air opens
+   * them from a small hop, and falling from a height opens them on its own
+   * while steering (or at once inside a tailwind gust).
+   */
+  private tryGlide(wind: Wind, jump: boolean, steering: boolean): void {
     const { vel } = this;
     const speed = Math.hypot(vel.x, vel.z);
     const hx = speed > 1 ? vel.x / speed : Math.sin(this.yaw);
     const hz = speed > 1 ? vel.z / speed : Math.cos(this.yaw);
     this.alignment = hx * wind.dir.x + hz * wind.dir.y;
-    if (wind.gust < 0.35 || this.alignment < ALIGN) return;
-    // High enough: either well clear of the ground, or jumping off a slope
-    // with the land dropping away in front.
-    const below = this.pos.y - this.clearance;
-    const drop = below - heightAt(this.pos.x + hx * 10, this.pos.z + hz * 10);
-    if (this.clearance < MIN_GLIDE_HEIGHT && !(this.clearance > MIN_LEAP_HEIGHT && drop > 0.9)) return;
-    // Automatic once falling; the jump button can also open the cloths early.
-    if (!(vel.y < -0.5 && this.glideLock <= 0) && !jump) return;
+    const manual = jump && this.clearance > MIN_TAKEOFF_HEIGHT;
+    if (!manual) {
+      if (this.glideLock > 0 || vel.y > -0.5) return;
+      const below = this.pos.y - this.clearance;
+      const drop = below - heightAt(this.pos.x + hx * 10, this.pos.z + hz * 10);
+      if (this.clearance < MIN_GLIDE_HEIGHT && !(this.clearance > MIN_LEAP_HEIGHT && drop > 0.9)) return;
+      const tailGust = wind.gust > 0.35 && this.alignment > ALIGN;
+      if (!steering && !tailGust) return;
+    }
     this.mode = 'glide';
     this.yaw = Math.atan2(hx, hz);
-    this.glideSpeed = Math.max(speed, 8);
-    // The gust takes hold at once; otherwise the first second is a plunge.
-    this.lift = wind.gust * sstep(0.05, 0.75, this.alignment);
+    // Airspeed carries over from the run-up; a running jump is enough to fly.
+    this.glideSpeed = Math.max(speed, 9);
+    this.pitch = NEUTRAL_PITCH;
+    this.tuck = 0;
+    this.lift = 0;
     this.glideTime = 0;
+    // Snapping the cloths open on purpose catches a breath of air: a small take-off kick.
+    if (manual) vel.y = Math.max(vel.y, 4.5);
     this.onGlide(true);
   }
 
+  /**
+   * Energy glide. Airspeed and height trade against each other: pitch down to
+   * build speed, pull up to spend it on height. Wind then moves the whole air
+   * mass: a tailwind carries you fast over the ground, a headwind slows you
+   * but its updraft over the cloths lifts you quickly.
+   */
   private glide(dt: number, input: Input, wind: Wind, jump: boolean): void {
     const { pos, vel } = this;
     const WATER_LEVEL = waterLevelAt(pos.x, pos.z);
@@ -251,25 +297,52 @@ export class Player {
     this.glideTime += dt;
     this.turn += (input.moveX - this.turn) * ease;
     // Forward is usually still held from the run-up, so pitch input eases in.
-    this.dive += (input.moveY * Math.min(1, this.glideTime / 1.2) - this.dive) * ease;
-    // Turning right swings the heading clockwise seen from above.
-    this.yaw -= this.turn * 1.25 * dt;
+    this.dive += (input.moveY * Math.min(1, this.glideTime / 0.8) - this.dive) * ease;
+    // Shift tucks the arms in a little: less drag, more speed, a bit more sink.
+    const boost = !!input.boost;
+    this.tuck += ((boost ? 1 : 0) - this.tuck) * (1 - Math.exp(-dt * 5));
+    // Turning right swings the heading clockwise seen from above; tucked arms turn less sharply.
+    this.yaw -= this.turn * (1.35 - this.tuck * 0.35) * dt;
     const hx = Math.sin(this.yaw);
     const hz = Math.cos(this.yaw);
     this.alignment = hx * wind.dir.x + hz * wind.dir.y;
 
-    // The gust carries you while you stay with it; turn away and you sink.
-    const lift = wind.gust * sstep(0.05, 0.75, this.alignment);
-    this.lift += (lift - this.lift) * (1 - Math.exp(-dt * 2));
-    const diving = Math.max(0, this.dive);
-    const flaring = Math.max(0, -this.dive);
-    const targetSpeed = 10.5 + this.lift * 3.5 + diving * 4.5 - flaring * 4;
-    this.glideSpeed += (targetSpeed - this.glideSpeed) * (1 - Math.exp(-dt * 1.4));
-    let sink = 1.0 + (1 - this.lift) * 5.2 + diving * 2.6 - flaring * 0.6 * sstep(7, 11, this.glideSpeed);
-    if (this.glideSpeed < 7.5) sink += (7.5 - this.glideSpeed) * 1.6;
-    vel.y += (-Math.max(0.5, sink) - vel.y) * (1 - Math.exp(-dt * 3));
-    vel.x = hx * this.glideSpeed + wind.velocity.x * 0.12;
-    vel.z = hz * this.glideSpeed + wind.velocity.z * 0.12;
+    // Flight path angle: W noses down, S pulls up. Too slow and the nose drops (stall).
+    const V = this.glideSpeed;
+    const climbLimit = NEUTRAL_PITCH + (MAX_CLIMB - NEUTRAL_PITCH) * sstep(STALL, STALL + 9, V);
+    let wanted = NEUTRAL_PITCH;
+    if (this.dive > 0) wanted -= this.dive * MAX_DIVE;
+    else wanted += -this.dive * (MAX_CLIMB - NEUTRAL_PITCH);
+    wanted = Math.min(wanted, climbLimit);
+    if (V < STALL) wanted = Math.min(wanted, NEUTRAL_PITCH - 0.35 * (1 - V / STALL));
+    this.pitch += (wanted - this.pitch) * (1 - Math.exp(-dt * 3));
+    const sinP = Math.sin(this.pitch);
+    const cosP = Math.cos(this.pitch);
+
+    // Speed: gravity along the path, drag against it, a little push while tucked.
+    // Pulling up out of a dive is a zoom: the cloths turn speed into height
+    // efficiently, so a dive-and-pull nearly wins back what the dive spent.
+    const zoom = this.pitch > 0 ? ZOOM : 1;
+    const drag = DRAG * (1 - this.tuck * 0.4) * zoom;
+    const accel = -GLIDE_G * sinP * zoom - drag * V * V + this.tuck * TUCK_PUSH;
+    this.glideSpeed = Math.max(4, Math.min(MAX_AIRSPEED, V + accel * dt));
+
+    // Wind relative to the heading: + is a tailwind, - a headwind.
+    const along = wind.velocity.x * hx + wind.velocity.z * hz;
+    const sideX = wind.velocity.x - along * hx;
+    const sideZ = wind.velocity.z - along * hz;
+    const head = Math.max(0, -along);
+    // Headwind slows the ground track (never pushing you backwards); tailwind adds in full.
+    const carry = along >= 0 ? along : along * 0.55;
+    // Headwind banks up under the cloths; spread arms catch more of it.
+    const updraft = head * HEADWIND_LIFT * (1 - this.tuck * 0.5) * sstep(5, 10, this.glideSpeed);
+    this.lift += (updraft - this.lift) * (1 - Math.exp(-dt * 2));
+
+    const track = this.glideSpeed * cosP + carry;
+    vel.x = hx * track + sideX * 0.5;
+    vel.z = hz * track + sideZ * 0.5;
+    const targetY = this.glideSpeed * sinP + this.lift - this.tuck * 0.3;
+    vel.y += (targetY - vel.y) * (1 - Math.exp(-dt * 4));
 
     const beforeX = pos.x;
     const beforeZ = pos.z;
@@ -277,25 +350,26 @@ export class Player {
     pos.addScaledVector(vel, dt);
     const blocked = resolveWalls(pos, RADIUS, pos.y, pos.y + 0.9, 0.3);
     this.keepInWorld();
-    const ground = supportHeight(pos.x, pos.z, Math.max(beforeY, pos.y) + 0.05, 0);
-    this.clearance = pos.y - ground;
-    if (pos.y <= ground) {
-      this.land(ground);
+    const support = supportHeight(pos.x, pos.z, Math.max(beforeY, pos.y) + 0.05, 0);
+    this.clearance = pos.y - support;
+    if (pos.y <= support) {
+      this.land(support);
       return;
     }
     if (pos.y < WATER_LEVEL - 0.6 && heightAt(pos.x, pos.z) < WATER_LEVEL - 1.25) {
       this.mode = 'swim';
-      this.turn = this.dive = 0;
+      this.turn = this.dive = this.tuck = 0;
       this.onGlide(false);
       this.onSplash();
       return;
     }
     // Flying into a wall, or choosing to drop, folds the cloths.
-    const stalled = blocked && Math.hypot(pos.x - beforeX, pos.z - beforeZ) < this.glideSpeed * dt * 0.4;
+    const moved = Math.hypot(pos.x - beforeX, pos.z - beforeZ);
+    const stalled = blocked && moved < Math.hypot(vel.x, vel.z) * dt * 0.4;
     if (jump || stalled) {
       this.mode = 'air';
       this.glideLock = 1.2;
-      this.turn = this.dive = 0;
+      this.turn = this.dive = this.tuck = 0;
       vel.x *= 0.5;
       vel.z *= 0.5;
       this.onGlide(false);
@@ -307,6 +381,6 @@ export class Player {
   }
 
   get speed(): number {
-    return this.mode === 'glide' ? this.glideSpeed : Math.hypot(this.vel.x, this.vel.z);
+    return Math.hypot(this.vel.x, this.vel.z);
   }
 }

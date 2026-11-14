@@ -128,6 +128,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
       uHeavy: { value: quality.tier !== 'low' && context.heavy ? 1 : 0 },
       uInverseProjection: { value: camera.projectionMatrixInverse },
       uCameraWorld: { value: camera.matrixWorld }, uFog: { value: new THREE.Color() },
+      uFogSun: { value: new THREE.Color(0xfff0d2) }, uSunDir: { value: sunDir },
     },
     vertexShader, fragmentShader,
   });
@@ -135,6 +136,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
   look.uniforms.uTime = shared.uTime;
   look.uniforms.uInverseProjection.value = camera.projectionMatrixInverse;
   look.uniforms.uCameraWorld.value = camera.matrixWorld;
+  look.uniforms.uSunDir.value = sunDir;
   look.material.depthTest = look.material.depthWrite = false;
   look.material.toneMapped = false;
   composer.addPass(new RenderPass(scene, camera));
@@ -197,7 +199,8 @@ export function createPipeline(context: StyleContext): StylePipeline {
       hemisphere.groundColor.set(preset.hemisphere[1]);
       hemisphere.intensity = preset.hemisphere[2];
       sunDir.set(...preset.direction).normalize();
-      scene.fog = new THREE.Fog(preset.fog[0], preset.fog[1], Math.min(quality.viewRange, preset.fog[2]));
+      // The picture's own style veils distance in the post pass, where it can follow height and the sun.
+      scene.fog = name === 'cinematic' ? null : new THREE.Fog(preset.fog[0], preset.fog[1], Math.min(quality.viewRange, preset.fog[2]));
       look.uniforms.uFog.value.set(preset.fog[0]);
       look.uniforms.uGrade.value.set(...preset.grade);
       const post = preset.post;

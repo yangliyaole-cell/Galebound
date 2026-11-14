@@ -7,10 +7,16 @@ import { blossomTexture, leafTexture, needleTexture } from '../render/textures';
 import { addRound, surfaceTop } from './colliders';
 import { foliageMaterial, leafCards, type Part } from './foliage';
 import { heightAt, normalAt, sstep } from './heightmap';
-import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, inPolygon, cityRadiusAt } from './layout';
-import { blossomDensity, forestDensity } from './maps';
+import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, cityRadiusAt } from './layout';
+import { blossomDensity, fieldAt, forestDensity } from './maps';
 import { fbm, seededRandom } from './noise';
-import { waterLevelAt } from './mountain-layout';
+import { Forest } from './flora/forest';
+import type { TreeKind } from './flora/tree-models';
+
+/** Trees are grown and drawn by the forest; this size factor converts the old planting scales. */
+const TREE_SIZE: Record<TreeKind, number> = { oak: 0.8, great: 0.62, blossom: 0.9, cypress: 0.72, pine: 0.75 };
+import { waterLevelAt as surfaceAt } from './heightmap';
+const waterLevelAt = (x: number, z: number): number => Math.max(0, surfaceAt(x, z));
 
 function finish(geo: THREE.BufferGeometry, colors: number[], leaf: number): THREE.BufferGeometry {
   const g = geo.index ? geo.toNonIndexed() : geo;
@@ -85,23 +91,52 @@ function cone(radius: number, height: number, y: number, sides: number, shade: n
   return finish(g, colors, 1);
 }
 
+/**
+ * A boulder: a dense sphere cut by a handful of planes, as real stone breaks
+ * along its joints. Each cut leaves a nearly flat face with a softly rounded
+ * edge; small noise roughens the faces; the base is flattened and buried.
+ */
 function rockGeometry(detail: number, seed: number): THREE.BufferGeometry {
-  const g = new THREE.IcosahedronGeometry(1, detail);
+  const g = new THREE.IcosahedronGeometry(1, detail > 0 ? 5 : 2);
   const pos = g.attributes.position;
+  const rand = seededRandom(seed * 977 + 13);
+  const planes: { n: THREE.Vector3; d: number }[] = [];
+  for (let k = 0; k < 9; k++) {
+    const n = new THREE.Vector3(rand() - 0.5, (rand() - 0.5) * 1.4 + 0.25, rand() - 0.5).normalize();
+    planes.push({ n, d: 0.55 + rand() * 0.3 });
+  }
   const v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i);
-    const k = 0.7 + 0.6 * fbm(v.x * 1.6 + v.y * 2.2 + seed, v.z * 1.6 - v.y * 1.9 + seed, 2);
-    pos.setXYZ(i, v.x * k, Math.max(-0.35, v.y * k * 0.75), v.z * k);
+    // Stretch to an irregular block first.
+    v.set(v.x * 1.25, v.y * 0.85, v.z);
+    // Soft clamp onto each joint plane: smooth-min keeps the edges from going razor sharp.
+    for (const p of planes) {
+      const over = v.dot(p.n) - p.d;
+      const k = 0.09;
+      const soft = over > -k ? (over + k) * (over + k) / (4 * k) : 0;
+      if (soft > 0) v.addScaledVector(p.n, -Math.min(soft, over + k));
+    }
+    const grain = (fbm(v.x * 5 + seed, v.z * 5 + v.y * 3, 3) - 0.5) * 0.06 + (fbm(v.x * 13 - seed, v.y * 13 + v.z, 2) - 0.5) * 0.02;
+    v.multiplyScalar(1 + grain);
+    v.y = Math.max(-0.3, v.y);
+    pos.setXYZ(i, v.x, v.y, v.z);
   }
   g.computeVertexNormals();
   const nor = g.attributes.normal;
   const colors: number[] = [];
   for (let i = 0; i < pos.count; i++) {
-    // Moss gathers on the top faces.
-    const moss = sstep(0.55, 0.9, nor.getY(i)) * sstep(0.45, 0.6, fbm(pos.getX(i) * 2, pos.getZ(i) * 2 + seed, 2));
-    const base = 0.82 + 0.18 * nor.getY(i);
-    colors.push(base * (1 - moss * 0.35), base * (1 - moss * 0.05), base * (1 - moss * 0.5));
+    // Moss and lichen on the tops; darker, damp stone near the ground; streaks where rain runs off.
+    const up = nor.getY(i), y = pos.getY(i);
+    const patch = sstep(0.42, 0.62, fbm(pos.getX(i) * 2.2 + seed, pos.getZ(i) * 2.2 - seed, 3));
+    const moss = sstep(0.45, 0.85, up) * patch;
+    const lichen = sstep(0.62, 0.7, fbm(pos.getX(i) * 9 + seed, pos.getZ(i) * 9 + y * 4, 2)) * 0.5;
+    const damp = 1 - 0.28 * sstep(0.1, -0.3, y);
+    const streak = 1 - 0.12 * sstep(0.55, 0.75, fbm(pos.getX(i) * 4 + pos.getZ(i) * 4, y * 0.6 + seed, 2)) * (1 - up);
+    const base = (0.8 + 0.2 * up) * damp * streak;
+    let r = base, gg = base * 0.98, bb = base * 0.94;
+    r = r * (1 - moss * 0.62) + lichen * 0.12; gg = gg * (1 - moss * 0.12) + lichen * 0.1; bb = bb * (1 - moss * 0.82) + lichen * 0.04;
+    colors.push(r, gg, bb);
   }
   return finish(g, colors, 1);
 }
@@ -295,14 +330,16 @@ interface Batch {
   tree: boolean;
 }
 
-export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunDir: THREE.Vector3): {
+export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunDir: THREE.Vector3,
+  stage?: { renderer: THREE.WebGLRenderer; sun: THREE.DirectionalLight; hemisphere: THREE.HemisphereLight }): {
   object: THREE.Group;
   update: (camera: THREE.Vector3) => void;
   stats: () => { tiers: number[]; trees: number[]; blended: number; total: number; allocatedInstances: number };
 } {
   const low = quality.tier === 'low';
   const species = makeSpecies(low ? 0 : quality.tier === 'high' ? 2 : 1);
-  const names = Object.keys(species);
+  const forest = new Forest();
+  const names = Object.keys(species).filter((name) => !(name in TREE_SIZE));
   const lists = new Map<string, Instance[][]>();
   for (const name of names) lists.set(name, Array.from({ length: REGIONS * REGIONS }, () => []));
 
@@ -313,6 +350,12 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
     if (ri < 0 || rj < 0 || ri >= REGIONS || rj >= REGIONS) return;
     const s = species[name];
     const y = heightAt(x, z) - sink * scale;
+    if (name in TREE_SIZE) {
+      pick();
+      forest.plant(name as TreeKind, x, y + sink * scale - 0.05, z, scale * TREE_SIZE[name as TreeKind]);
+      addRound(x, z, s.trunkRadius * scale, y + s.trunkHeight * scale);
+      return;
+    }
     lists.get(name)![rj * REGIONS + ri].push({
       x, y, z, sx: scale, sy: scale * squash,
       tint: s.tints[Math.floor(pick() * s.tints.length)],
@@ -330,7 +373,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
     Math.hypot(x - ABBEY.x, z - ABBEY.z) > 70 &&
     roadClearance(x, z) > 1.2 && !insideCity(x, z) &&
     !PLAZAS.some(([px, pz, r]) => Math.hypot(x - px, z - pz) < r + 2) &&
-    !fields.some((p) => inPolygon(x, z, p)) &&
+    !fieldAt(x, z) &&
     surfaceTop(x, z) - heightAt(x, z) < 0.05 && surfaceTop(x + 2, z + 2) - heightAt(x + 2, z + 2) < 0.05 &&
     surfaceTop(x - 2, z - 2) - heightAt(x - 2, z - 2) < 0.05;
 
@@ -348,7 +391,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
       if (heightAt(x, z) > waterLevelAt(x, z) + 1 && clear(x, z)) place('rock', x, z, 0.7 + rand() * 1.5, 0.65);
     }
   }
-  const STEP = 8;
+  const STEP = 7;
   for (let gz = -HALF + 12; gz < HALF - 12; gz += STEP) {
     for (let gx = -HALF + 12; gx < HALF - 12; gx += STEP) {
       const x = gx + (rand() - 0.5) * STEP * 0.9;
@@ -364,9 +407,9 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
         continue;
       }
       const density = forestDensity(x, z);
-      if (roll > density * 0.8) continue;
+      if (roll > density * 0.97) continue;
       const deep = 1 - sstep(0.6, 1, Math.hypot(x - FOREST.x, z - FOREST.z) / FOREST.r);
-      const high = sstep(55, 100, h) + (z < -800 || (x < -500 && z < -340) ? 0.9 : 0);
+      const high = sstep(300, 520, h);
       let name = 'oak';
       if (kind < high + deep * 0.25) name = 'pine';
       else if (kind > 0.86 - deep * 0.06) name = 'cypress';
@@ -374,6 +417,26 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
       place(name, x, z, scale);
     }
   }
+
+  // Hedgerows: most parcel boundaries carry a line of small trees and scrub.
+  FIELDS.forEach((f, fi) => {
+    const poly = fields[fi];
+    for (let e = 0; e < poly.length; e++) {
+      if (!f.scenic && e >= 4) continue;
+      if (rand() > (f.scenic ? 0.62 : 0.35)) continue;
+      const a = poly[e], c = poly[(e + 1) % poly.length], len = Math.hypot(c[0] - a[0], c[1] - a[1]);
+      const nx = (c[1] - a[1]) / len, nz = -(c[0] - a[0]) / len;
+      const outward = Math.sign((a[0] - f.x) * nx + (a[1] - f.z) * nz) || 1;
+      for (let d = 3 + rand() * 4; d < len - 2; d += 4.5 + rand() * 6) {
+        const x = a[0] + (c[0] - a[0]) * d / len + nx * outward * (2.2 + rand() * 1.6);
+        const z = a[1] + (c[1] - a[1]) * d / len + nz * outward * (2.2 + rand() * 1.6);
+        const size = rand();
+        if (heightAt(x, z) < waterLevelAt(x, z) + 1 || !clear(x, z)) continue;
+        if (size < 0.42) place('bush', x, z, 1 + size * 2.2, 0.9, 0.1);
+        else place(size > 0.93 ? 'cypress' : 'oak', x, z, 0.55 + size * 0.55);
+      }
+    }
+  });
 
   // Cypress dotted around the village and the city approach, as in the painting.
   for (let i = 0; i < 260; i++) {
@@ -480,11 +543,14 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
     const tris = (g: THREE.BufferGeometry | null | undefined): number => g ? (g.index?.count ?? g.attributes.position?.count ?? 0) / 3 : 0;
     return [name, { placed: lists.get(name)!.reduce((n, list) => n + list.length, 0), triangles: low ? [0, 0, tris(s.lo)] : [tris(s.hi) + tris(s.cards), tris(s.mid ?? s.hi) + tris(s.midCards), tris(s.lo)], cards: low ? [0, 0, 0] : [tris(s.cards) / 2, tris(s.midCards) / 2, 0] }];
   }));
+  // Headless checks have no renderer: trees are still planted and collide, but are not drawn.
+  if (stage) group.add(forest.build(stage.renderer, stage.sun, stage.hemisphere, sunDir, low ? 0 : quality.tier === 'high' ? 2 : 1));
   const previous = new THREE.Vector3(Infinity, Infinity, Infinity);
   return {
     object: group,
     stats: () => ({ ...stats, tiers: [...stats.tiers], trees: [...stats.trees] }),
     update: (camera) => {
+      forest.update(camera);
       if (previous.distanceToSquared(camera) < 0.25) return;
       previous.copy(camera);
       stats.tiers.fill(0); stats.trees.fill(0); stats.blended = 0;

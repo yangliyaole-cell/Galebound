@@ -37,6 +37,8 @@ export const fragmentShader = /* glsl */ `
   uniform mat4 uInverseProjection;
   uniform mat4 uCameraWorld;
   uniform vec3 uFog;
+  uniform vec3 uFogSun;
+  uniform vec3 uSunDir;
   varying vec2 vUv;
 
   float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -112,8 +114,17 @@ export const fragmentShader = /* glsl */ `
       col.b = mix(col.b, colorAt(uv - radial).b, 0.24);
       vec4 viewP = uInverseProjection * vec4(uv * 2.0 - 1.0, rawDepth * 2.0 - 1.0, 1.0);
       vec3 worldP = (uCameraWorld * vec4(viewP.xyz / viewP.w, 1.0)).xyz;
-      float mist = (1.0 - exp(-z * uAtmosphere.x)) * exp(-max(worldP.y, 0.0) * uAtmosphere.y);
-      col = mix(col, uFog, min(uAtmosphere.z, mist) * step(rawDepth, 0.99999));
+      // Aerial perspective: thin blue air everywhere, plus mist that pools in the valleys.
+      // Both are integrated along the sight line, so far ridges pale layer by layer.
+      vec3 eyeP = uCameraWorld[3].xyz;
+      vec3 sight = worldP - eyeP;
+      float reach = length(sight);
+      float fall = uAtmosphere.y * sight.y;
+      float pooled = uAtmosphere.x * exp(-uAtmosphere.y * eyeP.y) * (abs(fall) > 1e-4 ? (1.0 - exp(-fall)) / fall : 1.0);
+      float veil = 1.0 - exp(-reach * (uAtmosphere.z + pooled));
+      float toSun = max(dot(sight / max(reach, 1e-3), uSunDir), 0.0);
+      vec3 air = mix(uFog, uFogSun, pow(toSun, 5.0) * 0.7);
+      col = mix(col, air, veil * step(rawDepth, 0.99999));
       float tone = smoothstep(0.07, 0.72, luma(col));
       vec3 shadowTint = uSplitShadow / max(luma(uSplitShadow), 0.01);
       vec3 lightTint = uSplitLight / max(luma(uSplitLight), 0.01);

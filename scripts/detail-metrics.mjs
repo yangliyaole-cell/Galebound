@@ -8,28 +8,31 @@ export function collisionDigest(colliders) {
   ]))).digest('hex');
 }
 
-/** Ground-relative views remain identical before/after for each terrain quality. */
+/** Ground-relative views around the layout's own anchors, so they follow the map. */
 export function reviewViews(L, H) {
   const ground = (x, z, up) => [x, H.heightAt(x, z) + up, z];
-  const gate = L.SOUTH_GATE, cityY = H.heightAt(L.CITY.x, L.CITY.z);
+  const gate = L.SOUTH_GATE, cityY = H.heightAt(L.CITY.x, L.CITY.z), S = L.START, C = L.CITY, F = L.FOREST;
   return [
-    { name: 'spawn', eye: ground(0, 100, 2.5), target: [120, 130, -640] },
-    { name: 'tree-near', eye: ground(-2, 104, 3.5), target: [-9, H.heightAt(-9, 97) + 12, 97] },
-    { name: 'forest', eye: ground(-380, 240, 7), target: ground(-470, 195, 10) },
+    { name: 'spawn', eye: ground(S.x, S.z, 2.5), target: [C.x, cityY - 20, C.z] },
+    { name: 'tree-near', eye: ground(S.x - 2, S.z + 4, 3.5), target: [S.x - 9, H.heightAt(S.x - 9, S.z - 3) + 12, S.z - 3] },
+    { name: 'forest', eye: ground(F.x + 50, F.z + 20, 7), target: ground(F.x - 40, F.z - 25, 10) },
     { name: 'city-wall', eye: ground(gate.x + 12, gate.z + 24, 2.4), target: [gate.x, H.heightAt(gate.x, gate.z) + 5, gate.z] },
-    { name: 'palace', eye: [132, cityY + 12, -586], target: [120, cityY + 34, -640] },
-    { name: 'aerial', eye: [120, 430, -210], target: [120, 115, -640] },
+    { name: 'palace', eye: [C.x + 12, cityY + 12, C.z + 54], target: [C.x, cityY + 34, C.z] },
+    { name: 'aerial', eye: [C.x, cityY + 330, C.z + 430], target: [C.x, cityY, C.z] },
   ];
 }
 
 export function screenshotViews(L, H) {
+  const S = L.START, at = (dx, dz) => [S.x + dx, S.z + dz];
+  const [tx, tz] = at(-9, -3), [ex, ez] = at(4.8, 4.4), [rx, rz] = at(6.5, 2), [qx, qz] = at(4.8, -3.2);
+  const [wx, wz] = at(-42.43, -46.31), [vx, vz] = at(-47.4, -43.3333333333);
   return [
     ...reviewViews(L, H).map(view => view.name === 'tree-near' ? {
-      name: 'tree-near', eye: [4.8, H.heightAt(-9,97) - 0.65 + 8.5, 104.4],
-      target: [-9, H.heightAt(-9,97) - 0.65 + 9.1, 97], fov: 76,
+      name: 'tree-near', eye: [ex, H.heightAt(tx, tz) - 0.65 + 8.5, ez],
+      target: [tx, H.heightAt(tx, tz) - 0.65 + 9.1, tz], fov: 76,
     } : view),
-    { name: 'rubble-close', eye: [6.5, H.heightAt(6.5,102)+1.8, 102], target: [4.8, H.heightAt(4.8,96.8)+0.95, 96.8] },
-    { name: 'dry-wall-close', eye: [-42.43, Math.max(H.heightAt(-42.43,53.69)+1.9,H.heightAt(-47.4,56.6666666667)+2.5), 53.69], target: [-47.4, H.heightAt(-47.4,56.6666666667)+1.25, 56.6666666667] },
+    { name: 'rubble-close', eye: [rx, H.heightAt(rx, rz) + 1.8, rz], target: [qx, H.heightAt(qx, qz) + 0.95, qz] },
+    { name: 'dry-wall-close', eye: [wx, Math.max(H.heightAt(wx, wz) + 1.9, H.heightAt(vx, vz) + 2.5), wz], target: [vx, H.heightAt(vx, vz) + 1.25, vz] },
   ];
 }
 
