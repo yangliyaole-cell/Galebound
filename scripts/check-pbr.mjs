@@ -212,7 +212,7 @@ try {
       const grass=createGrass(4,6,1,new THREE.Texture());
       for(const [index,layer] of grass.children.slice(0,2).entries()){
         const shader=compile(layer.material);
-        assert.equal(shader.uniforms.uPbrContact,materials.pbrUniforms.uPbrContact);
+        assert.ok(shader.uniforms.uPbrContact===materials.pbrUniforms.uPbrContact,'grass does not share the contact map uniform');
         assert.ok(shader.vertexShader.includes('groundRoadShoulder'));
         assert.ok(shader.vertexShader.includes('smoothstep(.78,.96,texture2D(uPbrContact'));
         balanced(shader.vertexShader);resolve(shader.vertexShader);

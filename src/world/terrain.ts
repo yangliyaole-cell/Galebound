@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from '../render/glsl';
 import { shared } from '../render/uniforms';
+import { pbrUniforms } from '../render/pbr/material';
 import { grid } from './heightmap';
 import { MACRO_HALF } from './gen/macro';
 import { HALF, SIZE } from './layout';
@@ -31,10 +32,18 @@ export const GROUND_GLSL = /* glsl */ `
   uniform vec3 uCobble;
   uniform vec3 uSoil;
   uniform float uSnowLine;
+  uniform float uPbrActive;
+  uniform sampler2D uPbrContact;
   ${NOISE_GLSL}
   ${CLOUD_GLSL}
   ${ABBEY_GROUND_MASK_GLSL}
   vec2 worldUv(vec2 xz) { return xz / ${SIZE.toFixed(1)} + 0.5; }
+  // Shared by the land and the grass: a worn, trampled strip along the edge of each track.
+  float groundRoadShoulder(vec2 xz, float coverage) {
+    float edge = smoothstep(.04, .23, coverage) * (1.0 - smoothstep(.36, .62, coverage));
+    float traffic = smoothstep(.32, .68, gNoise(xz * vec2(.9, 2.7) + 17.0));
+    return edge * traffic;
+  }
   float insideWorld(vec2 xz) { return step(max(abs(xz.x), abs(xz.y)), ${(HALF - 1).toFixed(1)}); }
 
   vec3 grassColor(vec2 xz, vec3 biome, float broad, float fine) {
@@ -111,6 +120,11 @@ export const GROUND_GLSL = /* glsl */ `
 
     g.grassAmount = (1.0 - g.road) * (1.0 - g.cobble) * (1.0 - g.field) * (1.0 - g.sand) * (1.0 - g.rock) * (1.0 - g.snow)
       * (1.0 - alpine * 0.85) * inside * abbeyGroundMask(wp.xz);
+    if (uPbrActive > .5) {
+      g.grassAmount *= 1.0 - groundRoadShoulder(wp.xz, splat.r) * .65;
+      // Grass must not grow through collider-backed boulders, foundations or paving.
+      g.grassAmount *= 1.0 - smoothstep(.78,.96,texture2D(uPbrContact, uv).r);
+    }
     g.color = col;
     return g;
   }
@@ -144,6 +158,8 @@ export const groundUniforms = {
   uCobble: { value: new THREE.Color(0xb9b3a4) },
   uSoil: { value: new THREE.Color(0x8a6a48) },
   uSnowLine: { value: 1500 },
+  uPbrActive: pbrUniforms.uPbrActive,
+  uPbrContact: pbrUniforms.uPbrContact,
   uCloudDrift: shared.uCloudDrift,
 };
 
