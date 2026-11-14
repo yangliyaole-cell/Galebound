@@ -4,7 +4,8 @@ import { SUN_DIRECTION } from '../glsl';
 export const cinematic: StylePreset = {
   id: 2,
   sun: [0xffdfad, 4.9],
-  hemisphere: [0x9ec4ee, 0x7f9f6c, 1.5],
+  // Sky fill above, sunlit earth below: bounce light is warm, not grass-green.
+  hemisphere: [0xb2cbe8, 0xa08c68, 1.3],
   direction: SUN_DIRECTION,
   fog: [0xa3c6ea, 600, 22000],
   sky: [0x1859c2, 0x4a97e6, 0xbcd6ec, 0x8fa9cf],

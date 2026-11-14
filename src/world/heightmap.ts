@@ -27,7 +27,7 @@ function detailHeight(x: number, z: number): number {
     const a = Math.atan2(z - CITY.z, x - CITY.x);
     const edge = cityRadiusAt(a), out = r - edge;
     const q = cityTerraceMetric(x, z);
-    const steps = CITY_TERRACE_EDGES.reduce((sum, t) => sum + sstep(t - 0.028, t + 0.028, Math.min(q, 1)), 0);
+    const steps = CITY_TERRACE_EDGES.reduce((sum, t) => sum + sstep(t - 0.055, t + 0.055, Math.min(q, 1)), 0);
     const ridge = (Math.sin(a * 2 + 0.5) * 2.2 + Math.cos(a * 5) * 1.1) * sstep(92, 140, r);
     let shelf = CITY.top + 5 - steps * CITY.step + ridge;
     if (out > 0) {

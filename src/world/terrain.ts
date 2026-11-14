@@ -283,15 +283,17 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
           landCol *= 1.0 + turf * 0.4 * soft * midK;
           landCol += vec3(0.05, 0.045, -0.02) * max(turf, 0.0) * soft * midK;
           float stones = (d1.g - 0.5) * nearK + (d2.g - 0.5) * 0.6;
-          float hard = max(ground.road, max(ground.sand, ground.cobble));
+          float hard = max(ground.road * (1.0 - ground.cobble), ground.sand);
           landCol *= 1.0 + stones * 0.55 * hard * midK;
           float crack = mix(d2.b, c1.b, smoothstep(0.75, 0.5, landN.y)) * 0.6 + c2.b * 0.6 - 0.6;
           landCol *= 1.0 + crack * 0.75 * ground.rock * midK;
-          // Paving: staggered setts with dark joints, only where it can be resolved.
-          vec2 q = vLand.xz * 1.5; q.x += floor(q.y) * 0.5;
+          // Paving: small staggered setts, each a slightly different stone, with dark joints.
+          vec2 q = vLand.xz * vec2(3.4, 4.6); q.x += floor(q.y) * 0.5 + gHash(vec2(floor(q.y), 3.0)) * 0.4;
           vec2 f = fract(q) - 0.5;
-          float joint = smoothstep(0.36, 0.47, max(abs(f.x), abs(f.y))) * nearK * ground.cobble;
-          landCol = mix(landCol * (1.0 + (gHash(floor(q)) - 0.5) * 0.26 * nearK * ground.cobble), landCol * 0.55, joint);
+          float settAA = max(fwidth(q.x), fwidth(q.y));
+          float joint = smoothstep(0.42 - settAA, 0.48 + settAA, max(abs(f.x) * 0.98, abs(f.y))) * nearK * ground.cobble * (1.0 - smoothstep(0.25, 0.6, settAA));
+          float settTone = gHash(floor(q));
+          landCol = mix(landCol * (0.84 + 0.32 * settTone * nearK * ground.cobble + (1.0 - nearK * ground.cobble) * 0.16), landCol * 0.5, joint);
           landRelief = (turf * 0.05 * soft + stones * 0.06 * hard + crack * 0.5 * ground.rock - joint * 0.05) * nearK
             + crack * 1.6 * ground.rock * midK * (1.0 - nearK);
           landRough = mix(landRough, 0.82, ground.rock * 0.5 + ground.cobble * 0.4);

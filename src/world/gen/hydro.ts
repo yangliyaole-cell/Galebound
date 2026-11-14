@@ -179,14 +179,24 @@ export const RIVERS: River[] = [
 ];
 export const GALE = RIVERS[0];
 
-// Spatial index of river points, so a query only looks at nearby water.
+// Spatial index of river points, so a query only looks at nearby water. Bins are
+// 64 m over the whole sixteen kilometres; `nearby` marks every bin within three
+// bins of any river, so most queries far from water return at once.
 const BIN = 64;
-const bins = new Map<number, RiverPoint[]>();
-const binKey = (ix: number, iz: number): number => (ix + 512) * 1024 + (iz + 512);
+const SIDE = 256, OFFSET = 128;
+const bins: (RiverPoint[] | undefined)[] = new Array(SIDE * SIDE);
+const binIndex = (ix: number, iz: number): number =>
+  ix + OFFSET < 0 || iz + OFFSET < 0 || ix + OFFSET >= SIDE || iz + OFFSET >= SIDE ? -1 : (iz + OFFSET) * SIDE + ix + OFFSET;
 for (const river of RIVERS) for (const p of river.pts) {
-  const key = binKey(Math.floor(p.x / BIN), Math.floor(p.z / BIN));
-  const list = bins.get(key);
-  if (list) list.push(p); else bins.set(key, [p]);
+  const k = binIndex(Math.floor(p.x / BIN), Math.floor(p.z / BIN));
+  if (k < 0) continue;
+  (bins[k] ??= []).push(p);
+}
+const nearby = new Uint8Array(SIDE * SIDE);
+for (let k = 0; k < bins.length; k++) {
+  if (!bins[k]) continue;
+  const ix = k % SIDE, iz = (k - ix) / SIDE;
+  for (let j = Math.max(0, iz - 3); j <= Math.min(SIDE - 1, iz + 3); j++) for (let i = Math.max(0, ix - 3); i <= Math.min(SIDE - 1, ix + 3); i++) nearby[j * SIDE + i] = 1;
 }
 
 export interface RiverSample {
@@ -200,11 +210,14 @@ const sample: RiverSample = { distance: Infinity, found: false, level: 0, width:
 /** Nearest point of the river network within `reach` metres. The result object is reused. */
 export function nearestRiver(x: number, z: number, reach = 120): RiverSample {
   sample.distance = Infinity; sample.found = false;
-  const span = Math.ceil(reach / BIN);
   const ix = Math.floor(x / BIN), iz = Math.floor(z / BIN);
+  const home = binIndex(ix, iz);
+  if (reach <= BIN * 3 && (home < 0 || !nearby[home])) return sample;
+  const span = Math.ceil(reach / BIN);
   let best = reach * reach, point: RiverPoint | null = null;
   for (let j = iz - span; j <= iz + span; j++) for (let i = ix - span; i <= ix + span; i++) {
-    const list = bins.get(binKey(i, j));
+    const k = binIndex(i, j);
+    const list = k < 0 ? undefined : bins[k];
     if (!list) continue;
     for (const p of list) {
       const d = (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z);

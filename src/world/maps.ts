@@ -29,20 +29,24 @@ export function buildSplat(size: number): THREE.CanvasTexture {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Grass and small dirt/gravel patches between houses; only lanes and squares
-  // receive full cobbles. Keep this paint independent of building generation.
+  // Inside the walls the ground is trodden earth and worn setts, with a few
+  // gardens left green between the houses.
   ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
   ctx.beginPath();
   cityWallPolygon.forEach(([x, z], i) => i ? ctx.lineTo(px(x), px(z)) : ctx.moveTo(px(x), px(z)));
   ctx.closePath(); ctx.clip();
+  ctx.fillStyle = 'rgb(150,140,0)';
+  ctx.fillRect(0, 0, size, size);
   const rand = seededRandom(208);
-  for (let i = 0; i < 420; i++) {
-    const x = CITY.x + (rand() - 0.5) * 600, z = CITY.z + (rand() - 0.5) * 600, r = 3 + rand() * 5;
+  for (let i = 0; i < 160; i++) {
+    const x = CITY.x + (rand() - 0.5) * 600, z = CITY.z + (rand() - 0.5) * 600, r = 4 + rand() * 7;
     const g = ctx.createRadialGradient(px(x), px(z), 0, px(x), px(z), r * s);
-    g.addColorStop(0, `rgba(115,12,0,${0.5 + rand() * 0.4})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    g.addColorStop(0, 'rgba(0,0,0,0.95)'); g.addColorStop(0.7, 'rgba(0,0,0,0.6)'); g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g; ctx.fillRect(px(x - r), px(z - r), r * 2 * s, r * 2 * s);
   }
   ctx.restore();
+  ctx.globalCompositeOperation = 'lighter';
   ctx.fillStyle = 'rgb(0,255,0)';
   for (const [x, z, r] of PLAZAS) {
     ctx.beginPath();

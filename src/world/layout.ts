@@ -17,7 +17,7 @@ export const WORLD_MARGIN = 60;
 // distance, the walled city on its crag beyond, Cloudfall and the abbey on the
 // north-western scarp, and the glaciers behind them.
 export const START = { x: 0, z: 1250 };
-export const CITY = { x: 560, z: -380, wall: 195, hill: 345, plateau: 78, top: 152, base: 58, step: 10 };
+export const CITY = { x: 560, z: -380, wall: 195, hill: 345, plateau: 78, top: 152, base: 58, step: 7 };
 export const WINDMILL = { x: 940, z: 760 };
 export const LAKE = { x: -600, z: -180, rx: 195, rz: 128, level: 60 };
 export const ISLAND = { x: -634, z: -190 };

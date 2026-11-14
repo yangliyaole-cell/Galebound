@@ -51,6 +51,14 @@ const num = (key: string, fallback: number): number => {
   return Number.isFinite(value) ? value : fallback;
 };
 const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+/** Boot timings, in milliseconds per stage; logged once the world is ready. */
+const bootTimes: Record<string, number> = {};
+let bootMark = performance.now();
+const lap = (stage: string): void => {
+  const now = performance.now();
+  bootTimes[stage] = Math.round(now - bootMark);
+  bootMark = now;
+};
 
 async function boot(): Promise<void> {
   const quality = pickQuality();
@@ -87,12 +95,15 @@ async function boot(): Promise<void> {
   // ---- build the world, yielding so the title screen can show progress
   hud.loading('正在隆起山丘…');
   await nextFrame();
+  lap('start');
   buildHeightmap(quality.terrainCell);
+  lap('heightmap');
   const heightTex = createHeightTexture();
   groundUniforms.uSplat.value = buildSplat(quality.splatSize);
   groundUniforms.uFields.value = buildFields(Math.min(2048, quality.splatSize));
   // Far ridges shadow the valleys behind them; baked once for the picture's own sun.
   const landMaps = buildLandMaps(new THREE.Vector3(...cinematic.direction));
+  lap('land maps');
   groundUniforms.uBiome.value = buildBiome();
   groundUniforms.uDetail.value = groundDetailTexture();
 
@@ -116,7 +127,9 @@ async function boot(): Promise<void> {
 
   hud.loading('正在铺草、引水…');
   await nextFrame();
+  lap('sky');
   const terrain = createTerrain(heightTex, landMaps, quality.terrainSplit);
+  lap('terrain');
   scene.add(terrain.object);
   scene.add(createWater(heightTex, sunDir, HORIZON_COLOR));
   const grass = createGrass(quality.grassNear, quality.grassFar, quality.flowers, heightTex);
@@ -127,17 +140,21 @@ async function boot(): Promise<void> {
   await nextFrame();
   const detail = quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0;
   setStructureDetail(detail);
+  lap('water and grass');
   const village = buildVillage(detail);
   const landmarks = buildLandmarks();
   scene.add(village.object, landmarks.object);
   await nextFrame();
+  lap('village and landmarks');
   const city = buildCity(detail);
+  lap('city');
   scene.add(city.object, createFlags(city.flags), buildAbbey());
   scene.add(buildCrops(detail === 0 ? 0.4 : 1, toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.05, doubleSided: true })));
 
   hud.loading('正在种树…');
   await nextFrame();
   const scatter = createScatter(quality, sunDir, { renderer, sun, hemisphere });
+  lap('trees and props');
   scene.add(scatter.object);
 
   hud.loading('正在藏起光点…');
@@ -159,6 +176,7 @@ async function boot(): Promise<void> {
     hud.loading('正在整理旅人的行装…');
     await nextFrame();
     await player.character.loadModel();
+    lap('hero');
     player.character.rig.setMaskVisible?.(params.get('mask') !== 'off');
   }
   scene.add(player.character.root, player.character.cloth);
@@ -377,7 +395,11 @@ async function boot(): Promise<void> {
       if (!shotState.assetsReady) throw new Error('Detailed soft cape asset did not load');
     }
     // Construction and GLTF textures have completed. Wait for scene programs before render warmup.
+    lap('styles and lighting');
     await renderer.compileAsync(scene, camera);
+    lap('shaders');
+    console.info('Galebound boot (ms)', JSON.stringify(bootTimes));
+    debugWindow.__galeBootTimes = bootTimes;
     shotState.shadersReady = true;
   }
 
