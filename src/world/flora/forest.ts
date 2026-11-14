@@ -16,8 +16,8 @@ const KINDS: Record<TreeKind, { variants: number; spray: keyof typeof sprayTextu
   oak: { variants: 3, spray: 'leaf', tints: [0x4a8f36, 0x5b9f3c, 0x3f7f33, 0x6aa63f, 0x4f8a2e], seed: 11 },
   great: { variants: 1, spray: 'leaf', tints: [0x559b38], seed: 41 },
   blossom: { variants: 2, spray: 'blossom', tints: [0xf29bbb, 0xf5aec8, 0xee86aa, 0xf8c2d6], seed: 61 },
-  cypress: { variants: 2, spray: 'leaf', tints: [0x2a5f38, 0x245639, 0x31683c], seed: 81 },
-  pine: { variants: 3, spray: 'needle', tints: [0x2a6346, 0x2f6c4e, 0x245842, 0x35724f], seed: 101 },
+  cypress: { variants: 2, spray: 'leaf', tints: [0x3a7446, 0x346c45, 0x417a48], seed: 81 },
+  pine: { variants: 3, spray: 'needle', tints: [0x3a7552, 0x3f7d58, 0x356c4e, 0x47835b], seed: 101 },
 };
 
 const DITHER = 'fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))';
@@ -35,8 +35,9 @@ const FOLIAGE_LIGHT_GLSL = /* glsl */ `
     float through = pow(clamp(dot(view, -uSunDir), 0.0, 1.0), 3.0) * (1.0 - wrap);
     // Sunlit foliage turns yellow-green; shade keeps the cool of the sky.
     vec3 hue = albedo * mix(vec3(0.8, 0.96, 1.1), vec3(1.26, 1.16, 0.66), wrap);
-    vec3 sun = uSunColor * (wrap * mix(0.22, 1.0, open) + through * 0.45) * shadow;
-    vec3 fill = mix(uGroundColor, uSkyColor, n.y * 0.5 + 0.5) * mix(0.2, 1.0, open * open);
+    vec3 sun = uSunColor * (wrap * mix(0.32, 1.0, open) + through * 0.45) * shadow;
+    // Light scatters through foliage, so even the heart of a crown keeps some colour.
+    vec3 fill = mix(uGroundColor, uSkyColor, n.y * 0.5 + 0.5) * mix(0.42, 1.0, open);
     return hue * (sun + fill) * 0.3183 + albedo * vec3(0.95, 1.0, 0.35) * uSunColor * through * 0.08 * shadow;
   }
 `;
@@ -62,7 +63,7 @@ export class Forest {
     const group = new THREE.Group();
     group.name = 'Forest';
     const nearEnd = detail === 2 ? 60 : detail === 1 ? 38 : 0;
-    const midEnd = detail === 2 ? 340 : detail === 1 ? 200 : 90;
+    const midEnd = detail === 2 ? 280 : detail === 1 ? 200 : 90;
     const light = {
       uSunDir: { value: sunDir }, uSunColor: { value: new THREE.Color() }, uSkyColor: { value: new THREE.Color() }, uGroundColor: { value: new THREE.Color() },
     };
@@ -86,7 +87,9 @@ export class Forest {
       varying float vDepth;
       varying float vSeed;
       varying float vCover;
+      varying float vCloud;
       ${NOISE_GLSL}
+      ${capture ? '' : CLOUD_GLSL}
       void main() {
         mat4 world = modelMatrix * instanceMatrix;
         vec4 wp = world * vec4(position, 1.0);
@@ -113,6 +116,8 @@ export class Forest {
         vWorld = wp.xyz;
         vDepth = aCard.z;
         vSeed = aCard.y;
+        // Cloud shadow is the same across a spray: once per card here, not once per overlapping pixel.
+        ${capture ? 'vCloud = 1.0;' : 'vCloud = cloudShadow(origin.xz);'}
         gl_Position = projectionMatrix * mvPosition;
         ${capture ? '' : 'if (vCover <= 0.0) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);'}
       }`;
@@ -128,8 +133,7 @@ export class Forest {
         varying float vDepth;
         varying float vSeed;
         varying float vCover;
-        ${NOISE_GLSL}
-        ${CLOUD_GLSL}
+        varying float vCloud;
         ${FOLIAGE_LIGHT_GLSL}
         void main() {
           vec4 t = texture2D(uLeaf, vUv);
@@ -137,7 +141,7 @@ export class Forest {
           vec3 albedo = vTint * (0.5 + 0.85 * t.r) * (0.82 + 0.36 * vSeed);
           vec3 n = normalize(vN + (vec3(vSeed, fract(vSeed * 7.3), fract(vSeed * 13.7)) - 0.5) * 0.7);
           float open = (1.0 - vDepth * 0.9) * (0.55 + 0.45 * smoothstep(-0.5, 0.6, n.y));
-          vec3 col = foliageLight(albedo, n, normalize(cameraPosition - vWorld), open, cloudShadow(vWorld.xz));
+          vec3 col = foliageLight(albedo, n, normalize(cameraPosition - vWorld), open, vCloud);
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -269,6 +273,7 @@ export class Forest {
       }
     });
     const pictureMaterial = new THREE.ShaderMaterial({
+      shadowSide: THREE.DoubleSide,
       uniforms: { ...light, uCloudDrift: shared.uCloudDrift, uAtlas: { value: atlas.texture }, uFadeIn: { value: new THREE.Vector2(midEnd - 46, midEnd) } },
       vertexShader: /* glsl */ `
         attribute vec4 aTree;
@@ -282,8 +287,12 @@ export class Forest {
         varying vec3 vToEye;
         varying vec3 vWorld;
         varying float vCover;
+        varying float vCloud;
+        ${NOISE_GLSL}
+        ${CLOUD_GLSL}
         void main() {
           vec3 base = aTree.xyz;
+          vCloud = cloudShadow(base.xz);
           vec3 toEye = cameraPosition - base;
           float d = length(toEye);
           vCover = smoothstep(uFadeIn.x, uFadeIn.y, d);
@@ -305,8 +314,7 @@ export class Forest {
         varying vec3 vToEye;
         varying vec3 vWorld;
         varying float vCover;
-        ${NOISE_GLSL}
-        ${CLOUD_GLSL}
+        varying float vCloud;
         ${FOLIAGE_LIGHT_GLSL}
         void main() {
           vec4 t = texture2D(uAtlas, (vTile + clamp(vUv, 0.004, 0.996)) / vec2(${columns.toFixed(1)}, ${rows.toFixed(1)}));
@@ -314,10 +322,45 @@ export class Forest {
           vec3 albedo = mix(vec3(0.2, 0.15, 0.11), vTint, t.g) * t.r / max(t.a, 0.35);
           // The picture is flat; shade it as the rounded crown it shows.
           vec3 n = normalize(vRight * (vUv.x * 2.0 - 1.0) * 0.95 + vec3(0.0, vUv.y * 1.5 - 0.55, 0.0) + vToEye * 0.7);
-          vec3 col = foliageLight(albedo, n, normalize(cameraPosition - vWorld), t.b / max(t.a, 0.35), cloudShadow(vWorld.xz));
+          vec3 col = foliageLight(albedo, n, normalize(cameraPosition - vWorld), t.b / max(t.a, 0.35), vCloud);
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
+        }`,
+    });
+    // Shadow stand-in for trees past the near ring: each tree's own picture, turned to face the sun,
+    // casts a crown-shaped shadow with one card instead of hundreds of sprays.
+    const eyeUniform = { value: new THREE.Vector3() };
+    const pictureShadow = new THREE.ShaderMaterial({
+      uniforms: { uAtlas: { value: atlas.texture }, uEye: eyeUniform, uFrom: { value: Math.max(1, nearEnd - 6) } },
+      vertexShader: /* glsl */ `
+        attribute vec4 aTree;
+        attribute vec4 aLook;
+        uniform vec3 uEye;
+        uniform float uFrom;
+        varying vec2 vUv;
+        varying vec2 vTile;
+        void main() {
+          vec3 base = aTree.xyz;
+          // Near trees cast with their real sprays; only the rest use the picture.
+          if (distance(uEye.xz, base.xz) < uFrom) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+          float flip = fract(aLook.w * 3.7) > 0.5 ? -1.0 : 1.0;
+          float height = aLook.z * aTree.w;
+          vec4 view = viewMatrix * vec4(base + vec3(0.0, height * 0.5 - 0.4 * aTree.w, 0.0), 1.0);
+          view.xy += vec2(position.x * aLook.y, (position.y - 0.5) * aLook.z) * aTree.w;
+          vUv = vec2(position.x * flip * 0.5 + 0.5, position.y);
+          vTile = vec2(mod(aLook.x, ${columns.toFixed(1)}), floor(aLook.x / ${columns.toFixed(1)}));
+          gl_Position = projectionMatrix * view;
+        }`,
+      fragmentShader: /* glsl */ `
+        #include <packing>
+        uniform sampler2D uAtlas;
+        varying vec2 vUv;
+        varying vec2 vTile;
+        void main() {
+          vec4 t = texture2D(uAtlas, (vTile + clamp(vUv, 0.004, 0.996)) / vec2(${columns.toFixed(1)}, ${rows.toFixed(1)}));
+          if (t.a < 0.4) discard;
+          gl_FragColor = packDepthToRGBA(gl_FragCoord.z);
         }`,
     });
     const quad = new THREE.BufferGeometry();
@@ -337,6 +380,8 @@ export class Forest {
       geo.boundingSphere = new THREE.Sphere(new THREE.Vector3((ix + 0.5) * REGION, (low + high) / 2 + 10, (iz + 0.5) * REGION), Math.hypot(REGION * 0.75, (high - low) / 2 + 30));
       const mesh = new THREE.Mesh(geo, pictureMaterial);
       mesh.matrixAutoUpdate = false;
+      mesh.castShadow = nearEnd > 0;
+      mesh.customDepthMaterial = pictureShadow;
       group.add(mesh);
     }
 
@@ -362,7 +407,10 @@ export class Forest {
       tiers.forEach(([reach, woodGeo, woodMat, leafGeo, range], tier) => {
         const cap = Math.min(trees.length, tier === 0 && nearEnd > 0 ? 400 : 4000);
         const woodMesh = new THREE.InstancedMesh(woodGeo, woodMat, cap);
-        const leafMesh = new THREE.InstancedMesh(leafGeo, leafMaterial(spray, range), cap);
+        const material = leafMaterial(spray, range);
+        // Sprays face the light in the shadow pass; the default back-face-only shadow side would drop them all.
+        material.shadowSide = THREE.DoubleSide;
+        const leafMesh = new THREE.InstancedMesh(leafGeo, material, cap);
         leafMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
         for (const mesh of [woodMesh, leafMesh]) {
           mesh.count = 0;
@@ -374,16 +422,18 @@ export class Forest {
         }
         woodMesh.receiveShadow = true;
         leafMesh.customDepthMaterial = depth;
-        // Wood skips the far half of the middle tier's shadow casters to save fill.
+        // Past the near ring a tree's shadow comes from its picture (above), not from wood and sprays.
+        if (tier === 1 || nearEnd === 0) { woodMesh.castShadow = false; leafMesh.castShadow = false; }
         streams.push({ key, trees, cells, meshes: [woodMesh, leafMesh], cap, reach, at: new THREE.Vector3(Infinity, 0, 0) });
       });
     }
     this.updater = (eye) => {
+      eyeUniform.value.copy(eye);
       light.uSunColor.value.copy(sun.color).multiplyScalar(sun.intensity);
       light.uSkyColor.value.copy(hemisphere.color).multiplyScalar(hemisphere.intensity);
       light.uGroundColor.value.copy(hemisphere.groundColor).multiplyScalar(hemisphere.intensity);
       for (const s of streams) {
-        const slack = s.reach < 100 ? 6 : 20;
+        const slack = s.reach < 100 ? 6 : 32;
         if (s.at.distanceToSquared(eye) < slack * slack) continue;
         s.at.copy(eye);
         const reach = s.reach + slack;
@@ -406,8 +456,15 @@ export class Forest {
         for (const mesh of s.meshes) {
           mesh.count = count;
           mesh.visible = count > 0;
+          // Upload only the part of each buffer in use.
+          mesh.instanceMatrix.clearUpdateRanges();
+          mesh.instanceMatrix.addUpdateRange(0, count * 16);
           mesh.instanceMatrix.needsUpdate = true;
-          if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+          if (mesh.instanceColor) {
+            mesh.instanceColor.clearUpdateRanges();
+            mesh.instanceColor.addUpdateRange(0, count * 3);
+            mesh.instanceColor.needsUpdate = true;
+          }
         }
       }
     };

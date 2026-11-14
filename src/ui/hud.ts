@@ -57,12 +57,43 @@ export class Hud {
     const quality = $('quality');
     const stored = storedTier();
     quality.textContent = `画质：${stored === 'auto' ? `自动（${names[tier]}）` : names[stored]}`;
+    // Choose first, then apply: changing tier rebuilds the world, so it reloads once, on 应用.
+    const picker = $('quality-picker'), options = $('quality-options'), note = $('quality-note');
+    const apply = $('quality-apply') as HTMLButtonElement;
+    const notes: Record<string, string> = {
+      auto: '按设备自动选择。', low: '最快，照顾低端设备。', medium: '流畅优先，手机可用。',
+      high: '高画质，兼顾帧率。', ultra: '画面拉满，不考虑性能。',
+    };
+    let picked: QualityName | 'auto' = stored;
+    const render = (): void => {
+      for (const button of options.querySelectorAll('button')) {
+        button.classList.toggle('picked', button.dataset.tier === picked);
+        button.classList.toggle('current', button.dataset.tier === stored);
+      }
+      apply.disabled = picked === stored;
+      note.textContent = `${notes[picked]}${picked === stored ? '（当前）' : ' 应用后会重新加载一次。'}`;
+    };
+    for (const option of ['auto', ...QUALITY_NAMES] as (QualityName | 'auto')[]) {
+      const button = document.createElement('button');
+      button.dataset.tier = option;
+      button.textContent = names[option];
+      button.addEventListener('click', () => { picked = option; render(); });
+      options.append(button);
+    }
+    const close = (): void => { picker.classList.add('hidden'); picked = stored; render(); };
     quality.addEventListener('click', () => {
-      // Changing tier rebuilds the world, so reload.
-      const order: (QualityName | 'auto')[] = ['auto', ...QUALITY_NAMES];
-      storeTier(order[(order.indexOf(storedTier()) + 1) % order.length]);
+      if (picker.classList.contains('hidden')) { picked = stored; render(); picker.classList.remove('hidden'); }
+      else close();
+    });
+    $('quality-cancel').addEventListener('click', close);
+    apply.addEventListener('click', () => {
+      if (picked === stored) return close();
+      storeTier(picked);
+      apply.disabled = true;
+      apply.textContent = '正在重新加载…';
       location.reload();
     });
+    window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !picker.classList.contains('hidden')) close(); });
     const sound = $('sound');
     sound.addEventListener('click', () => {
       sound.textContent = `声音：${this.onSound() ? '开' : '关'}`;
