@@ -11,6 +11,7 @@ import { FollowCamera } from './player/camera';
 import { Player } from './player/controller';
 import { prepareCapeShotFromPlayer, inspectCapeShotScene } from './player/character';
 import { buildHeightmap, createHeightTexture, heightAt } from './world/heightmap';
+import { createCrowd } from './world/crowd';
 import { START, ZONES } from './world/layout';
 import { buildBiome, buildFields, buildSplat } from './world/maps';
 import { buildLandMaps } from './world/landmaps';
@@ -163,6 +164,8 @@ async function boot(): Promise<void> {
   await nextFrame();
   const life = createLife(village.info, city.info, detail === 0 ? 3 : 7);
   scene.add(life.object);
+  const crowd = createCrowd(detail === 0 ? 120 : detail === 1 ? 260 : 450);
+  scene.add(crowd.object);
   const orbs = createOrbs(new Set(shot ? [] : save.orbs));
   scene.add(orbs.object);
   hud.setOrbs(orbs.found, orbs.total);
@@ -325,6 +328,7 @@ async function boot(): Promise<void> {
       sound.update(dt, wind.gust, player.gliding ? Math.min(1, player.speed / 16) : 0);
     }
     life.update(dt, time, player.pos);
+    crowd.update(time, player.pos);
 
     sun.target.position.copy(player.pos);
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
@@ -380,6 +384,7 @@ async function boot(): Promise<void> {
     if (capeShot) shared.uTime.value = Number(player.character.root.userData.capeShot.seconds);
     shared.uPlayer.value.copy(player.pos);
     life.update(0, 12, player.pos);
+    crowd.update(12, player.pos);
     sun.target.position.copy(player.pos);
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, 0);
@@ -427,6 +432,7 @@ async function boot(): Promise<void> {
     scatter.update(camera.position);
     updateStructureDetails(camera.position);
     life.update(0, 12, player.pos);
+    crowd.update(12, player.pos);
   };
   handles.measure = (frames = 60): Promise<unknown> => {
     if (measurement) return Promise.reject(new Error('A measurement is already running'));

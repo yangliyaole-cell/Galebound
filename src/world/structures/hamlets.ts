@@ -65,7 +65,16 @@ export function buildHamlets(): THREE.Group {
   }
   group.add(batchSettlementDetails(b.build(true)));
 
-  // Wood smoke: soft puffs that rise, widen and thin out, leaning with the wind.
+  group.add(chimneySmoke(smoke));
+  return group;
+}
+
+
+/**
+ * Wood smoke: soft puffs that rise, widen and thin out, leaning with the wind.
+ * `smoke` holds x, y, z of each chimney top and a 0..1 phase, four numbers each.
+ */
+export function chimneySmoke(smoke: number[]): THREE.Mesh {
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
   geo.setIndex([0, 1, 2, 0, 2, 3]);
@@ -103,6 +112,5 @@ export function buildHamlets(): THREE.Group {
   const mist = new THREE.Mesh(geo, mat);
   mist.frustumCulled = false;
   mist.renderOrder = 2;
-  group.add(mist);
-  return group;
+  return mist;
 }

@@ -21,6 +21,7 @@ const check = (name, fn) => { try { const details = fn(); console.log(`PASS ${na
 const t0 = performance.now();
 try {
   const L = await server.ssrLoadModule('/src/world/layout.ts');
+  const cityPlan = await server.ssrLoadModule('/src/world/city-plan.ts');
   const { TIERS } = await server.ssrLoadModule('/src/core/quality.ts');
   const trees = await server.ssrLoadModule('/src/world/flora/tree-models.ts');
   const H = await server.ssrLoadModule('/src/world/heightmap.ts');
@@ -96,29 +97,40 @@ try {
     return notes.join('; ');
   });
 
-  check('dense city parcels stand in terraced rows without interpenetrating, on rising contour shelves', () => {
+  check('city houses front its streets in rows without interpenetrating, on a hill cut by level streets', () => {
     const plots = builtHouses.filter((h) => L.insideCity(h.spec.x, h.spec.z)).map((h) => h.spec);
     assert.equal(plots.length, city.info.houseCount);
-    assert.ok(plots.length >= 500 && plots.length <= 1100, `${plots.length} city houses`);
+    assert.ok(plots.length >= 700 && plots.length <= 1600, `${plots.length} city houses`);
     // Row houses share party walls; none may push more than 3 cm into a neighbour.
     for (let i = 0; i < plots.length; i++) for (let j = i + 1; j < plots.length; j++) {
-      if (Math.hypot(plots[i].x - plots[j].x, plots[i].z - plots[j].z) > 16) continue;
+      if (Math.hypot(plots[i].x - plots[j].x, plots[i].z - plots[j].z) > 20) continue;
       assert.ok(!cityPlotsOverlap(plots[i], plots[j], -0.03), `overlapping city plots ${i}/${j}`);
     }
+    // No house stands on a square.
+    for (const h of plots) assert.ok(!L.citySquareAt(h.x, h.z, -0.5), `house on a square at ${h.x.toFixed(0)},${h.z.toFixed(0)}`);
     const relief = [];
     for (let k = 0; k < 18; k++) {
-      const levels = [0.07, 0.25, 0.43, 0.61, 0.79, 0.97].map((q) => H.heightAt(...L.cityShelfPoint(k / 18 * Math.PI * 2, q)));
-      relief.push(levels[0] - levels.at(-1));
+      const a = k / 18 * Math.PI * 2;
+      relief.push(H.heightAt(...L.cityShelfPoint(a, 0.05)) - H.heightAt(...L.cityShelfPoint(a, 0.97)));
     }
-    assert.ok(Math.max(...relief) > 24 && L.CITY_TERRACE_EDGES.length === 5);
-    return `${plots.length} city houses, 5 shelf edges, relief=${Math.max(...relief).toFixed(1)}m`;
+    assert.ok(Math.min(...relief) > 30, `town relief ${Math.min(...relief).toFixed(1)}m`);
+    // Streets are cut level across: the ground under the centre line matches the paved profile.
+    const P = cityPlan;
+    let worst = 0;
+    for (const street of L.CITY_STREETS) {
+      const profile = P.streetProfiles.get(street);
+      street.pts.forEach(([x, z], i) => { if (L.insideCity(x, z, 6)) worst = Math.max(worst, Math.abs(H.heightAt(x, z) - profile[i])); });
+    }
+    assert.ok(worst < (low ? 1.6 : 0.8), `street bed off its profile by ${worst.toFixed(2)}m`);
+    return `${plots.length} city houses, ${L.CITY_STREETS.length} streets, ${L.CITY_SQUARES.length} squares, relief>=${Math.min(...relief).toFixed(1)}m, bed error ${worst.toFixed(2)}m`;
   });
   const maps = await server.ssrLoadModule('/src/world/maps.ts');
   check('city ground between lanes and squares is not blanket cobblestone', () => {
     let tested = 0;
-    for (let x = L.CITY.x - 280; x <= L.CITY.x + 280; x += 9) for (let z = L.CITY.z - 280; z <= L.CITY.z + 280; z += 9) {
-      if (!L.insideCity(x, z, 8) || Math.hypot(x - L.CITY.x, z - L.CITY.z) < 95 || L.roadClearance(x, z) < 6) continue;
-      if (L.PLAZAS.some(([px, pz, r]) => Math.hypot(x - px, z - pz) < r + 2)) continue;
+    const R = L.CITY_MAX_RADIUS;
+    for (let x = L.CITY.x - R; x <= L.CITY.x + R; x += 9) for (let z = L.CITY.z - R; z <= L.CITY.z + R; z += 9) {
+      if (!L.insideCity(x, z, 8) || Math.hypot(x - L.CITY.x, z - L.CITY.z) < L.CITY.foot || L.roadClearance(x, z) < 6) continue;
+      if (L.PLAZAS.some(([px, pz, r]) => Math.hypot(x - px, z - pz) < r + 2) || L.citySquareAt(x, z, 2)) continue;
       assert.equal(maps.cobbleAt(x, z), 0); tested++;
     }
     assert.ok(tested > 100); return `${tested} unpaved samples between streets`;
@@ -252,7 +264,8 @@ try {
     const radii = L.cityWallPolygon.map(([x, z]) => Math.hypot(x - L.CITY.x, z - L.CITY.z));
     const mean = radii.reduce((a, b) => a + b) / radii.length;
     const cv = Math.sqrt(radii.reduce((a, b) => a + (b - mean) ** 2, 0) / radii.length) / mean;
-    assert.ok(cv >= 0.2);
+    // An irregular oval: clearly not a circle, without the old three-lobed outline.
+    assert.ok(cv >= 0.07, `radius CV ${cv.toFixed(3)}`);
     for (const g of [L.SOUTH_GATE, L.EAST_GATE]) assert.ok(Math.abs(L.cityEdgeDistance(g.x, g.z)) < 0.01);
     return `${radii.length} vertices, radius CV=${cv.toFixed(3)}, min/max=${Math.min(...radii).toFixed(1)}/${Math.max(...radii).toFixed(1)}m`;
   });
@@ -267,9 +280,11 @@ try {
         turn += Math.abs(Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1]));
       }
       const variation = Math.max(...r.widths) - Math.min(...r.widths);
-      assert.ok(turn > 0.3, `${r.id} too straight (${turn})`);
-      assert.ok(variation > 0.4, `${r.id} has constant width`);
-      assert.ok(r.widths.every((w) => w >= 2 && w <= 6));
+      // Town lanes may run straight up a flight of steps, and the avenue is wider than any country road.
+      const town = L.CITY_STREETS.includes(r);
+      assert.ok(town || turn > 0.3, `${r.id} too straight (${turn})`);
+      assert.ok(variation > (town ? 0.25 : 0.4), `${r.id} has constant width`);
+      assert.ok(r.widths.every((w) => w >= 2 && w <= (town ? 8 : 6)), `${r.id} width`);
       minTurn = Math.min(minTurn, turn); minVariation = Math.min(minVariation, variation);
     }
     return `${L.ROADS.length} roads, min total turn=${(minTurn * 180 / Math.PI).toFixed(1)}°, min width span=${minVariation.toFixed(2)}m`;
@@ -441,6 +456,8 @@ try {
           const onBridgeApproach = Math.abs(x - L.BRIDGE.x) < L.BRIDGE.width / 2 && Math.abs(z - L.BRIDGE.z) <= L.BRIDGE.length / 2 + 7;
           const onPierApproach = r.id.startsWith('lake-road') && Math.hypot(x - L.PIER.x, z - L.PIER.z) < 45;
           const feet = onBridgeApproach || onPierApproach ? C.surfaceTop(x, z) : H.heightAt(x, z), p = { x, z };
+          // A street crossing a square is an open space walked round its fountain, not a lane.
+          if (L.citySquareAt(x, z, 0)) continue;
           C.resolveWalls(p, 0.32, feet, feet + 1.7, 0.5);
           if (Math.hypot(p.x - x, p.z - z) > 0.05) blocked.push(`${r.id}@${x.toFixed(0)},${z.toFixed(0)}`);
         }

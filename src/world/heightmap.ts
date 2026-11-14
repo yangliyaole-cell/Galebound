@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { clamp, lerp, ridged, sfbm, smax, sstep } from './gen/noise';
 import { buildMacro, macroHeight, macroSlope } from './gen/macro';
 import { LAKES, channelDepth, lakeShape, nearestRiver, waterSurfaceAt } from './gen/hydro';
-import { ABBEY, CITY, EAST_GATE_ANGLE, FIELDS, HALF, ISLAND, LAKE, ROADS, SIZE, SOUTH_GATE_ANGLE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt } from './layout';
+import { ABBEY, CITY, CITY_MAX_RADIUS, CITY_STREETS, EAST_GATE_ANGLE, FIELDS, HALF, ISLAND, LAKE, ROADS, SIZE, SOUTH_GATE_ANGLE, START, cityRadiusAt, insideCity } from './layout';
+import { cityBase, cityGround } from './city-plan';
 
 export { clamp, lerp, sstep };
 
@@ -21,25 +22,21 @@ function detailHeight(x: number, z: number): number {
   h += rim * ((1.3 + 5 * rough) * sfbm(x / 96 + 7.3, z / 96 - 2.9, 3) + (0.32 + 1.5 * rough) * sfbm(x / 23 + 1.7, z / 23 + 8.8, 3)
     + rough * 10 * (ridged(x / 150 + 4.1, z / 150 + 0.3, 3) - 0.45));
 
-  // The city: palace shelf, five inhabited terraces, then a crag falling to the vale.
+  // The city: castle crown, the town's slope with its streets cut in, then a crag falling to the vale.
   const r = Math.hypot(x - CITY.x, z - CITY.z);
-  if (r < 620) {
+  if (r < CITY_MAX_RADIUS + 260) {
     const a = Math.atan2(z - CITY.z, x - CITY.x);
     const edge = cityRadiusAt(a), out = r - edge;
-    const q = cityTerraceMetric(x, z);
-    const steps = CITY_TERRACE_EDGES.reduce((sum, t) => sum + sstep(t - 0.055, t + 0.055, Math.min(q, 1)), 0);
-    const ridge = (Math.sin(a * 2 + 0.5) * 2.2 + Math.cos(a * 5) * 1.1) * sstep(92, 140, r);
-    let shelf = CITY.top + 5 - steps * CITY.step + ridge;
     if (out > 0) {
+      const shelf = cityBase(CITY.x + Math.cos(a) * edge, CITY.z + Math.sin(a) * edge);
       // Broad spurs carry the gate roads up; elsewhere the rock breaks away in a face and a scree apron.
-      const gate = 1 - sstep(0.16, 0.62, Math.min(angleBetween(a, SOUTH_GATE_ANGLE), angleBetween(a, EAST_GATE_ANGLE)));
+      const gate = 1 - sstep(0.1, 0.42, Math.min(angleBetween(a, SOUTH_GATE_ANGLE), angleBetween(a, EAST_GATE_ANGLE)));
       const jag = sfbm(x / 36 + 3, z / 36 - 5, 3);
-      const face = (20 + 12 * sfbm(a * 2.1 + 4, 1.7, 2)) * sstep(1.5, 22 + 9 * jag, out);
+      const face = (22 + 12 * sfbm(a * 2.1 + 4, 1.7, 2)) * sstep(1.5, 20 + 9 * jag, out);
       const crag = shelf - face - 0.42 * Math.max(0, out - 16) * (1 + 0.25 * jag);
-      const spur = shelf - 0.16 * out - 4 * sstep(0, 70, out) + 1.5 * jag;
-      shelf = lerp(crag, spur, gate);
-      h = smax(h, shelf, 6);
-    } else h = shelf;
+      const spur = shelf - 0.13 * out - 4 * sstep(0, 70, out) + 1.5 * jag;
+      h = smax(h, lerp(crag, spur, gate), 6);
+    } else h = cityGround(x, z);
   }
 
   // The abbey's shelf on the scarp top.
@@ -119,7 +116,8 @@ function gradeRoadbeds(): void {
   const row = n + 1;
   const core = new Set<number>();
   for (const road of ROADS) {
-    if (road.bridge) continue;
+    // Town streets are cut into the hill with the rest of the city (city-plan.ts).
+    if (road.bridge || CITY_STREETS.includes(road)) continue;
     const heights = road.pts.map(([x, z]) => heightAt(x, z));
     for (let i = 1; i < heights.length; i++) {
       const a = road.pts[i - 1], b = road.pts[i];
@@ -142,7 +140,7 @@ function gradeRoadbeds(): void {
         const t = clamp(((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1), 0, 1);
         const d = Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t);
         const o = j * row + k;
-        if (d >= reach || data[o] < waterSurfaceAt(x, z, data[o]) + 0.3 || data[o] < 0.3 || Math.hypot(x - START.x, z - START.z) < 80) continue;
+        if (d >= reach || data[o] < waterSurfaceAt(x, z, data[o]) + 0.3 || data[o] < 0.3 || Math.hypot(x - START.x, z - START.z) < 80 || insideCity(x, z)) continue;
         if (d < Math.max(road.widths[i], road.widths[i + 1]) / 2 + cell * 1.5) core.add(o);
         const target = heights[i] + (heights[i + 1] - heights[i]) * t;
         if (d < (grades.get(o)?.d ?? Infinity)) grades.set(o, { d, target, reach });

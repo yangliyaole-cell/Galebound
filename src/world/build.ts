@@ -6,7 +6,7 @@ import { structureDetail, registerStructureDetail, structureDetailRange, detailC
 import { toon } from '../render/toon';
 import { plasterTexture, roofTexture, stoneTexture, woodTexture } from '../render/textures';
 
-export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'rock' | 'cloth';
+export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'rock' | 'cloth' | 'paving';
 
 const textureSets = new Map<number, Record<'stone' | 'plaster' | 'roof' | 'wood', THREE.Texture>>();
 const materialSets = new Map<string, Record<Mat, THREE.Material>>();
@@ -29,6 +29,8 @@ function getMaterials(detail = false): Record<Mat, THREE.Material> {
     // Fractured rubble/wall stones: vertex colour (grain, moss) over the procedural rough-stone PBR (high/medium).
     rock: toon(0xffffff, { pbr: 'stone', vertexColors: true, ...range }),
     cloth: toon(0xffffff, { vertexColors: true, doubleSided: true, ...range }),
+    // Street setts: same stone pattern at a smaller scale.
+    paving: toon(0xffffff, { pbr: 'paving', vertexColors: true, texture: textures.stone, textureSize: 1.1, ...range }),
   };
   materialSets.set(key, materials);
   return materials;

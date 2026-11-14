@@ -10,6 +10,7 @@ export const PBR_MATERIALS = {
   dirt: { id: 5, label: '土路', relief: 0.025 },
   moss: { id: 6, label: '苔藓', relief: 0.03 },
   cliff: { id: 7, label: '岩壁', relief: 0.16 },
+  paving: { id: 8, label: '石板路', relief: 0.1 },
 } as const;
 export type PbrKind = keyof typeof PBR_MATERIALS;
 
@@ -82,6 +83,15 @@ PbrSurface pMasonry(vec2 p) {
   float mortarWear=pNoise(p*1.7+47.0);
   PbrSurface mortar=PbrSurface(vec3(.55,.53,.47)*(.91+mortarWear*.18),.07+mortarWear*.045,.96,.76+mortarWear*.09);
   return pMix(mortar,stone,body);
+}
+// Street setts: the masonry bond at a quarter of the scale, worn smoother and paler on top.
+PbrSurface pPaving(vec2 p) {
+  PbrSurface s=pMasonry(p*2.4+vec2(pNoise(p*.21)*.6,0));
+  float wear=pNoise(p*.35);
+  // Warm limestone setts: undo the masonry's cool cast and lift them towards cream.
+  s.albedo=mix(s.albedo,vec3(dot(s.albedo,vec3(.33))),.55)*vec3(1.2,1.1,.92)*(.98+wear*.14);
+  s.roughness=mix(s.roughness,.72,.35+wear*.2);
+  return s;
 }
 PbrSurface pPlaster(vec2 p) {
   float broad=pNoise(p*.12), trowel=pFbm(p*3.2+vec2(0,pNoise(p*.5)*2.0));

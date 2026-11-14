@@ -17,7 +17,12 @@ export const WORLD_MARGIN = 60;
 // distance, the walled city on its crag beyond, Cloudfall and the abbey on the
 // north-western scarp, and the glaciers behind them.
 export const START = { x: 0, z: 1250 };
-export const CITY = { x: 560, z: -380, wall: 195, hill: 345, plateau: 78, top: 152, base: 58, step: 7 };
+/**
+ * Hightown. `wall` is the mean radius of the curtain wall; `plateau` the flat crown the
+ * castle stands on, `foot` where its rock face meets the town, `top` the crown's height
+ * and `fall` how far the town descends from the foot of the crown to the wall.
+ */
+export const CITY = { x: 560, z: -380, wall: 345, plateau: 88, foot: 106, top: 160, fall: 52 };
 export const WINDMILL = { x: 940, z: 760 };
 export const LAKE = { x: -600, z: -180, rx: 195, rz: 128, level: 60 };
 export const ISLAND = { x: -634, z: -190 };
@@ -47,12 +52,13 @@ export type Pt = [number, number];
 /** The same boundary drives wall masonry, terrain, paving, NPCs and scatter. */
 export const SOUTH_GATE_ANGLE = Math.PI / 2;
 export const EAST_GATE_ANGLE = Math.PI / 5;
-export const WALL_SEGMENTS = 28;
-const rawCityRadius = (a: number): number => Math.max(129, CITY.wall *
-  (1 + 0.32 * Math.sin(a * 3 + 0.4) + 0.16 * Math.cos(a * 2 - 0.7) + 0.055 * Math.sin(a * 7)));
-const wallAngles = Array.from({ length: WALL_SEGMENTS }, (_, i) => i / WALL_SEGMENTS * Math.PI * 2 + 0.025 * Math.sin(i * 3.7))
-  .filter((a) => [SOUTH_GATE_ANGLE, EAST_GATE_ANGLE].every((g) => Math.abs(a - g) > 0.17));
-wallAngles.push(SOUTH_GATE_ANGLE - 0.12, SOUTH_GATE_ANGLE + 0.12, EAST_GATE_ANGLE - 0.12, EAST_GATE_ANGLE + 0.12);
+export const WALL_SEGMENTS = 40;
+// An irregular oval, longest towards the south-west where the town spills down towards the vale.
+const rawCityRadius = (a: number): number => CITY.wall *
+  (1 + 0.11 * Math.sin(a * 2 + 0.6) + 0.07 * Math.sin(a * 3 - 1.1) + 0.03 * Math.sin(a * 5 + 2) + 0.06 * Math.cos(a - 2.2));
+const wallAngles = Array.from({ length: WALL_SEGMENTS }, (_, i) => i / WALL_SEGMENTS * Math.PI * 2 + 0.02 * Math.sin(i * 3.7))
+  .filter((a) => [SOUTH_GATE_ANGLE, EAST_GATE_ANGLE].every((g) => Math.abs(a - g) > 0.1));
+wallAngles.push(SOUTH_GATE_ANGLE - 0.06, SOUTH_GATE_ANGLE + 0.06, EAST_GATE_ANGLE - 0.06, EAST_GATE_ANGLE + 0.06);
 wallAngles.sort((a, b) => a - b);
 export const cityWallPolygon: Pt[] = wallAngles.map((a) => [CITY.x + Math.cos(a) * rawCityRadius(a), CITY.z + Math.sin(a) * rawCityRadius(a)]);
 /** Intersect a ray with the actual polygon, rather than assuming a circle. */
@@ -69,24 +75,25 @@ export function cityRadiusAt(a: number): number {
   }
   return rawCityRadius(a);
 }
+export const CITY_MAX_RADIUS = Math.max(...cityWallPolygon.map(([x, z]) => Math.hypot(x - CITY.x, z - CITY.z)));
 export function cityEdgeDistance(x: number, z: number): number {
   return Math.hypot(x - CITY.x, z - CITY.z) - cityRadiusAt(Math.atan2(z - CITY.z, x - CITY.x));
 }
 export const insideCity = (x: number, z: number, inset = 0): boolean => cityEdgeDistance(x, z) < -inset;
-/** Five inhabited shelves rise toward the unchanged palace shelf. */
-export const CITY_TERRACE_EDGES = [0.16, 0.34, 0.52, 0.70, 0.88];
+/** 0 at the foot of the castle crag, 1 at the curtain wall (beyond 1 outside it). */
 export function cityTerraceMetric(x: number, z: number): number {
   const r = Math.hypot(x - CITY.x, z - CITY.z);
-  return (r - 90) / Math.max(30, cityRadiusAt(Math.atan2(z - CITY.z, x - CITY.x)) - 90);
+  return (r - CITY.foot) / Math.max(30, cityRadiusAt(Math.atan2(z - CITY.z, x - CITY.x)) - CITY.foot);
 }
+/** The point at angle `a` and terrace metric `t` (see cityTerraceMetric). */
 export function cityShelfPoint(a: number, t: number): Pt {
-  const r = 90 + (cityRadiusAt(a) - 90) * t;
+  const r = CITY.foot + (cityRadiusAt(a) - CITY.foot) * t;
   return [CITY.x + Math.cos(a) * r, CITY.z + Math.sin(a) * r];
 }
 export function cityGate(a: number): { x: number; z: number } {
   // The two vertices deliberately bracketing the gate form one complete wall segment.
-  const p = cityWallPolygon[wallAngles.indexOf(a - 0.12)];
-  const q = cityWallPolygon[wallAngles.indexOf(a + 0.12)];
+  const p = cityWallPolygon[wallAngles.indexOf(a - 0.06)];
+  const q = cityWallPolygon[wallAngles.indexOf(a + 0.06)];
   return { x: (p[0] + q[0]) / 2, z: (p[1] + q[1]) / 2 };
 }
 export const SOUTH_GATE = cityGate(SOUTH_GATE_ANGLE);
@@ -114,6 +121,8 @@ export interface Road {
   widths: number[];
   pts: Pt[];
   bridge?: boolean;
+  /** A town lane too steep to ramp: drawn as a flight of steps. */
+  stairs?: boolean;
 }
 export function road(id: string, kind: Road['kind'], width: number, controls: Pt[], bridge = false): Road {
   const pts = bridge ? controls : smooth(controls);
@@ -122,30 +131,80 @@ export function road(id: string, kind: Road['kind'], width: number, controls: Pt
     return Math.max(2, Math.min(6, width * (1 + 0.19 * Math.sin(t * 17 + id.length) + 0.11 * Math.sin(t * 39))));
   }) };
 }
-const cp = (x: number, z: number): Pt => [CITY.x + x, CITY.z + z];
-export const CITY_STREETS: Road[] = [
-  road('ascent', 'cobble', 5.2, [[SOUTH_GATE.x, SOUTH_GATE.z], cp(23, 147), cp(83, 120), cp(124, 57), cp(120, -22), cp(76, -98), cp(5, -126), cp(-75, -111), cp(-126, -64), cp(-121, -13), cp(-90, 0), cp(-76, 0)]),
-  road('market-lane', 'cobble', 4.4, [cp(23, 147), cp(-33, 119), cp(-76, 105), cp(-109, 61), cp(-121, -13)]),
-  road('east-lane', 'cobble', 4.5, [[EAST_GATE.x, EAST_GATE.z], cp(124, 57), cp(102, 89), cp(58, 110), cp(20, 122), cp(-33, 119)]),
-  road('north-alley', 'cobble', 2.4, [cp(120, -22), cp(147, -65), cp(115, -114), cp(59, -143), cp(5, -126)]),
-  road('west-alley', 'cobble', 2.5, [cp(-76, 105), cp(-144, 96), cp(-165, 42), cp(-156, -10), cp(-126, -64)]),
-  road('east-ridge', 'cobble', 3.0, [cp(124, 57), cityShelfPoint(0.4, 0.82), cityShelfPoint(0.02, 0.8), cityShelfPoint(-0.35, 0.84), cityShelfPoint(-0.7, 0.77), cp(76, -98)]),
-  road('west-ridge', 'cobble', 2.7, [cp(-76, 105), cityShelfPoint(2.3, 0.80), cityShelfPoint(2.6, 0.84), cityShelfPoint(2.95, 0.76), cityShelfPoint(3.3, 0.84), cityShelfPoint(3.6, 0.8), cp(-126, -64)]),
-  road('north-ridge', 'cobble', 2.8, [cp(-75, -111), cityShelfPoint(4.0, 0.77), cityShelfPoint(4.4, 0.83), cityShelfPoint(4.8, 0.80), cityShelfPoint(5.2, 0.83), cp(115, -114)]),
+/**
+ * Hightown's squares. Each is paved level at `level` metres below the castle crown
+ * fraction given by the town's own slope (see city-plan.ts); `rot` turns its long side.
+ */
+export interface CitySquare { id: string; kind: 'market' | 'forecourt' | 'cathedral' | 'well'; x: number; z: number; rx: number; rz: number; rot: number }
+const square = (id: CitySquare['kind'] | string, kind: CitySquare['kind'], a: number, t: number, rx: number, rz: number): CitySquare => {
+  const [x, z] = cityShelfPoint(a, t);
+  // Long side along the contour.
+  return { id, kind, x, z, rx, rz, rot: Math.PI / 2 - a };
+};
+export const CITY_SQUARES: CitySquare[] = [
+  square('market', 'market', 1.70, 0.83, 30, 21),
+  square('forecourt', 'forecourt', Math.PI, 0.13, 24, 17),
+  square('cathedral', 'cathedral', 2.2, 0.42, 26, 18),
+  square('well-east', 'well', 0.22, 0.52, 10, 9),
+  square('well-north', 'well', -1.45, 0.31, 10, 8),
+  square('well-west', 'well', -2.45, 0.74, 9, 9),
+  square('well-south', 'well', 1.15, 0.30, 9, 8),
 ];
-// Trim switchbacks to the shared irregular ridge. The gate approaches keep their
-// exact endpoints; the market occupies a separate parcel beside the lanes.
-for (const street of CITY_STREETS) {
-  street.pts = street.pts.map(([x, z]) => {
-    let dx = x - CITY.x, dz = z - CITY.z;
-    const a = Math.atan2(dz, dx), r = Math.hypot(dx, dz);
-    const gateDistance = Math.min(Math.hypot(x - SOUTH_GATE.x, z - SOUTH_GATE.z), Math.hypot(x - EAST_GATE.x, z - EAST_GATE.z));
-    const limit = cityRadiusAt(a) - Math.min(12, gateDistance * 0.5);
-    if (r > limit) { dx *= limit / r; dz *= limit / r; }
-    x = CITY.x + dx; z = CITY.z + dz;
-    return [x, z];
-  });
+/** Signed distance to a square's rim (negative inside), treating it as a rounded rectangle. */
+export function squareDistance(q: CitySquare, x: number, z: number): number {
+  const c = Math.cos(q.rot), s = Math.sin(q.rot), dx = x - q.x, dz = z - q.z;
+  const u = Math.abs(dx * c - dz * s), v = Math.abs(dx * s + dz * c);
+  const round = Math.min(q.rx, q.rz) * 0.45;
+  const ox = Math.max(0, u - (q.rx - round)), oz = Math.max(0, v - (q.rz - round));
+  return Math.hypot(ox, oz) + Math.min(0, Math.max(u - (q.rx - round), v - (q.rz - round))) - round;
 }
+export const citySquareAt = (x: number, z: number, pad = 0): CitySquare | undefined => CITY_SQUARES.find((q) => squareDistance(q, x, z) < pad);
+
+/** A town street: steadier width than a country road, optionally a flight of steps. */
+function street(id: string, width: number, controls: Pt[], stairs = false): Road {
+  const pts = smooth(controls, 10);
+  return { id, kind: 'cobble', width, pts, stairs, widths: pts.map((_, i) => width * (1 + 0.08 * Math.sin(i * 0.37 + id.length))) };
+}
+/** Polar control points: [angle, terrace metric], with a gentle organic wander. */
+const arc = (spec: [number, number][]): Pt[] => spec.map(([a, t]) => cityShelfPoint(a, t));
+/** A contour street from angle a0 to a1 at metric t, wandering by `wobble`. */
+const ring = (a0: number, a1: number, t: number, wobble: number, seed: number): Pt[] => {
+  const n = Math.max(3, Math.round(Math.abs(a1 - a0) / 0.22));
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const a = a0 + (a1 - a0) * i / n;
+    return cityShelfPoint(a, t + wobble * Math.sin(a * 2 + seed * 1.7) + wobble * 0.6 * Math.sin(a * 5 - seed) + wobble * 0.3 * Math.sin(a * 9 + seed * 3));
+  });
+};
+const sq = (id: string): Pt => { const q = CITY_SQUARES.find((s) => s.id === id)!; return [q.x, q.z]; };
+export const CITY_STREETS: Road[] = [
+  // The high road: south gate, through the market, past the cathedral, up to the castle forecourt.
+  street('avenue', 7, [[SOUTH_GATE.x, SOUTH_GATE.z], cityShelfPoint(1.6, 0.93), sq('market'), ...arc([[1.86, 0.74], [2.0, 0.6]]), sq('cathedral'),
+    ...arc([[2.45, 0.3], [2.75, 0.22], [2.98, 0.14]]), sq('forecourt')]),
+  street('east-street', 5.6, [[EAST_GATE.x, EAST_GATE.z], cityShelfPoint(0.6, 0.9), ...arc([[0.48, 0.74], [0.3, 0.6]]), sq('well-east'), ...arc([[0.05, 0.42], [-0.15, 0.31]])]),
+  // Contour streets, one per broad shelf of the hill.
+  street('castle-ring', 5, ring(-2.86, 2.86, 0.09, 0.015, 1)),
+  street('high-street', 6, [...ring(-2.9, 2.05, 0.31, 0.055, 2), sq('cathedral')]),
+  street('middle-ring', 5.4, [sq('cathedral'), ...ring(2.35, 2.35 + Math.PI * 2 - 0.62, 0.53, 0.07, 3)]),
+  street('lower-ring', 5, [sq('market'), ...ring(1.86, 1.86 + Math.PI * 2 - 0.35, 0.76, 0.06, 4)]),
+  street('wall-lane', 3.6, ring(-2.6, 1.2, 0.93, 0.012, 5)),
+  street('wall-lane-west', 3.4, ring(2.0, 3.6, 0.93, 0.012, 6)),
+  // Steep lanes between the shelves, mostly flights of steps; none lines up with the next.
+  street('stair-n1', 3.2, arc([[-1.62, 0.09], [-1.58, 0.18], [-1.52, 0.31]]), true),
+  street('stair-n2', 3.4, arc([[-1.35, 0.31], [-1.3, 0.42], [-1.22, 0.53]]), true),
+  street('stair-n3', 3.2, arc([[-1.0, 0.53], [-0.94, 0.65], [-0.9, 0.76], [-0.86, 0.93]]), true),
+  street('stair-e1', 3.4, arc([[-0.35, 0.09], [-0.4, 0.2], [-0.38, 0.31]]), true),
+  street('stair-e2', 3.6, arc([[0.62, 0.31], [0.7, 0.43], [0.76, 0.53]]), true),
+  street('stair-e3', 3.2, arc([[-0.2, 0.53], [-0.24, 0.65], [-0.22, 0.76], [-0.26, 0.93]]), true),
+  street('stair-s1', 3.4, [...arc([[1.2, 0.09], [1.17, 0.18]]), sq('well-south')], true),
+  street('stair-s2', 3.2, arc([[1.28, 0.31], [1.33, 0.42], [1.38, 0.53], [1.44, 0.65], [1.5, 0.76]]), true),
+  street('stair-w1', 3.4, arc([[2.0, 0.09], [2.06, 0.18], [2.1, 0.31]]), true),
+  street('stair-w2', 3.2, arc([[2.85, 0.31], [2.9, 0.42], [2.94, 0.53]]), true),
+  street('stair-w3', 3.4, arc([[2.6, 0.53], [2.55, 0.64], [2.5, 0.76], [2.46, 0.93]]), true),
+  street('stair-nw1', 3.2, arc([[-2.45, 0.09], [-2.4, 0.18], [-2.36, 0.31]]), true),
+  street('stair-nw2', 3.4, arc([[-2.1, 0.31], [-2.05, 0.42], [-2.0, 0.53]]), true),
+  street('stair-nw3', 3.2, arc([[-2.55, 0.53], [-2.5, 0.64], [-2.45, 0.74]]), true),
+  street('stair-se', 3.2, arc([[0.95, 0.53], [0.98, 0.65], [1.02, 0.76], [1.0, 0.93]]), true),
+];
 const B = BRIDGE;
 /** The two ends of a bridge's approach ramps, in the direction of travel. */
 const ends = (name: string): [Pt, Pt] => {
@@ -153,17 +212,23 @@ const ends = (name: string): [Pt, Pt] => {
   return [[b.x - b.dirX * reach, b.z - b.dirZ * reach], [b.x + b.dirX * reach, b.z + b.dirZ * reach]];
 };
 const [WB0, WB1] = ends('wood-brook'), [NB0, NB1] = ends('north-beck');
+/** A country road arriving at a city gate: no control point may stand inside the town or under its crag. */
+function approach(controls: Pt[], gate: { x: number; z: number }): Pt[] {
+  return [...controls.filter(([x, z], i) => i >= controls.length - 2 || cityEdgeDistance(x, z) > 60), [gate.x, gate.z]];
+}
 export const ROADS: Road[] = [
   road('start-village', 'dirt', 3.9, [[2, 1242], [-16, 1180], [-52, 1090], [-66, 990], [-30, 880], [34, 770], [70, 650], [88, 540], [132, 440], [B.x, B.z + 46], [B.x, B.z + 23]]),
   road('river-bridge', 'cobble', 4.7, [[B.x, B.z + 23], [B.x, B.z - 23]], true),
-  road('village-city', 'dirt', 4.3, [[B.x, B.z - 23], [B.x, B.z - 34], [176, 240], [172, 150], [226, 60], [322, -22], [402, -92], [470, -128], [530, -152], [SOUTH_GATE.x, SOUTH_GATE.z]]),
+  road('village-city', 'dirt', 4.3, approach([[B.x, B.z - 23], [B.x, B.z - 34], [176, 240], [172, 150], [226, 60], [322, -22], [402, -40], [470, 2],
+    [SOUTH_GATE.x - 40, SOUTH_GATE.z + 70], [SOUTH_GATE.x - 6, SOUTH_GATE.z + 26]], SOUTH_GATE)),
   road('mill-road', 'dirt', 3.2, [[88, 540], [214, 566], [372, 604], [536, 640], [694, 688], [836, 738], [926, 764]]),
   road('lake-road', 'dirt', 3.0, [[132, 440], [86, 396], [-8, 356], [-110, 318], [-196, 322], [WB0[0] + 14, WB0[1] + 10], WB0]),
   road('wood-brook-bridge', 'cobble', 3.2, [WB0, WB1], true),
   road('lake-road-west', 'dirt', 3.0, [WB1, [WB1[0] - 12, WB1[1] - 9], [-300, 250], [-372, 130], [-420, 20], [-450, -40], [PIER.x + 18, PIER.z + 46], [PIER.x + 18, PIER.z + 29]]),
   road('coastal-trail', 'dirt', 2.8, [[6, 1258], [118, 1292], [262, 1338], [420, 1396], [580, 1446], [736, 1484], [790, 1500], [800, 1600], [752, 1720], [LIGHTHOUSE.x + 6, LIGHTHOUSE.z - 14]]),
   road('grove-trail', 'dirt', 2.4, [[-6, 1250], [-128, 1212], [-262, 1122], [-378, 984], [-470, 852], [-516, 786], [-640, 822], [-782, 920], [-924, 1002], [-1040, 1046]]),
-  road('highland-road', 'dirt', 3.0, [[EAST_GATE.x, EAST_GATE.z], [EAST_GATE.x + 20 * Math.cos(EAST_GATE_ANGLE), EAST_GATE.z + 20 * Math.sin(EAST_GATE_ANGLE)], [880, -250], [1040, -300], [1200, -330], [1360, -400], [1470, -520], [1540, -660], [1610, -780], [1650, -840]]),
+  road('highland-road', 'dirt', 3.0, approach([[1650, -840], [1610, -780], [1540, -660], [1470, -520], [1360, -400], [1200, -330], [1040, -300],
+    [EAST_GATE.x + 70 * Math.cos(EAST_GATE_ANGLE - 0.2), EAST_GATE.z + 70 * Math.sin(EAST_GATE_ANGLE - 0.2)], [EAST_GATE.x + 24 * Math.cos(EAST_GATE_ANGLE), EAST_GATE.z + 24 * Math.sin(EAST_GATE_ANGLE)]], EAST_GATE).reverse()),
   road('abbey-pilgrimage', 'dirt', 2.8, [[172, 150], [60, 96], [-40, 10], [-96, -110], [NB0[0] + 6, NB0[1] + 8.5], NB0]),
   road('abbey-pilgrimage-bridge', 'cobble', 3.4, [NB0, NB1], true),
   road('abbey-pilgrimage-upper', 'dirt', 2.8, [NB1, [NB1[0] - 6, NB1[1] - 8.5], [-190, -250], [-330, -360], [-470, -440], [-620, -520], [-740, -640], [-820, -790], [-883, -940], [-891, -988], [-931, -1004], [-979, -1004], [-1027, -1004], [-1075, -1028], [-1107, -1052], [-1115, -1100], [-1107, -1148], [-1107, -1196], [-1139, -1228], [-1195, -1228], [-1243, -1228], [-1291, -1228], [-1339, -1204], [-1315, -1252], [-1283, -1284], [-1251, -1316], [-1219, -1348], [-1187, -1380], [-1163, -1412], [-1147, -1460], [-1147, -1500], [-1171, -1452], [-1211, -1420], [-1259, -1396], [-1227, -1428], [-1203, -1476], [-1203, -1524], [-1203, -1572], [-1227, -1524], [-1251, -1492], [-1291, -1468], [-1339, -1444], [-1387, -1420], [-1435, -1396], [-1483, -1372], [-1499, -1332], [-1523, -1356], [-1539, -1404], [-1535, -1440]]),
@@ -173,7 +238,7 @@ export const ROADS: Road[] = [
 
 /** Cobbled squares: [x, z, radius]. */
 export const PLAZAS: [number, number, number][] = [
-  [VILLAGE.x - 4, VILLAGE.z + 34, 11], [CITY.x + 18, CITY.z + 100, 12], [CITY.x, CITY.z, CITY.plateau - 5],
+  [VILLAGE.x - 4, VILLAGE.z + 34, 11], [CITY.x, CITY.z, CITY.plateau - 3],
 ];
 
 // Index short segments once; placement queries only inspect nearby roads.
@@ -290,7 +355,7 @@ export const ZONES: { name: string; sub: string; x: number; z: number; r: number
   { name: '河谷村', sub: 'Riverbend Village', x: VILLAGE.x, z: VILLAGE.z, r: 150 },
   { name: '风车丘', sub: 'Windmill Rise', x: WINDMILL.x, z: WINDMILL.z, r: 120 },
   { name: '云瀑修道院', sub: 'Cloudfall Abbey', x: ABBEY.x, z: ABBEY.z, r: 130 },
-  { name: '高城', sub: 'Hightown', x: CITY.x, z: CITY.z, r: CITY.wall + 30 },
+  { name: '高城', sub: 'Hightown', x: CITY.x, z: CITY.z, r: CITY_MAX_RADIUS + 30 },
   { name: '镜湖', sub: 'Mirror Lake', x: LAKE.x, z: LAKE.z, r: 240 },
   { name: '低语林', sub: 'Whisperwood', x: FOREST.x, z: FOREST.z, r: 340 },
   { name: '花谷', sub: 'Petal Hollow', x: BLOSSOM.x, z: BLOSSOM.z, r: 100 },
