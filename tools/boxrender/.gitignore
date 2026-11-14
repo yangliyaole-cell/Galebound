@@ -1,0 +1,5 @@
+# Local build cache, staged check copies, and default screenshot/check output.
+.cache/
+.stage/
+out/
+__pycache__/

@@ -1,0 +1,46 @@
+diff --git a/scripts/check-pbr-shots.mjs b/scripts/check-pbr-shots.mjs
+index a316272..3370087 100644
+--- a/scripts/check-pbr-shots.mjs
++++ b/scripts/check-pbr-shots.mjs
+@@ -16,7 +16,7 @@ try {
+   (await load('render/pbr/config')).configurePbr('high');
+   const village=(await load('world/structures/village')).buildVillage(2),landmarks=(await load('world/structures/landmarks')).buildLandmarks();
+   const city=(await load('world/structures/city')).buildCity(2),abbey=(await load('world/structures/abbey')).buildAbbey();
+-  const terrain=(await load('world/terrain')).createTerrain();
++  const heightTex=H.createHeightTexture(),landMaps=(await load('world/landmaps')).buildLandMaps(new THREE.Vector3(-.74,.62,.12));const terrain=(await load('world/terrain')).createTerrain(heightTex,landMaps,2.5).object;
+   const scatter=(await load('world/scatter')).createScatter({tier:'high',treeDetailRange:260,propRange:600},new THREE.Vector3(.42,.72,.55).normalize());
+   const scene=new THREE.Scene();scene.add(village.object,landmarks.object,city.object,abbey,terrain,scatter.object);
+   const {registerSceneRocks}=await load('render/pbr/material');
+diff --git a/scripts/check-pbr.mjs b/scripts/check-pbr.mjs
+index 1d5249e..9df69c6 100644
+--- a/scripts/check-pbr.mjs
++++ b/scripts/check-pbr.mjs
+@@ -212,7 +212,7 @@ try {
+       const grass=createGrass(4,6,1,new THREE.Texture());
+       for(const [index,layer] of grass.children.slice(0,2).entries()){
+         const shader=compile(layer.material);
+-        assert.equal(shader.uniforms.uPbrContact,materials.pbrUniforms.uPbrContact);
++        assert.ok(shader.uniforms.uPbrContact===materials.pbrUniforms.uPbrContact,'grass layer material does not share materials.pbrUniforms.uPbrContact (src/world/grass.ts does not wire it in the 4 km world)');
+         assert.ok(shader.vertexShader.includes('groundRoadShoulder'));
+         assert.ok(shader.vertexShader.includes('smoothstep(.78,.96,texture2D(uPbrContact'));
+         balanced(shader.vertexShader);resolve(shader.vertexShader);
+diff --git a/src/main.ts b/src/main.ts
+index 7c004e1..2ba4544 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -479,11 +479,14 @@ async function boot(): Promise<void> {
+       }
+     }
+     if (shot) shotState.renderedFrames = ++shotFrames;
+-    if (shot && shotFrames === 24 && !debugWindow.__galeShotError) {
++    // `warm=N` renders N frames before the shot is declared ready (default 24). One frame is already bit-identical
++    // on SwiftShader; `once=1` then stops the loop so a GPU-less box does not keep rasterising frames it will never look at.
++    if (shot && shotFrames === (Number(params.get('warm')) >= 1 ? Math.floor(Number(params.get('warm'))) : 24) && !debugWindow.__galeShotError) {
+       if (capeShot) shotState.scene = inspectCapeShotScene(scene, terrain.object, player.character, camera, heightAt, params.get('hero') !== 'classic');
+       if (shotState.worldBuilt && shotState.assetsReady && shotState.shadersReady && (!capeShot || shotState.scene?.ok)) {
+         renderer.getContext().finish();
+         debugWindow.__galeShotReady = true;
++        if (params.get('once') === '1') renderer.setAnimationLoop(null);
+       } else debugWindow.__galeShotError = shotState.scene?.issues.join('; ') || 'Screenshot world or assets are not ready';
+     }
+     if (!shot) resolution.tick(dt);

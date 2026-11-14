@@ -1,0 +1,9 @@
+#!/bin/sh
+# OPTIONAL, NOT APPLIED. For a machine with no swap. It was not needed for any shot (peak Chrome tree ~3.6 GB)
+# and the shot tool already kills itself before the kernel would. Only consider it if a host balloon keeps
+# squeezing MemAvailable below ~3 GB. Swap on a shared machine will slow other work once it is used.
+#
+# Replace SWAPFILE with a path on that machine (do not point it at a busy shared scratch directory).
+# SWAPFILE=/path/to/swapfile
+# sudo fallocate -l 6G "$SWAPFILE" && sudo chmod 600 "$SWAPFILE" && sudo mkswap "$SWAPFILE" && sudo swapon "$SWAPFILE"
+# sudo sysctl vm.swappiness=10
