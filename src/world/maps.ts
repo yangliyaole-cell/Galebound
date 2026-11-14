@@ -80,7 +80,7 @@ export function buildSplat(size: number): THREE.CanvasTexture {
   return tex;
 }
 
-export const CROP_COLORS: Record<Field['crop'], number> = { wheat: 0xd2bb62, tilled: 0x9a7556, cabbage: 0x6fa857, lavender: 0x9a86b8 };
+export const CROP_COLORS: Record<Field['crop'], number> = { wheat: 0xd6be5e, tilled: 0x9a7556, cabbage: 0x6fa857, lavender: 0x9a86b8, hay: 0xb7c95c };
 /** Crop colour of every parcel, with the parcel outline in alpha. */
 export function buildFields(size: number): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -113,12 +113,16 @@ export const roadAt = (x: number, z: number): number => splatSize ? splat(x, z, 
 export const cobbleAt = (x: number, z: number): number => splatSize ? splat(x, z, 1) : Math.max(
   1 - sstep(-0.7, 1, roadClearance(x, z, 'cobble')),
   ...PLAZAS.map(([px, pz, r]) => 1 - sstep(r - 1, r + 1, Math.hypot(x - px, z - pz))));
-const fieldCells = new Map<number, Field[]>();
-for (const f of FIELDS) {
-  const key = Math.floor(f.x / 96) * 4096 + Math.floor(f.z / 96);
-  fieldCells.set(key, [...(fieldCells.get(key) ?? []), f]);
-}
+let fieldCells: Map<number, Field[]> | null = null;
 export function fieldAt(x: number, z: number): number {
+  // Indexed on first use, after the land has had its say about which parcels survive.
+  if (!fieldCells) {
+    fieldCells = new Map();
+    for (const f of FIELDS) {
+      const key = Math.floor(f.x / 96) * 4096 + Math.floor(f.z / 96);
+      fieldCells.set(key, [...(fieldCells.get(key) ?? []), f]);
+    }
+  }
   const ix = Math.floor(x / 96), iz = Math.floor(z / 96);
   for (let j = iz - 1; j <= iz + 1; j++) for (let i = ix - 1; i <= ix + 1; i++) {
     for (const f of fieldCells.get(i * 4096 + j) ?? []) if (inPolygon(x, z, fieldPolygon(f))) return 1;

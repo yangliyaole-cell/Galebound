@@ -7,7 +7,6 @@ import { seededRandom } from '../noise';
 import { beam, fence } from './common';
 import { ROOFS, SHUTTERS, WALLS, addHouse, type BuiltHouse } from './house';
 import { batchSettlementDetails } from './batch-details';
-import { structureDetail } from '../structure-detail';
 
 export interface VillageInfo {
   houses: BuiltHouse[];
@@ -255,6 +254,7 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
 
   // Fences round the fields, haystacks beside the wheat.
   for (const f of FIELDS) {
+    if (f.scenic) continue;
     const c = Math.cos(f.rot), s = Math.sin(f.rot);
     const corner = (u: number, v: number): [number, number] => [
       f.x + u * (f.w / 2 + 1.2) * c - v * (f.d / 2 + 1.2) * s,
@@ -343,8 +343,7 @@ export function buildCrops(density: number, material: THREE.Material): THREE.Gro
   }
   const dummy = new THREE.Object3D();
   for (const f of FIELDS) {
-    if (f.crop === 'tilled') continue;
-    if (f.scenic && structureDetail() === 0) continue;
+    if (f.crop === 'tilled' || f.crop === 'hay' || f.scenic) continue;
     const wheatField = f.crop === 'wheat' || f.crop === 'lavender';
     const spacing = wheatField ? 0.62 / Math.sqrt(density) : 1.25;
     const nx = Math.floor((f.w - 2) / spacing);

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GALE, LAKES, coastZ, lakeShape, nearestRiver } from './gen/hydro';
+import { sfbm } from './gen/noise';
 
 /**
  * The map. North is -Z, east is +X. All distances in metres.
@@ -181,8 +182,8 @@ export function roadClearance(x: number, z: number, kinds?: Road['kind']): numbe
 
 export interface Field {
   x: number; z: number; w: number; d: number; rot: number;
-  crop: 'wheat' | 'tilled' | 'cabbage' | 'lavender';
-  /** Outer parcels keep painted field colour but omit individual crop geometry on low. */
+  crop: 'wheat' | 'tilled' | 'cabbage' | 'lavender' | 'hay';
+  /** Outlying parcels are painted on the land and hedged, without fences or standing crops. */
   scenic?: boolean;
 }
 /** Patchwork farmland: [centre x, centre z, columns, rows, rotation]. Parcels avoid water and roads. */
@@ -211,6 +212,26 @@ export const FIELDS: Field[] = [];
       FIELDS.push({ x, z, w, d, rot: rot + jitter(k + 300) * 0.16, crop: CROPS[(k + block) % CROPS.length], scenic: block > 4 });
     }
   });
+  // The rest of the vale: blocks of parcels on a loose lattice, wherever the land is farmed.
+  const OUTLYING: Field['crop'][] = ['hay', 'wheat', 'hay', 'cabbage', 'wheat', 'hay', 'tilled', 'hay', 'wheat', 'lavender'];
+  for (let bz = -1150; bz <= 1560; bz += 236) for (let bx = -1250; bx <= 1850; bx += 236) {
+    k += 40;
+    const cx = bx + jitter(k) * 90, cz = bz + jitter(k + 7) * 90;
+    if (sfbm(cx / 640 + 3.1, cz / 640 + 9.4, 2) < -0.2) continue;
+    if (FIELD_BLOCKS.some(([fx, fz]) => Math.hypot(fx - cx, fz - cz) < 210)) continue;
+    const rot = jitter(k + 13) * 1.5, c = Math.cos(rot), s = Math.sin(rot);
+    for (let j = 0; j < 5; j++) for (let i = 0; i < 4; i++) {
+      k++;
+      const w = 52 + jitter(k) * 18, d = 36 + jitter(k + 500) * 12;
+      const u = (i - 1.5) * 57 + jitter(k + 90) * 6, v = (j - 2) * 41 + jitter(k + 190) * 5;
+      const x = cx + u * c - v * s, z = cz + u * s + v * c;
+      if (jitter(k + 900) > 0.3) continue;
+      if (nearestRiver(x, z, 80).found || roadClearance(x, z) < 30 || Math.hypot(x - VILLAGE.x, z - VILLAGE.z) < 150) continue;
+      if (LAKES.some((l) => lakeShape(l, x, z) < 1.4) || cityEdgeDistance(x, z) < 90 || Math.hypot(x - START.x, z - START.z) < 150) continue;
+      if (Math.abs(x) > HALF - 150 || Math.abs(z) > HALF - 150) continue;
+      FIELDS.push({ x, z, w, d, rot: rot + jitter(k + 300) * 0.1, crop: OUTLYING[k % OUTLYING.length], scenic: true });
+    }
+  }
 }
 /** Deliberately skewed parcels, shared by splat painting, crops and fences. */
 export function fieldPolygon(f: Field): Pt[] {

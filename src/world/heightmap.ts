@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { clamp, lerp, ridged, sfbm, smax, sstep } from './gen/noise';
 import { buildMacro, macroHeight, macroSlope } from './gen/macro';
 import { LAKES, channelDepth, lakeShape, nearestRiver, waterSurfaceAt } from './gen/hydro';
-import { ABBEY, CITY, EAST_GATE_ANGLE, HALF, ROADS, SIZE, SOUTH_GATE_ANGLE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt } from './layout';
+import { ABBEY, CITY, EAST_GATE_ANGLE, FIELDS, HALF, ROADS, SIZE, SOUTH_GATE_ANGLE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt } from './layout';
 
 export { clamp, lerp, sstep };
 
@@ -87,6 +87,11 @@ export function buildHeightmap(cellSize: number, onProgress?: (fraction: number)
   // The abbey stands on whatever shelf the scarp offers.
   ABBEY.floor = Math.round(macroHeight(ABBEY.x, ABBEY.z));
   ABBEY.tower = ABBEY.floor + 25;
+  // Nobody ploughs a hillside: parcels drawn across steep or high ground are dropped.
+  for (let i = FIELDS.length - 1; i >= 0; i--) {
+    const f = FIELDS[i];
+    if (f.scenic && (macroSlope(f.x, f.z) > 0.13 || macroHeight(f.x, f.z) > 170)) FIELDS.splice(i, 1);
+  }
   data = new Float32Array(row * row);
   for (let j = 0; j <= n; j++) {
     for (let i = 0; i <= n; i++) {

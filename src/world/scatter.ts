@@ -7,8 +7,8 @@ import { blossomTexture, leafTexture, needleTexture } from '../render/textures';
 import { addRound, surfaceTop } from './colliders';
 import { foliageMaterial, leafCards, type Part } from './foliage';
 import { heightAt, normalAt, sstep } from './heightmap';
-import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, inPolygon, cityRadiusAt } from './layout';
-import { blossomDensity, forestDensity } from './maps';
+import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, cityRadiusAt } from './layout';
+import { blossomDensity, fieldAt, forestDensity } from './maps';
 import { fbm, seededRandom } from './noise';
 import { Forest } from './flora/forest';
 import type { TreeKind } from './flora/tree-models';
@@ -344,7 +344,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
     Math.hypot(x - ABBEY.x, z - ABBEY.z) > 70 &&
     roadClearance(x, z) > 1.2 && !insideCity(x, z) &&
     !PLAZAS.some(([px, pz, r]) => Math.hypot(x - px, z - pz) < r + 2) &&
-    !fields.some((p) => inPolygon(x, z, p)) &&
+    !fieldAt(x, z) &&
     surfaceTop(x, z) - heightAt(x, z) < 0.05 && surfaceTop(x + 2, z + 2) - heightAt(x + 2, z + 2) < 0.05 &&
     surfaceTop(x - 2, z - 2) - heightAt(x - 2, z - 2) < 0.05;
 
@@ -380,7 +380,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
       const density = forestDensity(x, z);
       if (roll > density * 0.8) continue;
       const deep = 1 - sstep(0.6, 1, Math.hypot(x - FOREST.x, z - FOREST.z) / FOREST.r);
-      const high = sstep(55, 100, h) + (z < -800 || (x < -500 && z < -340) ? 0.9 : 0);
+      const high = sstep(300, 520, h);
       let name = 'oak';
       if (kind < high + deep * 0.25) name = 'pine';
       else if (kind > 0.86 - deep * 0.06) name = 'cypress';
@@ -388,6 +388,26 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
       place(name, x, z, scale);
     }
   }
+
+  // Hedgerows: most parcel boundaries carry a line of small trees and scrub.
+  FIELDS.forEach((f, fi) => {
+    const poly = fields[fi];
+    for (let e = 0; e < poly.length; e++) {
+      if (!f.scenic && e >= 4) continue;
+      if (rand() > (f.scenic ? 0.62 : 0.35)) continue;
+      const a = poly[e], c = poly[(e + 1) % poly.length], len = Math.hypot(c[0] - a[0], c[1] - a[1]);
+      const nx = (c[1] - a[1]) / len, nz = -(c[0] - a[0]) / len;
+      const outward = Math.sign((a[0] - f.x) * nx + (a[1] - f.z) * nz) || 1;
+      for (let d = 3 + rand() * 4; d < len - 2; d += 4.5 + rand() * 6) {
+        const x = a[0] + (c[0] - a[0]) * d / len + nx * outward * (2.2 + rand() * 1.6);
+        const z = a[1] + (c[1] - a[1]) * d / len + nz * outward * (2.2 + rand() * 1.6);
+        const size = rand();
+        if (heightAt(x, z) < waterLevelAt(x, z) + 1 || !clear(x, z)) continue;
+        if (size < 0.42) place('bush', x, z, 1 + size * 2.2, 0.9, 0.1);
+        else place(size > 0.93 ? 'cypress' : 'oak', x, z, 0.55 + size * 0.55);
+      }
+    }
+  });
 
   // Cypress dotted around the village and the city approach, as in the painting.
   for (let i = 0; i < 260; i++) {
