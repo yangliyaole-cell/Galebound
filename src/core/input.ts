@@ -6,6 +6,8 @@ export class Input {
   moveX = 0;
   moveY = 0;
   run = false;
+  /** Held Shift (or a shoulder trigger): in a glide, tuck the arms in and fly faster. */
+  boost = false;
   /** True once any touch has been seen, so the HUD can show touch buttons. */
   touch = window.matchMedia('(pointer: coarse)').matches;
 
@@ -93,7 +95,7 @@ export class Input {
     this.rebaseLook = false;
     this.padJump = this.padReady = false;
     this.moveX = this.moveY = 0;
-    this.run = false;
+    this.run = this.boost = false;
     this.base.style.display = 'none';
   }
 
@@ -235,7 +237,8 @@ export class Input {
     const k = this.keys;
     let x = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
     let y = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
-    let run = k.has('ShiftLeft') || k.has('ShiftRight') || this.runToggle;
+    let boost = k.has('ShiftLeft') || k.has('ShiftRight');
+    let run = boost || this.runToggle;
 
     if (this.stickId >= 0) {
       x = this.stickX;
@@ -256,7 +259,7 @@ export class Input {
       }
       this.lookX += dead(pad.axes[2] ?? 0) * dt * 2.6;
       this.lookY += dead(pad.axes[3] ?? 0) * dt * 1.8;
-      if (pad.buttons[7]?.pressed || pad.buttons[5]?.pressed || pad.buttons[10]?.pressed) run = true;
+      if (pad.buttons[7]?.pressed || pad.buttons[5]?.pressed || pad.buttons[10]?.pressed) run = boost = true;
       const jump = !!pad.buttons[0]?.pressed;
       if (jump && !this.padJump && this.padReady) this.jumpQueued = true;
       this.padJump = jump;
@@ -273,6 +276,7 @@ export class Input {
     this.moveX = x;
     this.moveY = y;
     this.run = run;
+    this.boost = boost;
   }
 
   takeJump(): boolean {

@@ -85,7 +85,7 @@ export class FollowCamera {
 
     // A tall, narrow screen needs a wider lens to see as much to the sides.
     const base = cam.aspect < 1 ? 55 + Math.min(20, (1 - cam.aspect) * 40) : 55;
-    const fov = gliding ? base + Math.min(13, Math.max(0, player.speed - 6) * 1.5) : base;
+    const fov = gliding ? base + Math.min(20, Math.max(0, player.speed - 8) * 0.65) : base;
     this.fov += (fov - this.fov) * (1 - Math.exp(-dt * 3));
     if (Math.abs(cam.fov - this.fov) > 0.05) {
       cam.fov = this.fov;

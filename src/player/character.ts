@@ -14,6 +14,8 @@ export interface CharacterState {
   turn: number;
   /** Glide pitch, 1 dives and -1 flares. */
   dive: number;
+  /** 0 with arms spread wide, 1 with them drawn in for speed (Shift while gliding). */
+  tuck?: number;
   velocity: THREE.Vector3;
   wind: THREE.Vector3;
 }
@@ -24,7 +26,7 @@ const CLOTH_EDGE = 0x6f5c3a;
 /** Near-black cloth that fades to dull bronze at the free end. */
 const stripColor = (t: number): number => (t > 0.95 ? CLOTH_EDGE : t > 0.5 ? 0x1d1f26 : CLOTH);
 
-export function poseFor(motion: Motion, phase: number, time: number, turn: number, dive: number): Pose {
+export function poseFor(motion: Motion, phase: number, time: number, turn: number, dive: number, tuck = 0): Pose {
   const t: Pose = { ...REST };
   const s = Math.sin(phase);
   const c = Math.cos(phase);
@@ -123,11 +125,15 @@ export function poseFor(motion: Motion, phase: number, time: number, turn: numbe
       t.chestX = -0.1;
       t.headX = -0.82 - dive * 0.1;
       t.headY = -turn * 0.25;
-      t.armLZ = 1.5 + 0.035 * Math.sin(time * 3.1) - turn * 0.12;
-      t.armRZ = -1.5 - 0.035 * Math.sin(time * 3.1 + 1.3) - turn * 0.12;
-      t.armLY = 0.14;
-      t.armRY = -0.14;
-      t.elbowL = t.elbowR = -0.1;
+      // Tucking draws the arms partway in toward the body, like a swift folding its wings.
+      const spread = 1.5 - tuck * 0.65;
+      const flutter = 0.035 * (1 - tuck * 0.6);
+      t.bodyPitch += tuck * 0.08;
+      t.armLZ = spread + flutter * Math.sin(time * 3.1) - turn * 0.12;
+      t.armRZ = -spread - flutter * Math.sin(time * 3.1 + 1.3) - turn * 0.12;
+      t.armLY = 0.14 + tuck * 0.12;
+      t.armRY = -0.14 - tuck * 0.12;
+      t.elbowL = t.elbowR = -0.1 - tuck * 0.25;
       t.legLX = 0.1 + 0.05 * Math.sin(time * 4.2);
       t.legRX = 0.1 - 0.05 * Math.sin(time * 4.2);
       t.legLZ = 0.07;
@@ -269,7 +275,7 @@ export class Character {
       this.phase += (dt * Math.PI * 2 * Math.max(state.speed, 0.8)) / stride;
     }
 
-    const target = poseFor(state.motion, this.phase, time, state.turn, state.dive);
+    const target = poseFor(state.motion, this.phase, time, state.turn, state.dive, state.tuck ?? 0);
     if (state.motion === 'idle' && this.rig.setMaskVisible) {
       // Relax the new anatomy into a small weight shift, with shoulders back
       // and unequal elbow flexion, rather than a symmetric mannequin stance.

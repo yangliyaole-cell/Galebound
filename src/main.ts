@@ -204,7 +204,7 @@ async function boot(): Promise<void> {
   // ---- events
   wind.onState = (state) => {
     if (state === 'warning') hud.toast('阵风将至');
-    else if (state === 'gust') hud.toast(`阵风起了，吹向${wind.heading()}。从高处顺风跳下`);
+    else if (state === 'gust') hud.toast(`阵风起了，吹向${wind.heading()}。顺风飞得快，逆风升得高`);
   };
   hud.onJump = () => input.pressJump();
   hud.onRun = () => input.toggleRun();
@@ -221,7 +221,7 @@ async function boot(): Promise<void> {
   player.onGlide = (begun) => {
     if (!begun) return;
     sound.whoosh();
-    if (glides++ === 0) hud.toast('乘上风了。A / D 或摇杆左右转向，顺着风飞得最远', 5);
+    if (glides++ === 0) hud.toast('张开风布了。A / D 转向，W 俯冲攒速度再 S 拉升，按住 Shift 收臂加速', 5);
   };
 
   let started = false;
