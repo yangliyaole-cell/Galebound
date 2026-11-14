@@ -28,8 +28,17 @@ export const BLOSSOM = { x: -520, z: 770, r: 90 };
 export const LIGHTHOUSE = { x: 700, z: Math.round(coastZ(700) - 80) };
 export const WATCHTOWER = { x: 800, z: 1480 };
 export const BRIDGE = { x: 150, z: 330, length: 46, width: 5.2, level: 48.5 };
+/** `level` is a fallback: bridges read the water level of the river they cross once the land is generated. */
+export interface BridgeSpec { x: number; z: number; length: number; width: number; dirX: number; dirZ: number; level: number; arches: number; name: string }
+/** Every stone bridge. The village bridge runs north-south; the two footbridges follow their roads. */
+export const BRIDGES: BridgeSpec[] = [
+  { ...BRIDGE, dirX: 0, dirZ: 1, arches: 3, name: 'village' },
+  { x: -154, z: -205, length: 22, width: 3.4, dirX: -0.58, dirZ: -0.82, level: 65.3, arches: 1, name: 'north-beck' },
+  { x: -256, z: 288, length: 20, width: 3.2, dirX: -0.81, dirZ: -0.59, level: 56.3, arches: 1, name: 'wood-brook' },
+];
 export const VILLAGE = { x: 150, z: 345, r: 150 };
-export const PIER = { x: -470, z: -86 };
+/** On Mirror Lake's north-east shore: the deck stands in the water, its gangway runs south to the bank. */
+export const PIER = { x: -484, z: -100 };
 /** Where the Gale leaves its hanging valley: the lip of Cloudfall and the flow direction there. */
 export const SCARP = { x: -1376, z: -1186, ux: 0.6, uz: 0.8, rise: 140 };
 
@@ -138,16 +147,26 @@ for (const street of CITY_STREETS) {
   });
 }
 const B = BRIDGE;
+/** The two ends of a bridge's approach ramps, in the direction of travel. */
+const ends = (name: string): [Pt, Pt] => {
+  const b = BRIDGES.find((q) => q.name === name)!, reach = b.length / 2 + 10;
+  return [[b.x - b.dirX * reach, b.z - b.dirZ * reach], [b.x + b.dirX * reach, b.z + b.dirZ * reach]];
+};
+const [WB0, WB1] = ends('wood-brook'), [NB0, NB1] = ends('north-beck');
 export const ROADS: Road[] = [
   road('start-village', 'dirt', 3.9, [[2, 1242], [-16, 1180], [-52, 1090], [-66, 990], [-30, 880], [34, 770], [70, 650], [88, 540], [132, 440], [B.x, B.z + 46], [B.x, B.z + 23]]),
   road('river-bridge', 'cobble', 4.7, [[B.x, B.z + 23], [B.x, B.z - 23]], true),
   road('village-city', 'dirt', 4.3, [[B.x, B.z - 23], [B.x, B.z - 34], [176, 240], [172, 150], [226, 60], [322, -22], [402, -92], [470, -128], [530, -152], [SOUTH_GATE.x, SOUTH_GATE.z]]),
   road('mill-road', 'dirt', 3.2, [[88, 540], [214, 566], [372, 604], [536, 640], [694, 688], [836, 738], [926, 764]]),
-  road('lake-road', 'dirt', 3.0, [[132, 440], [86, 396], [-8, 356], [-110, 318], [-196, 322], [-300, 250], [-372, 130], [-420, 20], [-462, -52], [PIER.x, PIER.z + 14]]),
+  road('lake-road', 'dirt', 3.0, [[132, 440], [86, 396], [-8, 356], [-110, 318], [-196, 322], [WB0[0] + 14, WB0[1] + 10], WB0]),
+  road('wood-brook-bridge', 'cobble', 3.2, [WB0, WB1], true),
+  road('lake-road-west', 'dirt', 3.0, [WB1, [WB1[0] - 12, WB1[1] - 9], [-300, 250], [-372, 130], [-420, 20], [-450, -40], [PIER.x + 18, PIER.z + 46], [PIER.x + 18, PIER.z + 29]]),
   road('coastal-trail', 'dirt', 2.8, [[6, 1258], [118, 1292], [262, 1338], [420, 1396], [580, 1446], [736, 1484], [790, 1500], [800, 1600], [752, 1720], [LIGHTHOUSE.x + 6, LIGHTHOUSE.z - 14]]),
   road('grove-trail', 'dirt', 2.4, [[-6, 1250], [-128, 1212], [-262, 1122], [-378, 984], [-470, 852], [-516, 786], [-640, 822], [-782, 920], [-924, 1002], [-1040, 1046]]),
   road('highland-road', 'dirt', 3.0, [[EAST_GATE.x, EAST_GATE.z], [EAST_GATE.x + 20 * Math.cos(EAST_GATE_ANGLE), EAST_GATE.z + 20 * Math.sin(EAST_GATE_ANGLE)], [880, -250], [1040, -300], [1200, -330], [1360, -400], [1470, -520], [1540, -660], [1610, -780], [1650, -840]]),
-  road('abbey-pilgrimage', 'dirt', 2.8, [[172, 150], [60, 96], [-40, 10], [-96, -110], [-190, -250], [-330, -360], [-470, -440], [-620, -520], [-740, -640], [-820, -790], [-883, -940], [-891, -988], [-931, -1004], [-979, -1004], [-1027, -1004], [-1075, -1028], [-1107, -1052], [-1115, -1100], [-1107, -1148], [-1107, -1196], [-1139, -1228], [-1195, -1228], [-1243, -1228], [-1291, -1228], [-1339, -1204], [-1315, -1252], [-1283, -1284], [-1251, -1316], [-1219, -1348], [-1187, -1380], [-1163, -1412], [-1147, -1460], [-1147, -1500], [-1171, -1452], [-1211, -1420], [-1259, -1396], [-1227, -1428], [-1203, -1476], [-1203, -1524], [-1203, -1572], [-1227, -1524], [-1251, -1492], [-1291, -1468], [-1339, -1444], [-1387, -1420], [-1435, -1396], [-1483, -1372], [-1499, -1332], [-1523, -1356], [-1539, -1404], [-1535, -1440]]),
+  road('abbey-pilgrimage', 'dirt', 2.8, [[172, 150], [60, 96], [-40, 10], [-96, -110], [NB0[0] + 6, NB0[1] + 8.5], NB0]),
+  road('abbey-pilgrimage-bridge', 'cobble', 3.4, [NB0, NB1], true),
+  road('abbey-pilgrimage-upper', 'dirt', 2.8, [NB1, [NB1[0] - 6, NB1[1] - 8.5], [-190, -250], [-330, -360], [-470, -440], [-620, -520], [-740, -640], [-820, -790], [-883, -940], [-891, -988], [-931, -1004], [-979, -1004], [-1027, -1004], [-1075, -1028], [-1107, -1052], [-1115, -1100], [-1107, -1148], [-1107, -1196], [-1139, -1228], [-1195, -1228], [-1243, -1228], [-1291, -1228], [-1339, -1204], [-1315, -1252], [-1283, -1284], [-1251, -1316], [-1219, -1348], [-1187, -1380], [-1163, -1412], [-1147, -1460], [-1147, -1500], [-1171, -1452], [-1211, -1420], [-1259, -1396], [-1227, -1428], [-1203, -1476], [-1203, -1524], [-1203, -1572], [-1227, -1524], [-1251, -1492], [-1291, -1468], [-1339, -1444], [-1387, -1420], [-1435, -1396], [-1483, -1372], [-1499, -1332], [-1523, -1356], [-1539, -1404], [-1535, -1440]]),
   road('field-path', 'dirt', 2.2, [[-8, 356], [-60, 430], [-76, 530], [-40, 640], [34, 770]]),
   ...CITY_STREETS,
 ];

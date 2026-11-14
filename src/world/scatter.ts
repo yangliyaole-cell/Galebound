@@ -331,7 +331,7 @@ interface Batch {
 }
 
 export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunDir: THREE.Vector3,
-  stage: { renderer: THREE.WebGLRenderer; sun: THREE.DirectionalLight; hemisphere: THREE.HemisphereLight }): {
+  stage?: { renderer: THREE.WebGLRenderer; sun: THREE.DirectionalLight; hemisphere: THREE.HemisphereLight }): {
   object: THREE.Group;
   update: (camera: THREE.Vector3) => void;
   stats: () => { tiers: number[]; trees: number[]; blended: number; total: number; allocatedInstances: number };
@@ -543,7 +543,8 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
     const tris = (g: THREE.BufferGeometry | null | undefined): number => g ? (g.index?.count ?? g.attributes.position?.count ?? 0) / 3 : 0;
     return [name, { placed: lists.get(name)!.reduce((n, list) => n + list.length, 0), triangles: low ? [0, 0, tris(s.lo)] : [tris(s.hi) + tris(s.cards), tris(s.mid ?? s.hi) + tris(s.midCards), tris(s.lo)], cards: low ? [0, 0, 0] : [tris(s.cards) / 2, tris(s.midCards) / 2, 0] }];
   }));
-  group.add(forest.build(stage.renderer, stage.sun, stage.hemisphere, sunDir, low ? 0 : quality.tier === 'high' ? 2 : 1));
+  // Headless checks have no renderer: trees are still planted and collide, but are not drawn.
+  if (stage) group.add(forest.build(stage.renderer, stage.sun, stage.hemisphere, sunDir, low ? 0 : quality.tier === 'high' ? 2 : 1));
   const previous = new THREE.Vector3(Infinity, Infinity, Infinity);
   return {
     object: group,

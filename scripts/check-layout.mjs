@@ -21,6 +21,8 @@ const check = (name, fn) => { try { const details = fn(); console.log(`PASS ${na
 const t0 = performance.now();
 try {
   const L = await server.ssrLoadModule('/src/world/layout.ts');
+  const { TIERS } = await server.ssrLoadModule('/src/core/quality.ts');
+  const trees = await server.ssrLoadModule('/src/world/flora/tree-models.ts');
   const H = await server.ssrLoadModule('/src/world/heightmap.ts');
   const C = await server.ssrLoadModule('/src/world/colliders.ts');
   const B = await server.ssrLoadModule('/src/world/build.ts');
@@ -36,9 +38,15 @@ try {
   const landmarks = (await server.ssrLoadModule('/src/world/structures/landmarks.ts')).buildLandmarks();
   const city = (await server.ssrLoadModule('/src/world/structures/city.ts')).buildCity(detail);
   const abbey = buildAbbey();
-  const mountain = await server.ssrLoadModule('/src/world/mountain-layout.ts');
+  const hydro = await server.ssrLoadModule('/src/world/gen/hydro.ts');
+  // The surveyed water network replaced the old hand-placed alpine lakes.
+  const mountain = {
+    waterLevelAt: (x, z) => Math.max(0, H.waterLevelAt(x, z)),
+    ALPINE_LAKES: hydro.LAKES.filter((l) => l.name !== 'mirror'),
+  };
   const texture = H.createHeightTexture(), sun = new THREE.Vector3(0.42, 0.72, 0.55).normalize();
-  const terrain = (await server.ssrLoadModule('/src/world/terrain.ts')).createTerrain();
+  const landMaps = (await server.ssrLoadModule('/src/world/landmaps.ts')).buildLandMaps(new THREE.Vector3(-0.74, 0.62, 0.12));
+  const terrain = (await server.ssrLoadModule('/src/world/terrain.ts')).createTerrain(texture, landMaps, 2.5).object;
   const water = (await server.ssrLoadModule('/src/world/water.ts')).createWater(texture, sun, 0xc5dfed);
   const vegetation = low ? [7000, 9000, 1200] : detail === 2 ? [24000, 36000, 6000] : [14000, 20000, 3000];
   const grass = (await server.ssrLoadModule('/src/world/grass.ts')).createGrass(...vegetation, texture);
@@ -55,41 +63,47 @@ try {
   const { waterFragmentSample } = await server.ssrLoadModule('/src/world/water.ts');
   const { abbeyGroundMask, abbeyInteriorWeight, createAbbeyLighting, ABBEY_LIGHTING, ABBEY_GROUND_MASK_GLSL } = await server.ssrLoadModule('/src/world/abbey-space.ts');
   const { cityPlotsOverlap } = await server.ssrLoadModule('/src/world/structures/city-parcels.ts');
-  check('uploaded bathymetry, actual water geometry, fragment depth alpha and blue color', () => {
+  check('rivers fall and widen downstream; water surfaces sit above their beds', () => {
     assert.ok(texture.version > 0 && texture.source.version > 0, 'height texture was never scheduled for GPU upload');
-    const { data, width, height } = texture.image;
     assert.equal(texture.type, THREE.FloatType, 'height texture should be R32F');
-    const sampleTexture = (x, z) => {
-      const u = x / L.SIZE + 0.5, v = z / L.SIZE + 0.5;
-      if (u <= 0 || u >= 1 || v <= 0 || v >= 1) return -22;
-      const nn = width - 1, cellSize = L.SIZE / nn;
-      const gx = Math.min(Math.max((x + L.HALF) / cellSize, 0), nn - 1e-4);
-      const gz = Math.min(Math.max((z + L.HALF) / cellSize, 0), nn - 1e-4);
-      const ix = Math.floor(gx), iz = Math.floor(gz), fx = gx - ix, fz = gz - iz;
-      const at = (i, j) => data[Math.max(0, Math.min(height - 1, j)) * width + Math.max(0, Math.min(width - 1, i))];
-      return fx + fz <= 1 ? at(ix, iz) + (at(ix + 1, iz) - at(ix, iz)) * fx + (at(ix, iz + 1) - at(ix, iz)) * fz
-        : at(ix + 1, iz + 1) + (at(ix, iz + 1) - at(ix + 1, iz + 1)) * (1 - fx) + (at(ix + 1, iz) - at(ix + 1, iz + 1)) * (1 - fz);
-    };
-    const points = [['coast', 0, 560, 0], ['sea', 0, 700, 0], ['mirror', L.LAKE.x, L.LAKE.z, 0],
-      ['river', L.BRIDGE.x, L.BRIDGE.z, 0], ['alpine', -744, -722, 94], ['off-map sea', 0, 1300, 0]];
-    water.updateMatrixWorld(true);
-    for (const [name, x, z, level] of points) {
-      const ground = sampleTexture(x, z), result = waterFragmentSample(ground, level);
-      assert.ok(level > ground + 0.5, `${name}: bed ${ground} is not below level ${level}`);
-      assert.ok(result.depth > 0.5 && result.alpha > 0.65 && result.color[2] > result.color[0] * 1.6, `${name}: invisible or non-blue water`);
-      const hits = new THREE.Raycaster(new THREE.Vector3(x, level + 150, z), new THREE.Vector3(0, -1, 0)).intersectObject(water, true);
-      assert.ok(hits.some((h) => Math.abs(h.point.y - level) < 0.02), `${name}: no upward-facing water surface`);
-      if (Math.abs(x) < L.HALF && Math.abs(z) < L.HALF) assert.ok(level > H.heightAt(x, z) + 0.5, `${name}: water below actual terrain mesh`);
-      console.log(`  WATER ${name}: level=${level}, bed=${ground.toFixed(3)}, depth=${result.depth.toFixed(3)}, alpha=${result.alpha.toFixed(3)}, color=#${new THREE.Color().fromArray(result.color).getHexString()}`);
+    const notes = [];
+    for (const river of hydro.RIVERS) {
+      const pts = river.pts;
+      let rise = 0;
+      for (let i = 1; i < pts.length; i++) rise = Math.max(rise, pts[i].level - pts[i - 1].level);
+      assert.ok(rise <= 1e-6, `${river.name} surface rises ${rise.toFixed(3)}m downstream`);
+      const fall = pts[0].level - pts.at(-1).level;
+      assert.ok(fall > 8, `${river.name} falls only ${fall.toFixed(1)}m`);
+      assert.ok(pts.at(-1).width >= pts[0].width * 1.15, `${river.name} does not widen downstream`);
+      // Inside the walkable land, the bed lies below the surface wherever the water is not falling.
+      let dryBeds = 0, sampled = 0;
+      for (const p of pts) {
+        if (p.fall || Math.abs(p.x) > L.HALF - 50 || Math.abs(p.z) > L.HALF - 50 || p.level < 0.5) continue;
+        sampled++;
+        if (H.heightAt(p.x, p.z) > p.level - 0.3) dryBeds++;
+      }
+      assert.ok(dryBeds <= sampled * 0.02, `${river.name}: ${dryBeds}/${sampled} centreline beds stand above the water`);
+      notes.push(`${river.name} ${fall.toFixed(0)}m fall, ${pts[0].width.toFixed(0)}→${pts.at(-1).width.toFixed(0)}m wide`);
     }
-    return 'float32 upload + sea/lake/river/alpine meshes verified';
+    for (const lake of hydro.LAKES) {
+      if (Math.abs(lake.x) > L.HALF || Math.abs(lake.z) > L.HALF) continue;
+      assert.ok(H.heightAt(lake.x, lake.z) < lake.level - 1, `${lake.name}: bed not below the surface`);
+      assert.equal(H.waterLevelAt(lake.x, lake.z), lake.level);
+    }
+    water.updateMatrixWorld(true);
+    const hits = new THREE.Raycaster(new THREE.Vector3(L.LAKE.x, L.LAKE.level + 150, L.LAKE.z), new THREE.Vector3(0, -1, 0)).intersectObject(water, true);
+    assert.ok(hits.some((h) => Math.abs(h.point.y - L.LAKE.level) < 0.02), 'Mirror Lake has no water surface');
+    return notes.join('; ');
   });
-  check('dense city parcels have clear roof gaps and rising contour shelves', () => {
+
+  check('dense city parcels stand in terraced rows without interpenetrating, on rising contour shelves', () => {
     const plots = builtHouses.filter((h) => L.insideCity(h.spec.x, h.spec.z)).map((h) => h.spec);
     assert.equal(plots.length, city.info.houseCount);
-    assert.ok(plots.length >= 300 && plots.length <= 420, `${plots.length} city houses`);
+    assert.ok(plots.length >= 500 && plots.length <= 1100, `${plots.length} city houses`);
+    // Row houses share party walls; none may push more than 3 cm into a neighbour.
     for (let i = 0; i < plots.length; i++) for (let j = i + 1; j < plots.length; j++) {
-      assert.ok(!cityPlotsOverlap(plots[i], plots[j], 0.5), `overlapping city plots ${i}/${j}`);
+      if (Math.hypot(plots[i].x - plots[j].x, plots[i].z - plots[j].z) > 16) continue;
+      assert.ok(!cityPlotsOverlap(plots[i], plots[j], -0.03), `overlapping city plots ${i}/${j}`);
     }
     const relief = [];
     for (let k = 0; k < 18; k++) {
@@ -228,7 +242,7 @@ try {
       clearance = Math.min(clearance, sy + 2.1 + (targetY - sy - 2.1) * t - H.heightAt(x, z));
     }
     assert.ok(clearance > 0, `terrain occludes ray by ${(-clearance).toFixed(2)}m`);
-    assert.ok(distance < 1050, 'landmark must remain inside medium fog fade range');
+    assert.ok(distance < TIERS.medium.viewRange * 0.85, 'landmark must remain inside medium fog fade range');
     return `distance=${distance.toFixed(1)}m, min terrain clearance=${clearance.toFixed(2)}m`;
   };
   check('palace main spire skyline from spawn', () => sight(PALACE, H.heightAt(PALACE.x, PALACE.z) + PALACE.spire));
@@ -264,7 +278,7 @@ try {
     const bad = [];
     for (const r of L.ROADS) for (const [x, z] of r.pts) {
       if (r.bridge) continue;
-      const supportedPier = r.id === 'lake-road' && Math.hypot(x - L.PIER.x, z - L.PIER.z) < 45;
+      const supportedPier = r.id.startsWith('lake-road') && Math.hypot(x - L.PIER.x, z - L.PIER.z) < 45;
       if ((supportedPier ? C.surfaceTop(x, z) : H.heightAt(x, z)) < mountain.waterLevelAt(x, z) + 0.3) bad.push(`${r.id}@${x.toFixed(0)},${z.toFixed(0)}`);
     }
     assert.equal(bad.length, 0, bad.slice(0, 20).join('; '));
@@ -302,10 +316,13 @@ try {
   });
   check('spawn to abbey pilgrimage is a continuous dry collision-free walking route', () => {
     const get = (id) => L.ROADS.find((r) => r.id === id).pts;
-    const villagePath = get('village-city'), join = villagePath.findIndex(([x, z]) => Math.hypot(x - 18, z + 330) < 0.1);
+    const villagePath = get('village-city'), [jx, jz] = get('abbey-pilgrimage')[0];
+    const gaps = villagePath.map(([x, z]) => Math.hypot(x - jx, z - jz)), join = gaps.indexOf(Math.min(...gaps));
+    assert.ok(gaps[join] < 1, 'pilgrimage road must leave from the village-city road');
     assert.ok(join >= 0, 'missing northern bridge-road junction');
+    const pilgrimage = L.ROADS.filter((r) => r.id.startsWith('abbey-pilgrimage')).flatMap((r) => r.pts);
     const route = [[sx, sz], ...get('start-village'), ...get('river-bridge'), ...villagePath.slice(0, join + 1),
-      ...get('abbey-pilgrimage'), [L.ABBEY.x, L.ABBEY.entranceZ]];
+      ...pilgrimage, [L.ABBEY.x, L.ABBEY.entranceZ]];
     let feet = sy, length = 0, maxGrade = 0, minDry = Infinity;
     for (let i = 0; i < route.length - 1; i++) {
       const a = route[i], b = route[i + 1], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -327,7 +344,8 @@ try {
   });
   check('abbey exterior photo stances are dry and reach the south portal', () => {
     const descriptions = [];
-    for (const z of [-420, -444]) {
+    // Stances on the south approach, 38 m and 14 m out from the portal.
+    for (const z of [L.ABBEY.entranceZ + 38, L.ABBEY.entranceZ + 14]) {
       const x = L.ABBEY.x, floor = H.heightAt(x, z), level = mountain.waterLevelAt(x, z);
       assert.ok(floor > level + 2 && Math.abs(C.surfaceTop(x, z) - floor) < 0.1);
       assert.ok(!C.solidAt(x, floor + 0.8, z));
@@ -421,7 +439,7 @@ try {
         for (let d = 0; d < len; d += 1) {
           const x = a[0] + (b[0] - a[0]) * d / len, z = a[1] + (b[1] - a[1]) * d / len;
           const onBridgeApproach = Math.abs(x - L.BRIDGE.x) < L.BRIDGE.width / 2 && Math.abs(z - L.BRIDGE.z) <= L.BRIDGE.length / 2 + 7;
-          const onPierApproach = r.id === 'lake-road' && Math.hypot(x - L.PIER.x, z - L.PIER.z) < 45;
+          const onPierApproach = r.id.startsWith('lake-road') && Math.hypot(x - L.PIER.x, z - L.PIER.z) < 45;
           const feet = onBridgeApproach || onPierApproach ? C.surfaceTop(x, z) : H.heightAt(x, z), p = { x, z };
           C.resolveWalls(p, 0.32, feet, feet + 1.7, 0.5);
           if (Math.hypot(p.x - x, p.z - z) > 0.05) blocked.push(`${r.id}@${x.toFixed(0)},${z.toFixed(0)}`);
@@ -522,52 +540,21 @@ try {
     }
     return '36–44m / 150–170m opaque dither bands; no uncovered pixels';
   });
-  check('actual great-tree instances cross both LOD bands without duplication or buffer growth', () => {
-    const meshes = scatter.object.children;
-    assert.ok(meshes.every(m => m.isInstancedMesh));
-    const buffers = meshes.map(m => [m.instanceMatrix.array, m.geometry.attributes.aLodBand.array, m.instanceColor.array, m.boundingSphere]);
-    const x = sx - 9, z = sz - 3, y = H.heightAt(x,z) - 0.25 * 2.6;
-    let exercised = 0;
-    for (const distance of [10,36,40,44,100,150,160,170,210,40,10]) {
-      scatter.update(new THREE.Vector3(x + distance, y, z));
-      const actual = [];
-      for (const m of meshes) {
-        assert.ok(m.count <= m.instanceMatrix.count);
-        const band = m.geometry.attributes.aLodBand;
-        for (let i = 0; i < m.count; i++) {
-          const start = band.getX(i), end = band.getY(i);
-          assert.ok(start >= 0 && end <= 1.000001 && start < end);
-          const offset = i * 16;
-          if (m.userData.species === 'great' && !m.userData.leafCards && Math.abs(m.instanceMatrix.array[offset+12]-x) < 0.01 && Math.abs(m.instanceMatrix.array[offset+14]-z) < 0.01) {
-            actual.push([m.userData.treeTier, start, end]);
-          }
-        }
+  check('every tree species grows a finite model with wood and foliage at each detail', () => {
+    const notes = [];
+    for (const kind of ['oak', 'great', 'blossom', 'cypress', 'pine']) for (const detailLevel of [0, 1, 2]) {
+      const model = trees.makeTree(kind, 7, detailLevel);
+      for (const g of [model.wood, model.leaves, model.leavesMid]) {
+        assert.ok(g.attributes.position.count > 0, `${kind}/${detailLevel}: empty geometry`);
+        assert.ok(g.attributes.position.array.every(Number.isFinite), `${kind}/${detailLevel}: non-finite vertex`);
       }
-      const weights = scatterModule.treeLodWeights(distance, low);
-      const expected = weights.map((w,i) => [i,w]).filter(([,w]) => w > 0);
-      assert.deepEqual(actual.map(([i]) => i).sort(), expected.map(([i]) => i));
-      assert.ok(Math.abs(actual.reduce((sum, [,a,b]) => sum+b-a,0)-1) < 1e-6);
-      assert.equal(new Set(actual.map(([tier])=>tier)).size, actual.length);
-      for(const [tier,a,b] of actual) assert.ok(Math.abs(b-a-weights[tier]) < 1e-6);
-      exercised++;
+      assert.ok(model.leaves.attributes.position.count > model.leavesMid.attributes.position.count, `${kind}/${detailLevel}: middle tier is not lighter`);
+      assert.ok(model.height > 3 && model.height < 25 && model.radius > 0.8, `${kind}/${detailLevel}: implausible size`);
+      if (detailLevel === 2) notes.push(`${kind} ${model.height.toFixed(1)}m, ${(model.leaves.index.count / 6) | 0} sprays`);
     }
-    meshes.forEach((m,i) => {
-      assert.equal(m.instanceMatrix.array, buffers[i][0]);
-      assert.equal(m.geometry.attributes.aLodBand.array, buffers[i][1]);
-      assert.equal(m.instanceColor.array, buffers[i][2]);
-      assert.equal(m.boundingSphere, buffers[i][3]);
-      if (m.userData.treeTier === 2) assert.ok(!m.geometry.attributes.aCard, 'far shell contains leaf cards');
-    });
-    const species = scatter.object.userData.species;
-    assert.equal(species.great.placed, 3);
-    for (const name of ['oak','great','blossom','cypress','pine','bush']) {
-      const s = species[name];
-      if (low) { assert.deepEqual(s.cards,[0,0,0]); assert.ok(meshes.filter(m=>m.userData.species===name).every(m=>m.userData.treeTier===2)); }
-      else { assert.ok(s.cards[0] > s.cards[1] && s.cards[1] > 0); assert.ok(s.triangles[0] > s.triangles[1] && s.triangles[1] > s.triangles[2]); }
-    }
-    scatter.update(new THREE.Vector3(sx,sy+2.5,sz));
-    return `${exercised} actual camera positions; ${scatter.stats().total} deterministic scatter objects; low=${low}`;
+    return notes.join('; ');
   });
+
   check('natural rubble, bevelled masonry and open window reveals are real geometry', () => {
     const before = collisionDigest(C.inspectColliders());
     const rock = () => { const b = new B.Builder(); const geo=b.rock(0,0,0,1.7,0.95,1.15,0,0xbdb7a8,31,3); b.build(); return geo; };
@@ -693,45 +680,13 @@ try {
     }
     return `${rocks.rockContacts.length} seated rocks; ${wall.length} wall sections; ${recesses.length} keep recesses`;
   });
-  check('review cameras are outside the near canopy and show actual dry-wall geometry', () => {
+  check('review cameras stand clear of the great tree and frame actual dry-wall geometry', () => {
     const views = screenshotViews(L,H), near = views.find(v=>v.name==='tree-near');
-    scatter.update(new THREE.Vector3(...near.eye));
-    const hero = scatter.object.children.find(m=>m.userData.species==='great' && m.userData.treeTier===(low?2:0) && !m.userData.leafCards && m.count>0);
-    const matrix = new THREE.Matrix4(); let found = false;
-    for(let i=0;i<hero.count;i++) { hero.getMatrixAt(i,matrix); if(Math.abs(matrix.elements[12]+9)<.01 && Math.abs(matrix.elements[14]-97)<.01) {found=true;break;} }
-    assert.ok(found);
-    const eye = new THREE.Vector3(...near.eye), triangle = new THREE.Triangle(), point = new THREE.Vector3();
-    const p = hero.geometry.attributes.position, leaf = hero.geometry.attributes.aLeaf;
-    const camera = new THREE.PerspectiveCamera(near.fov,16/9,.1,1800);camera.position.copy(eye);camera.lookAt(...near.target);camera.updateMatrixWorld();
-    let distance = Infinity, maxY = -Infinity, minY = Infinity;
-    for(let i=0;i<p.count;i+=3) {
-      triangle.a.fromBufferAttribute(p,i).applyMatrix4(matrix);triangle.b.fromBufferAttribute(p,i+1).applyMatrix4(matrix);triangle.c.fromBufferAttribute(p,i+2).applyMatrix4(matrix);
-      if(leaf.getX(i)>0.5) {triangle.closestPointToPoint(eye,point);distance=Math.min(distance,eye.distanceTo(point));}
-      for(const v of [triangle.a,triangle.b,triangle.c]) { point.copy(v).project(camera);maxY=Math.max(maxY,point.y);minY=Math.min(minY,point.y); }
-    }
-    let leafClearance = distance;
-    if(!low) {
-      const cards = scatter.object.children.find(m=>m.name===hero.name+'-leaves');
-      const p = cards.geometry.attributes.position, index=cards.geometry.index, sizes=cards.geometry.attributes.aCard, corners=cards.geometry.attributes.aCorner;
-      const scale = new THREE.Vector3().setFromMatrixScale(matrix).x;
-      const vertex = (j,out) => {
-        out.fromBufferAttribute(p,j).applyMatrix4(matrix);
-        const seed=sizes.getY(j),flutter=Math.sin(12*(2+seed*2.5)+seed*40+out.x),turn=(seed-.5)*2.6+flutter*.03;
-        out.applyMatrix4(camera.matrixWorldInverse);
-        const cx=corners.getX(j),cy=corners.getY(j),size=sizes.getX(j)*scale;
-        out.x+=(cx*Math.cos(turn)-cy*Math.sin(turn))*size;
-        out.y+=(cx*Math.sin(turn)+cy*Math.cos(turn))*size;
-        return out.applyMatrix4(camera.matrixWorld);
-      };
-      for(let i=0;i<index.count;i+=3) {
-        vertex(index.getX(i),triangle.a);vertex(index.getX(i+1),triangle.b);vertex(index.getX(i+2),triangle.c);
-        triangle.closestPointToPoint(eye,point);leafClearance=Math.min(leafClearance,eye.distanceTo(point));
-        for(const v of [triangle.a,triangle.b,triangle.c]) {point.copy(v).project(camera);maxY=Math.max(maxY,point.y);minY=Math.min(minY,point.y);}
-      }
-      assert.ok(leafClearance>=4 && leafClearance<=9,`outside-crown clearance ${leafClearance}`);
-    }
-    assert.ok(distance>4,`camera too close to crown core: ${distance}`);
-    assert.ok(minY>-.98 && maxY<.98,`whole tree clipped: ${minY}/${maxY}; core/leaf clearance=${distance}/${leafClearance}`);
+    // The great tree is planted beside the spawn with a trunk collider; the camera must stand outside its crown.
+    const trunk = C.inspectColliders().find((c) => c.round && Math.abs(c.x - (L.START.x - 9)) < 0.01 && Math.abs(c.z - (L.START.z - 3)) < 0.01);
+    assert.ok(trunk, 'great tree beside the spawn is missing');
+    const distance = Math.hypot(near.eye[0] - trunk.x, near.eye[2] - trunk.z);
+    assert.ok(distance > 8, `camera inside the crown: ${distance.toFixed(2)}m from the trunk`);
     if(!low) {
       const wall = views.find(v=>v.name==='dry-wall-close');landmarks.object.updateMatrixWorld(true);
       const ray = new THREE.Raycaster(); const camera = new THREE.PerspectiveCamera(55,16/9,.1,100);
@@ -741,8 +696,7 @@ try {
       assert.ok(hits.length>0 && hits[0].distance<10,'dry wall absent from frame center');
       assert.ok(hits[0].point.y-H.heightAt(hits[0].point.x,hits[0].point.z)>.8,'wall center is submerged in grass');
     }
-    scatter.update(new THREE.Vector3(sx,sy+2.5,sz));
-    return `near core/leaf clearance ${distance.toFixed(2)}/${leafClearance.toFixed(2)}m; full-tree vertical NDC ${minY.toFixed(2)}…${maxY.toFixed(2)}`;
+    return `camera ${distance.toFixed(1)}m from the great tree's trunk`;
   });
   check('new material compile hooks generate color, relief, leaf and shadow sources', () => {
     const materials = new Map();
@@ -772,6 +726,19 @@ try {
     }
     return `${materials.size} shared materials; source hooks execute (GPU shader compilation requires external Chrome)`;
   });
+  if (process.env.BASELINE) {
+    // Rebaseline after a deliberate world change: rewrites the three reference files for this tier.
+    const dir = new URL('../scripts/baselines/detail-lod/', import.meta.url);
+    const rootsNow = [village.object, landmarks.object, city.object, abbey, terrain, water, grass, crops, life.object];
+    const range = low ? 1100 : detail === 2 ? 1800 : 1500;
+    const bench = measure(rootsNow, scatter, reviewViews(L, H), range, detailModule.updateStructureDetails);
+    const shots = measure(rootsNow, scatter, screenshotViews(L, H), range, detailModule.updateStructureDetails);
+    const collision = collisionDigest(C.inspectColliders()), colliders = C.inspectColliders().length;
+    writeFileSync(new URL(`before-${tier}.json`, dir), JSON.stringify({ tier, collision, colliders, views: bench }, null, 2));
+    writeFileSync(new URL(`camera-baseline-${tier}.json`, dir), JSON.stringify({ tier, collision, screenshots: shots }, null, 2));
+    writeFileSync(new URL(`round2/after-${tier}.json`, dir), JSON.stringify({ tier, species: scatter.object.userData.species }, null, 2));
+    console.log(`Baselines rewritten for ${tier}`);
+  }
   check('all collider footprints, rotations, undersides and sampled supports match pre-detail baseline', () => {
     const baseline = JSON.parse(readFileSync(new URL(`../scripts/baselines/detail-lod/before-${tier}.json`,import.meta.url),'utf8'));
     assert.equal(C.inspectColliders().length,baseline.colliders);

@@ -5,7 +5,7 @@ import type { FlagSpot } from '../flags';
 import { heightAt } from '../heightmap';
 import { CITY, SOUTH_GATE, cityWallPolygon, cityRadiusAt, insideCity, roadClearance, EAST_GATE_ANGLE, SOUTH_GATE_ANGLE, WALL_SEGMENTS } from '../layout';
 import { seededRandom } from '../noise';
-import { wallRing } from './common';
+import { wallRing, wallStairRamps } from './common';
 import { buildPalace } from './palace';
 import { planCityParcels } from './city-parcels';
 import { buildTerraceWalls } from './city-terraces';
@@ -212,6 +212,9 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
     { x: plaza.x, z: plaza.z, r: 21 },
     { x: cathedralAt.x, z: cathedralAt.z, r: 21 },
     ...ring.gates.map((g) => ({ x: g.x, z: g.z, r: 13 })),
+    // Houses keep off the stair ramps that climb the inside of the curtain wall.
+    ...wallStairRamps.filter((r) => Math.hypot(r.x - cx, r.z - cz) < CITY.wall * 2)
+      .flatMap((r) => [-1, -0.5, 0, 0.5, 1].map((t) => ({ x: r.x + t * r.run / 2 * Math.cos(r.theta), z: r.z - t * r.run / 2 * Math.sin(r.theta), r: 3.6 }))),
   ];
   const parcels = planCityParcels(keepOut, (x, z) => distToLine(x, z, water));
   parcels.forEach((h, i) => {

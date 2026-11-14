@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { Builder, archedProfile, orbAt, place } from '../build';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
-import { BRIDGE, FIELDS, PIER, RIVER, ROADS, VILLAGE, WATER_LEVEL, distToPolyline, fieldPolygon, inPolygon, roadClearance, PLAZAS } from '../layout';
+import { nearestRiver } from '../gen/hydro';
+import { BRIDGES, type BridgeSpec, FIELDS, LAKE, PIER, RIVER, ROADS, VILLAGE, distToPolyline, fieldPolygon, inPolygon, roadClearance, PLAZAS } from '../layout';
 import { seededRandom } from '../noise';
 import { beam, fence } from './common';
 import { ROOFS, SHUTTERS, WALLS, addHouse, type BuiltHouse } from './house';
@@ -84,21 +85,28 @@ function haystack(b: Builder, x: number, z: number, size: number): void {
 }
 
 /** The humpbacked stone bridge on the road north. */
-function bridge(b: Builder): void {
-  const { x, z, length: L, width: W } = BRIDGE;
-  const bank = Math.max(heightAt(x, z - L / 2), heightAt(x, z + L / 2)) + 0.08;
-  const rise = 2.5;
-  const bottom = -3.5;
-  const top = (u: number): number => bank + rise * (0.5 + 0.5 * Math.cos((2 * Math.PI * u) / L));
-  const shape = archedProfile(
-    -L / 2, L / 2, bottom, top,
-    [[0, 11], [-12.4, 7.6], [12.4, 7.6]].map(([cx, w]) => ({ x: cx, w, crown: top(Math.abs(cx) + w / 2) - 0.9 })),
-    24,
-  );
-  // The profile is drawn along local X; turn it to run north-south.
-  const turn = place(x, 0, z, Math.PI / 2);
-  b.shape('stone', shape, W, turn, 0xd3ccbc);
-
+const BRIDGE_RAMP = 10;
+/** A stone bridge with parapets, humped over one or three arches, with ramps down to both banks. */
+function bridge(b: Builder, spec: BridgeSpec): void {
+  const { x, z, length: L, width: W, dirX, dirZ } = spec;
+  // Tributary levels are surveyed from the land when it is generated; read the water as it is.
+  const stream = nearestRiver(x, z, 40);
+  const level = stream.found ? stream.level : spec.level;
+  const perpX = dirZ, perpZ = -dirX;
+  const at = (u: number, v = 0): [number, number] => [x + dirX * u + perpX * v, z + dirZ * u + perpZ * v];
+  // Profiles are drawn along local X; turn local X onto the bridge's axis. Colliders use local Z.
+  const yaw = Math.atan2(-dirZ, dirX), boxRot = Math.atan2(dirX, dirZ);
+  // Each end of the deck meets its own bank; the deck humps between them and clears the water.
+  const bankAt = (u: number): number => Math.max(...[-0.5, 0, 0.5].flatMap((v) => [0, 0.75, 1.5].map((k) => heightAt(...at(u + Math.sign(u) * k, v * W))))) + 0.08;
+  const endA = bankAt(-L / 2), endB = bankAt(L / 2);
+  const rise = Math.max(spec.arches > 1 ? 2.5 : 1.4, level + 2.2 - (endA + endB) / 2);
+  const bottom = level - 4.5;
+  const top = (u: number): number => endA + (endB - endA) * (u / L + 0.5) + rise * (0.5 + 0.5 * Math.cos((2 * Math.PI * u) / L));
+  const spans = spec.arches > 1 ? [[0, 11], [-12.4, 7.6], [12.4, 7.6]] : [[0, Math.min(L - 6, 9)]];
+  const shape = archedProfile(-L / 2, L / 2, bottom, top,
+    spans.map(([cx, w]) => ({ x: cx, w, crown: top(Math.abs(cx) + w / 2) - 0.9 })), 24);
+  b.shape('stone', shape, W, place(x, 0, z, yaw), 0xd3ccbc);
+  const under = level + 1.6;
   for (const side of [1, -1]) {
     const rail = new THREE.Shape();
     for (let i = 0; i <= 24; i++) {
@@ -111,38 +119,48 @@ function bridge(b: Builder): void {
       rail.lineTo(u, top(u) + 0.95);
     }
     rail.closePath();
-    b.shape('stone', rail, 0.42, place(x + (W / 2 - 0.21) * side, 0, z, Math.PI / 2), 0xc7c0b0);
-    addBox(x + (W / 2 - 0.21) * side, z, 0.21, L / 2, 0, (_lx, lz) => top(lz) + 0.95, WATER_LEVEL + 1.6);
-    // Lamp posts at the crown.
-    b.box('wood', x + (W / 2 - 0.21) * side, top(0) + 0.9, z, 0.14, 1.9, 0.14, 0, 0x4a4038, 0);
-    b.box('plain', x + (W / 2 - 0.21) * side, top(0) + 2.8, z, 0.34, 0.42, 0.34, 0, 0xffe9a8, 0);
+    const [rx, rz] = at(0, (W / 2 - 0.21) * side);
+    b.shape('stone', rail, 0.42, place(rx, 0, rz, yaw), 0xc7c0b0);
+    addBox(rx, rz, 0.21, L / 2, boxRot, (_lx, lz) => top(lz) + 0.95, under);
+    if (spec.arches > 1) {
+      // Lamp posts at the crown.
+      b.box('wood', rx, top(0) + 0.9, rz, 0.14, 1.9, 0.14, 0, 0x4a4038, 0);
+      b.box('plain', rx, top(0) + 2.8, rz, 0.34, 0.42, 0.34, 0, 0xffe9a8, 0);
+    }
   }
-  addBox(x, z, W / 2, L / 2, 0, (_lx, lz) => top(lz), WATER_LEVEL + 1.6);
-  // Short masonry approaches meet both banks, including the lower north bank.
+  // Overlaps the ramps a little, so no seam is left between deck and approach.
+  addBox(x, z, W / 2, L / 2 + 0.3, boxRot, (_lx, lz) => top(Math.max(-L / 2, Math.min(L / 2, lz))), under);
+  // Short masonry approaches meet both banks.
   for (const sign of [-1, 1]) {
-    const run = 7, centerZ = z + sign * (L / 2 + run / 2);
-    const foot = heightAt(x, z + sign * (L / 2 + run));
-    const rampTop = (lz: number): number => bank + (foot - bank) * (0.5 + lz * sign / run);
+    const run = BRIDGE_RAMP;
+    const [cx, cz] = at(sign * (L / 2 + run / 2));
+    const foot = heightAt(...at(sign * (L / 2 + run)));
+    const deckEnd = sign < 0 ? endA : endB;
+    const rampTop = (lz: number): number => deckEnd + (foot - deckEnd) * (0.5 + lz * sign / run);
     const profile = new THREE.Shape();
-    profile.moveTo(-run / 2, Math.min(bank, foot) - 2);
-    profile.lineTo(run / 2, Math.min(bank, foot) - 2);
+    profile.moveTo(-run / 2, Math.min(deckEnd, foot) - 2);
+    profile.lineTo(run / 2, Math.min(deckEnd, foot) - 2);
     profile.lineTo(run / 2, rampTop(-run / 2));
     profile.lineTo(-run / 2, rampTop(run / 2)); profile.closePath();
-    b.shape('stone', profile, W, place(x, 0, centerZ, Math.PI / 2), 0xd3ccbc);
-    addBox(x, centerZ, W / 2, run / 2, 0, (_lx, lz) => rampTop(lz));
+    b.shape('stone', profile, W, place(cx, 0, cz, yaw), 0xd3ccbc);
+    // The ramp never lies below the bank it rests on, so it meets the ground without a lip.
+    addBox(cx, cz, W / 2, run / 2, boxRot, (lx, lz) => Math.max(rampTop(lz),
+      heightAt(cx + dirX * lz + perpX * lx, cz + dirZ * lz + perpZ * lx) + 0.02));
   }
-  orbAt('bridge-under', x, z + 0.5, 0.9);
-  orbAt('bridge-rail', x + W / 2 - 0.2, z, 1.2);
+  if (spec.name === 'village') {
+    orbAt('bridge-under', x, z + 0.5, 0.9);
+    orbAt('bridge-rail', x + W / 2 - 0.2, z, 1.2);
+  }
 }
 
 function pier(b: Builder): void {
   const { x, z } = PIER;
-  const top = 1.0;
+  const top = LAKE.level + 1.0;
   const len = 34;
   b.box('wood', x, top - 0.16, z, len, 0.16, 2.6, 0, 0x9a7a52, 0);
   for (let i = 0; i <= 8; i++) {
     for (const side of [1, -1]) {
-      b.cyl('wood', x - len / 2 + (len * i) / 8, -4, z + 1.2 * side, 0.14, 0.14, 4 + top + (i % 2 ? 0.7 : 0.1), 0x6a4c34, 6, 0);
+      b.cyl('wood', x - len / 2 + (len * i) / 8, LAKE.level - 4, z + 1.2 * side, 0.14, 0.14, 5 + (i % 2 ? 0.7 : 0.1), 0x6a4c34, 6, 0);
     }
   }
   addBox(x, z, len / 2, 1.3, 0, top, 0.6);
@@ -160,20 +178,20 @@ function pier(b: Builder): void {
   b.shape('wood', ramp, 2.8, place(gx, 0, centerZ, Math.PI / 2), 0x9a7a52);
   addBox(gx, centerZ, 1.4, run / 2, 0, (_lx, lz) => rampTop(lz));
   for (const pz of [z + 2, z + 9, z + 16, z + 21]) for (const side of [-1, 1]) {
-    b.cyl('wood', gx + side * 1.25, -5, pz, 0.14, 0.14, top + 5.2, 0x6a4c34, 6, 0);
+    b.cyl('wood', gx + side * 1.25, LAKE.level - 5, pz, 0.14, 0.14, 6.2, 0x6a4c34, 6, 0);
   }
   // A rowing boat tied up at the end.
   const bx = x - len / 2 - 1.5;
   const hull = new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2).scale(0.9, 0.7, 2.3);
-  b.add('wood', hull, 0x8a5a3a, place(bx, 0.42, z + 2.6, 0.3));
-  b.box('wood', bx, 0.2, z + 2.6, 1.5, 0.08, 0.4, 0.3, 0xb08a5a, 0);
+  b.add('wood', hull, 0x8a5a3a, place(bx, LAKE.level + 0.42, z + 2.6, 0.3));
+  b.box('wood', bx, LAKE.level + 0.2, z + 2.6, 1.5, 0.08, 0.4, 0.3, 0xb08a5a, 0);
   orbAt('pier-end', x - len / 2 + 1, z, 1.2);
 }
 
 export function buildVillage(detail: number): { object: THREE.Group; info: VillageInfo } {
   const b = new Builder();
   const rand = seededRandom(31);
-  const info: VillageInfo = { houses: [], homes: [], well: { x: 16, z: -196 }, stalls: [], benches: [] };
+  const info: VillageInfo = { houses: [], homes: [], well: { x: VILLAGE.x - 4, z: VILLAGE.z + 34 }, stalls: [], benches: [] };
   const taken: { x: number; z: number; r: number }[] = [{ x: info.well.x, z: info.well.z, r: 13 }];
 
   const free = (x: number, z: number, r: number): boolean => {
@@ -249,7 +267,7 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
     info.benches.push({ x, z, rot });
   }
 
-  bridge(b);
+  for (const spec of BRIDGES) bridge(b, spec);
   pier(b);
 
   // Fences round the fields, haystacks beside the wheat.

@@ -6,7 +6,7 @@ import { toon } from '../render/toon';
 import { shared } from '../render/uniforms';
 import { resolveWalls, supportHeight } from './colliders';
 import { heightAt } from './heightmap';
-import { BRIDGE, CITY, CITY_STREETS, SOUTH_GATE, FIELDS, LAKE, LIGHTHOUSE, PIER, START, WINDMILL } from './layout';
+import { BRIDGE, CITY, CITY_STREETS, SOUTH_GATE, FIELDS, LAKE, LIGHTHOUSE, PIER, START, VILLAGE, WINDMILL } from './layout';
 import { seededRandom } from './noise';
 import type { CityInfo } from './structures/city';
 import type { BuiltHouse } from './structures/house';
@@ -329,7 +329,7 @@ export function createLife(village: VillageInfo, city: CityInfo, count: number):
     { x: BRIDGE.x + 0.8, z: BRIDGE.z, wait: 7 },
     { x: BRIDGE.x - 1, z: BRIDGE.z + 40, wait: 2 },
     { x: FIELDS[0].x + 20, z: FIELDS[0].z + 22, wait: 6 },
-    { x: 14, z: -150, wait: 2 },
+    { x: VILLAGE.x - 6, z: VILLAGE.z + 80, wait: 2 },
   ];
   const walker = (targets: Target[], style: RigStyle): void => {
     const rig = buildRig(style, false, false);

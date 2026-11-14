@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { clamp, lerp, ridged, sfbm, smax, sstep } from './gen/noise';
 import { buildMacro, macroHeight, macroSlope } from './gen/macro';
 import { LAKES, channelDepth, lakeShape, nearestRiver, waterSurfaceAt } from './gen/hydro';
-import { ABBEY, CITY, EAST_GATE_ANGLE, FIELDS, HALF, ROADS, SIZE, SOUTH_GATE_ANGLE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt } from './layout';
+import { ABBEY, CITY, EAST_GATE_ANGLE, FIELDS, HALF, ISLAND, LAKE, ROADS, SIZE, SOUTH_GATE_ANGLE, START, CITY_TERRACE_EDGES, cityTerraceMetric, cityRadiusAt } from './layout';
 
 export { clamp, lerp, sstep };
 
@@ -50,13 +50,14 @@ function detailHeight(x: number, z: number): number {
   const river = nearestRiver(x, z, 170);
   let riverNear = false;
   if (river.found && rim > 0.02) {
-    const half = river.width * 0.5, d = river.distance;
+    // The channel is cut at least as wide as the water drawn over it, and never narrower than the grid can hold.
+    const half = Math.max(river.width * 0.5 + 0.9, cell * 1.1), d = river.distance;
     if (river.fall) {
       // The fall has cut a recess back into the cliff, rounded at its sides.
       const recess = half + 5;
       if (d < recess + 8) h = lerp(Math.min(h, river.level - 0.8), h, sstep(recess, recess + 8, d));
     } else {
-      const channel = d < half ? river.level - channelDepth(river.width, d)
+      const channel = d < half ? river.level - channelDepth(half * 2, d)
         : river.level + 0.25 + 0.75 * sstep(half, half + 4.5, d) + (d - half) * 0.022;
       const end = half + Math.min(120, Math.max(22, river.floor * 0.45));
       // Beyond the bank the ground is the land's own, lifted clear of the water where it dips.
@@ -74,6 +75,9 @@ function detailHeight(x: number, z: number): number {
       h = riverNear ? Math.min(h, shore) : shore;
     }
   }
+  // A small wooded island in Mirror Lake carries the pavilion: a low dome with a shelving shore.
+  const island = Math.hypot((x - ISLAND.x) / 1.15, z - ISLAND.z) + 3 * sfbm(x / 14, z / 14, 2);
+  if (island < 40) h = Math.max(h, LAKE.level + 3.4 - 0.004 * island * island - 6 * sstep(20, 40, island));
   return h;
 }
 

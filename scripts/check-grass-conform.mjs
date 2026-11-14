@@ -26,7 +26,7 @@ const server = await createServer({
 
 const L = await server.ssrLoadModule('/src/world/layout.ts');
 const H = await server.ssrLoadModule('/src/world/heightmap.ts');
-const mountain = await server.ssrLoadModule('/src/world/mountain-layout.ts');
+const hydro = await server.ssrLoadModule('/src/world/gen/hydro.ts');
 H.buildHeightmap(4);
 const texture = H.createHeightTexture();
 const grass = (await server.ssrLoadModule('/src/world/grass.ts')).createGrass(24000, 36000, 6000, texture);
@@ -34,8 +34,8 @@ const { data, width, height } = texture.image;
 const nn = width - 1;
 const cellSize = L.SIZE / nn;
 assert.equal(texture.type, THREE.FloatType);
-assert.equal(width, 513);
-assert.equal(H.grid().n, 512);
+assert.equal(width, L.SIZE / 4 + 1);
+assert.equal(H.grid().n, L.SIZE / 4);
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const atFloat = (i, j) => data[clamp(j, 0, height - 1) * width + clamp(i, 0, width - 1)];
@@ -85,16 +85,16 @@ const sites = [
   ['watchtower', L.WATCHTOWER.x, L.WATCHTOWER.z],
   ['lighthouse', L.LIGHTHOUSE.x, L.LIGHTHOUSE.z],
   ['plateau', L.PLATEAU.x, L.PLATEAU.z],
-  ['river-mouth', 610, 665],
-  ['nw-corner', -900, -900],
-  ['ne-corner', 900, -900],
-  ['sw-corner', -900, 900],
-  ['se-corner', 900, 900],
-  ['east-slope', 780, -510],
-  ['west-foothill', -750, -240],
-  ['ne-hills', -390, -840],
+  ['river-mouth', 1430, 1650],
+  ['nw-corner', -1900, -1900],
+  ['ne-corner', 1900, -1900],
+  ['sw-corner', -1900, 1900],
+  ['se-corner', 1900, 1900],
+  ['east-slope', 1400, -700],
+  ['west-foothill', -1500, -400],
+  ['scarp', -1300, -1250],
 ];
-for (const lake of mountain.ALPINE_LAKES) sites.push([`alpine-${lake.level ?? 'lake'}`, lake.x, lake.z]);
+for (const lake of hydro.LAKES) sites.push([`lake-${lake.name}`, lake.x + lake.rx * 1.2, lake.z]);
 
 function stats() {
   return { n: 0, over5: 0, over25: 0, over100: 0, max: 0, abs: [] };

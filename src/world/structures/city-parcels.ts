@@ -36,7 +36,10 @@ export function planCityParcels(keepOut: { x: number; z: number; r: number }[], 
     }
     const c = Math.cos(rot), s = Math.sin(rot);
     const corners = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2], [0, 0], [0, d / 2], [0, -d / 2]];
-    if (corners.some(([u, v]) => roadClearance(x + u * c + v * s, z - u * s + v * c) < 0.35)) return false;
+    // The whole outline, not just its corners, must keep clear of every street (curved lanes bulge between corners).
+    const outline: number[][] = [];
+    for (let i = 0; i <= 4; i++) for (const k of [-1, 1]) outline.push([(-0.5 + i / 4) * w, k * d / 2], [k * w / 2, (-0.5 + i / 4) * d]);
+    if (outline.some(([u, v]) => roadClearance(x + u * c + v * s, z - u * s + v * c) < 0.35)) return false;
     const heights = corners.map(([u, v]) => heightAt(x + u * c + v * s, z - u * s + v * c));
     if (Math.max(...heights) - Math.min(...heights) > 7.5) return false;
     const key = `${gx},${gz}`;
