@@ -66,7 +66,7 @@ async function boot(): Promise<void> {
   configurePbr(quality.tier);
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const input = new Input(canvas);
-  const hud = new Hud(input.touch, quality.tier);
+  const hud = new Hud(input.touch, quality.name);
   const save = loadSave();
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.antialias, powerPreference: 'high-performance' });
@@ -173,7 +173,7 @@ async function boot(): Promise<void> {
   scene.add(createWindFx(quality.particles, wind, shot ? seededRandom(553) : Math.random));
 
   const player = new Player(quality.outline);
-  player.character.capeTier = quality.tier;
+  player.character.capeTier = quality.cape;
   if (params.get('hero') !== 'classic') {
     hud.loading('正在整理旅人的行装…');
     await nextFrame();

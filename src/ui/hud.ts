@@ -1,4 +1,4 @@
-import { storeTier, storedTier, type Tier } from '../core/quality';
+import { QUALITY_NAMES, storeTier, storedTier, type QualityName } from '../core/quality';
 import type { Wind } from '../world/wind';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -29,7 +29,7 @@ export class Hud {
   onSound: () => boolean = () => true;
   onCinema: () => Promise<boolean> = async () => false;
 
-  constructor(touch: boolean, tier: Tier) {
+  constructor(touch: boolean, tier: QualityName) {
     $('keys').innerHTML = touch
       ? '左侧拖动：移动（推到底奔跑）　右侧拖动：视角　双指：缩放'
       : 'WASD 移动　·　Shift 奔跑　·　空格 跳跃　·　鼠标 视角　·　滚轮 缩放<br />空中再按空格：张开风布滑翔　·　A / D 转向　·　W 俯冲　·　S 拉升　·　按住 Shift 收臂加速　·　空格 收起风布';
@@ -53,13 +53,13 @@ export class Hud {
       run.classList.toggle('on', this.onRun());
     });
 
-    const names: Record<string, string> = { auto: '自动', low: '低', medium: '中', high: '高' };
+    const names: Record<string, string> = { auto: '自动', low: '低', medium: '中', high: '高', ultra: '极致' };
     const quality = $('quality');
     const stored = storedTier();
     quality.textContent = `画质：${stored === 'auto' ? `自动（${names[tier]}）` : names[stored]}`;
     quality.addEventListener('click', () => {
       // Changing tier rebuilds the world, so reload.
-      const order: (Tier | 'auto')[] = ['auto', 'low', 'medium', 'high'];
+      const order: (QualityName | 'auto')[] = ['auto', ...QUALITY_NAMES];
       storeTier(order[(order.indexOf(storedTier()) + 1) % order.length]);
       location.reload();
     });
