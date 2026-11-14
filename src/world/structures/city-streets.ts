@@ -25,6 +25,19 @@ const PATTERN = 0xa8b4c6;
 
 const tmpColor = new THREE.Color();
 
+/** Turn every triangle of a ground surface to face up (counter-clockwise seen from above). */
+function faceUp(positions: number[], colors: number[]): void {
+  for (let i = 0; i < positions.length; i += 9) {
+    const ax = positions[i + 3] - positions[i], az = positions[i + 5] - positions[i + 2];
+    const bx = positions[i + 6] - positions[i], bz = positions[i + 8] - positions[i + 2];
+    // y of (b - a) x (c - a): negative means it faces down.
+    if (az * bx - ax * bz >= 0) continue;
+    for (const arr of [positions, colors]) for (let k = 0; k < 3; k++) {
+      const t = arr[i + 3 + k]; arr[i + 3 + k] = arr[i + 6 + k]; arr[i + 6 + k] = t;
+    }
+  }
+}
+
 /** Whether a point lies on paving that belongs to some other street than `own`, or on a square. */
 function paved(x: number, z: number, own: Road | null, margin = 0.2): boolean {
   if (CITY_SQUARES.some((q) => squareDistance(q, x, z) < margin)) return true;
@@ -132,6 +145,7 @@ function paveStreet(b: Builder, road: Road, line: Sample[], rand: () => number):
     }
   }
   if (!positions.length) return;
+  faceUp(positions, colors);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   g.computeVertexNormals();
@@ -254,6 +268,7 @@ function paveSquare(b: Builder, q: CitySquare, inHouse: (x: number, z: number, p
     push(a); push(f); push(e);
     if (k > 0) { push(a); push(e); push(d); }
   }
+  faceUp(positions, colors);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   g.computeVertexNormals();

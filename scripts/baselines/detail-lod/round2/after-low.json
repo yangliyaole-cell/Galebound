@@ -2,7 +2,7 @@
   "tier": "low",
   "species": {
     "bush": {
-      "placed": 12767,
+      "placed": 12569,
       "triangles": [
         0,
         0,
@@ -15,7 +15,7 @@
       ]
     },
     "rock": {
-      "placed": 7752,
+      "placed": 7628,
       "triangles": [
         0,
         0,
