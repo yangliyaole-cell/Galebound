@@ -6,6 +6,8 @@ export interface Quality {
   pixelRatio: number;
   antialias: boolean;
   terrainCell: number;
+  /** A terrain patch is replaced by four finer ones within this many of its own widths. */
+  terrainSplit: number;
   splatSize: number;
   shadowSize: number;
   shadowRange: number;
@@ -18,21 +20,21 @@ export interface Quality {
   particles: number;
 }
 
-const TIERS: Record<Tier, Quality> = {
+export const TIERS: Record<Tier, Quality> = {
   low: {
-    tier: 'low', pixelRatio: 1, antialias: false, terrainCell: 8, splatSize: 1024, shadowSize: 0,
+    tier: 'low', pixelRatio: 1, antialias: false, terrainCell: 8, terrainSplit: 1.7, splatSize: 1024, shadowSize: 0,
     shadowRange: 0, grassNear: 7000, grassFar: 9000, flowers: 1200,
-    propRange: 260, viewRange: 1100, outline: false, particles: 60,
+    propRange: 260, viewRange: 3200, outline: false, particles: 60,
   },
   medium: {
-    tier: 'medium', pixelRatio: 1.5, antialias: true, terrainCell: 4, splatSize: 2048, shadowSize: 1024,
+    tier: 'medium', pixelRatio: 1.5, antialias: true, terrainCell: 4, terrainSplit: 2.3, splatSize: 2048, shadowSize: 1024,
     shadowRange: 55, grassNear: 14000, grassFar: 20000, flowers: 3000,
-    propRange: 420, viewRange: 1500, outline: true, particles: 110,
+    propRange: 420, viewRange: 4500, outline: true, particles: 110,
   },
   high: {
-    tier: 'high', pixelRatio: 2, antialias: true, terrainCell: 4, splatSize: 2048, shadowSize: 2048,
+    tier: 'high', pixelRatio: 2, antialias: true, terrainCell: 2, terrainSplit: 3.2, splatSize: 4096, shadowSize: 2048,
     shadowRange: 75, grassNear: 24000, grassFar: 36000, flowers: 6000,
-    propRange: 600, viewRange: 1800, outline: true, particles: 180,
+    propRange: 700, viewRange: 9000, outline: true, particles: 180,
   },
 };
 

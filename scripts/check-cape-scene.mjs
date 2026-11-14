@@ -47,9 +47,12 @@ try {
   const { createMaterialStyles } = await server.ssrLoadModule('/src/render/styles/materials.ts');
   const { cinematic } = await server.ssrLoadModule('/src/render/styles/cinematic.ts');
   H.buildHeightmap(4);
-  const scene = new THREE.Scene(), terrain = createTerrain();
-  terrain.name = 'Terrain'; scene.add(terrain);
   const heightTex = H.createHeightTexture();
+  const { buildLandMaps } = await server.ssrLoadModule('/src/world/landmaps.ts');
+  // The land is one quadtree mesh of instanced patches, chosen per camera.
+  const land = createTerrain(heightTex, buildLandMaps(new THREE.Vector3(-0.74, 0.62, 0.12)), 2.5);
+  const scene = new THREE.Scene(), terrain = land.object;
+  terrain.name = 'Terrain'; scene.add(terrain);
   groundUniforms.uSplat.value = buildSplat(2048); groundUniforms.uBiome.value = buildBiome();
   groundUniforms.uDetail.value = groundDetailTexture();
   const grass = createGrass(24000, 36000, 6000, heightTex);
@@ -87,7 +90,7 @@ try {
     const character = player.character, cape = scene.getObjectByName('Traveler_Cape_SoftCloth');
     const report = inspectCapeShotScene(scene, terrain, character, cam, H.heightAt);
     assert.ok(report.ok, report.issues.join('; '));
-    assert.equal(report.capeMeshes, 1); assert.equal(report.terrainMeshes, 256);
+    assert.equal(report.capeMeshes, 1); assert.equal(report.terrainMeshes, 1);
     assert.ok(scene.children.includes(terrain) && scene.children.includes(grass));
     assert.ok(grass.children.length === 3 && groundUniforms.uSplat.value.version > 0 && heightTex.version > 0);
     assert.ok(character.rig.setCapeState && !character.cloth.visible, 'detailed hero must use the soft cape');
@@ -109,8 +112,8 @@ try {
     }
     assert.ok(behind / positions.count > 0.1, `cape must extend behind the posed torso: ${behind}/${positions.count}`);
     assert.ok(capePenetration(world, heroCapeColliders(character.rig)) < 0.002);
-    const down = new THREE.Raycaster(cam.position, new THREE.Vector3(0, -1, 0));
-    assert.ok(down.intersectObject(terrain, true).some(hit => hit.distance > 0.2), 'camera must be above the ACTUAL terrain triangles');
+    // The land mesh is displaced on the GPU from the same grid heightAt() reads, triangle split included.
+    assert.ok(cam.position.y - H.heightAt(cam.position.x, cam.position.z) > 0.2, 'camera must be above the actual terrain');
     // Visibility evidence stronger than mesh.visible: rays reach cloth before the visible body.
     const meshes = [];
     character.root.traverseVisible(object => { if (object.isMesh && object.material.visible) meshes.push(object); });

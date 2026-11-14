@@ -1,12 +1,14 @@
 import type { StylePreset } from './types';
+import { SUN_DIRECTION } from '../glsl';
 
 export const cinematic: StylePreset = {
   id: 2,
   sun: [0xffdfad, 4.9],
-  hemisphere: [0x9ec4ee, 0x7f9f6c, 1.5],
-  direction: [0.72, 0.34, 0.46],
-  fog: [0x7f9cb4, 130, 1350],
-  sky: [0x183e63, 0x487f9f, 0xb4c7d2, 0x8fa5bf],
+  // Sky fill above, sunlit earth below: bounce light is warm, not grass-green.
+  hemisphere: [0xb2cbe8, 0xa08c68, 1.3],
+  direction: SUN_DIRECTION,
+  fog: [0xa3c6ea, 600, 22000],
+  sky: [0x1859c2, 0x4a97e6, 0xbcd6ec, 0x8fa9cf],
   water: [0x479c99, 0x244f68],
   grass: [0x337343, 0x7db64b, 0xbbd46c, 0xc3ba6e, 0x2f6151],
   grade: [1.02, 1.07, 0.0, 0.3],
@@ -20,7 +22,7 @@ export const cinematic: StylePreset = {
   },
   post: {
     contrast: 1.3, toe: 1, ink: 0x234356, width: 0, colorEdge: 0,
-    bloom: [0.58, 0.34, 32], atmosphere: [0.0011, 0.015, 0.36],
+    bloom: [0.58, 0.34, 32], atmosphere: [0.0002, 0.0052, 0.000042],
     split: [0x54b7d4, 0xffce91, 0.4],
   },
 };

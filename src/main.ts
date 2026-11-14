@@ -12,9 +12,12 @@ import { Player } from './player/controller';
 import { prepareCapeShotFromPlayer, inspectCapeShotScene } from './player/character';
 import { buildHeightmap, createHeightTexture, heightAt } from './world/heightmap';
 import { START, ZONES } from './world/layout';
-import { buildBiome, buildSplat } from './world/maps';
+import { buildBiome, buildFields, buildSplat } from './world/maps';
+import { buildLandMaps } from './world/landmaps';
+import { cinematic } from './render/styles/cinematic';
 import { createTerrain, groundUniforms } from './world/terrain';
 import { createWater } from './world/water';
+import { createWaterfalls } from './world/waterfalls';
 import { HORIZON_COLOR, createSky } from './world/sky';
 import { createGrass } from './world/grass';
 import { createScatter } from './world/scatter';
@@ -49,6 +52,14 @@ const num = (key: string, fallback: number): number => {
   return Number.isFinite(value) ? value : fallback;
 };
 const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+/** Boot timings, in milliseconds per stage; logged once the world is ready. */
+const bootTimes: Record<string, number> = {};
+let bootMark = performance.now();
+const lap = (stage: string): void => {
+  const now = performance.now();
+  bootTimes[stage] = Math.round(now - bootMark);
+  bootMark = now;
+};
 
 async function boot(): Promise<void> {
   const quality = pickQuality();
@@ -66,7 +77,7 @@ async function boot(): Promise<void> {
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(HORIZON_COLOR, 110, quality.viewRange);
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 7000);
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.5, 30000);
 
   let styles: StyleController | undefined;
   const resize = (): void => {
@@ -85,14 +96,20 @@ async function boot(): Promise<void> {
   // ---- build the world, yielding so the title screen can show progress
   hud.loading('正在隆起山丘…');
   await nextFrame();
+  lap('start');
   buildHeightmap(quality.terrainCell);
+  lap('heightmap');
   const heightTex = createHeightTexture();
   groundUniforms.uSplat.value = buildSplat(quality.splatSize);
+  groundUniforms.uFields.value = buildFields(Math.min(2048, quality.splatSize));
+  // Far ridges shadow the valleys behind them; baked once for the picture's own sun.
+  const landMaps = buildLandMaps(new THREE.Vector3(...cinematic.direction));
+  lap('land maps');
   groundUniforms.uBiome.value = buildBiome();
   groundUniforms.uDetail.value = groundDetailTexture();
 
   const sunDir = new THREE.Vector3(0.42, 0.72, 0.55).normalize();
-  const sky = createSky(sunDir);
+  const sky = createSky(sunDir, renderer, quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0);
   scene.add(sky.object);
   const hemisphere = new THREE.HemisphereLight(0xcfe6ff, 0x7fa04a, 1.5);
   scene.add(hemisphere);
@@ -111,10 +128,12 @@ async function boot(): Promise<void> {
 
   hud.loading('正在铺草、引水…');
   await nextFrame();
-  const terrain = createTerrain();
-  terrain.name = 'Terrain';
-  scene.add(terrain);
+  lap('sky');
+  const terrain = createTerrain(heightTex, landMaps, quality.terrainSplit);
+  lap('terrain');
+  scene.add(terrain.object);
   scene.add(createWater(heightTex, sunDir, HORIZON_COLOR));
+  scene.add(createWaterfalls(sunDir, quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0));
   const grass = createGrass(quality.grassNear, quality.grassFar, quality.flowers, heightTex);
   grass.name = 'Grass';
   scene.add(grass);
@@ -123,17 +142,21 @@ async function boot(): Promise<void> {
   await nextFrame();
   const detail = quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0;
   setStructureDetail(detail);
+  lap('water and grass');
   const village = buildVillage(detail);
   const landmarks = buildLandmarks();
   scene.add(village.object, landmarks.object);
   await nextFrame();
+  lap('village and landmarks');
   const city = buildCity(detail);
+  lap('city');
   scene.add(city.object, createFlags(city.flags), buildAbbey());
   scene.add(buildCrops(detail === 0 ? 0.4 : 1, toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.05, doubleSided: true })));
 
   hud.loading('正在种树…');
   await nextFrame();
-  const scatter = createScatter(quality, sunDir);
+  const scatter = createScatter(quality, sunDir, { renderer, sun, hemisphere });
+  lap('trees and props');
   scene.add(scatter.object);
 
   hud.loading('正在藏起光点…');
@@ -155,10 +178,11 @@ async function boot(): Promise<void> {
     hud.loading('正在整理旅人的行装…');
     await nextFrame();
     await player.character.loadModel();
+    lap('hero');
     player.character.rig.setMaskVisible?.(params.get('mask') !== 'off');
   }
   scene.add(player.character.root, player.character.cloth);
-  scene.userData.worldBuilt = shotState.worldBuilt = terrain.children.length > 0 && grass.children.length > 0;
+  scene.userData.worldBuilt = shotState.worldBuilt = grass.children.length > 0;
   shotState.assetsReady = params.get('hero') === 'classic' || !!player.character.rig.setCapeState;
   if (!shot && save.pos && !params.has('x')) {
     player.pos.set(save.pos[0], save.pos[1], save.pos[2]);
@@ -180,7 +204,7 @@ async function boot(): Promise<void> {
   // ---- events
   wind.onState = (state) => {
     if (state === 'warning') hud.toast('阵风将至');
-    else if (state === 'gust') hud.toast(`阵风起了，吹向${wind.heading()}。从高处顺风跳下`);
+    else if (state === 'gust') hud.toast(`阵风起了，吹向${wind.heading()}。顺风飞得快，逆风升得高`);
   };
   hud.onJump = () => input.pressJump();
   hud.onRun = () => input.toggleRun();
@@ -197,7 +221,7 @@ async function boot(): Promise<void> {
   player.onGlide = (begun) => {
     if (!begun) return;
     sound.whoosh();
-    if (glides++ === 0) hud.toast('乘上风了。A / D 或摇杆左右转向，顺着风飞得最远', 5);
+    if (glides++ === 0) hud.toast('张开风布了。A / D 转向，W 俯冲攒速度再 S 拉升，按住 Shift 收臂加速', 5);
   };
 
   let started = false;
@@ -244,6 +268,8 @@ async function boot(): Promise<void> {
     await styles.set('default', false);
   }
   hud.cinemaLabel(styles.current === 'cinematic');
+  sky.repaint();
+  resize();
 
   // Handles for automated checks; not used by the game itself.
   (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt, style: styles,
@@ -303,6 +329,7 @@ async function boot(): Promise<void> {
     sun.target.position.copy(player.pos);
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, dt);
+    terrain.update(camera);
     scatter.update(camera.position);
     updateStructureDetails(camera.position);
     for (const s of landmarks.spinners) s.wheel.rotation.z += s.speed * (0.1 + shared.uWindStrength.value) * dt;
@@ -356,6 +383,7 @@ async function boot(): Promise<void> {
     sun.target.position.copy(player.pos);
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, 0);
+    terrain.update(camera);
     scatter.update(camera.position);
     updateStructureDetails(camera.position);
     renderer.debug.onShaderError = (_gl, _program, vertex, fragment) => {
@@ -364,12 +392,16 @@ async function boot(): Promise<void> {
         renderer.getContext().getShaderInfoLog(fragment));
     };
     if (capeShot) {
-      shotState.scene = inspectCapeShotScene(scene, terrain, player.character, camera, heightAt, params.get('hero') !== 'classic');
+      shotState.scene = inspectCapeShotScene(scene, terrain.object, player.character, camera, heightAt, params.get('hero') !== 'classic');
       if (!shotState.scene.ok) throw new Error(shotState.scene.issues.join('; '));
       if (!shotState.assetsReady) throw new Error('Detailed soft cape asset did not load');
     }
     // Construction and GLTF textures have completed. Wait for scene programs before render warmup.
+    lap('styles and lighting');
     await renderer.compileAsync(scene, camera);
+    lap('shaders');
+    console.info('Galebound boot (ms)', JSON.stringify(bootTimes));
+    debugWindow.__galeBootTimes = bootTimes;
     shotState.shadersReady = true;
   }
 
@@ -391,6 +423,7 @@ async function boot(): Promise<void> {
     sun.target.position.copy(player.pos);
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, 0);
+    terrain.update(camera);
     scatter.update(camera.position);
     updateStructureDetails(camera.position);
     life.update(0, 12, player.pos);
@@ -447,7 +480,7 @@ async function boot(): Promise<void> {
     }
     if (shot) shotState.renderedFrames = ++shotFrames;
     if (shot && shotFrames === 24 && !debugWindow.__galeShotError) {
-      if (capeShot) shotState.scene = inspectCapeShotScene(scene, terrain, player.character, camera, heightAt, params.get('hero') !== 'classic');
+      if (capeShot) shotState.scene = inspectCapeShotScene(scene, terrain.object, player.character, camera, heightAt, params.get('hero') !== 'classic');
       if (shotState.worldBuilt && shotState.assetsReady && shotState.shadersReady && (!capeShot || shotState.scene?.ok)) {
         renderer.getContext().finish();
         debugWindow.__galeShotReady = true;

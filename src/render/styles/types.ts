@@ -34,7 +34,7 @@ export interface PostStyle {
   wash?: number;
   /** Linear threshold, strength, radius in CSS pixels. */
   bloom?: [number, number, number];
-  /** Density, height falloff, maximum opacity. */
+  /** Valley mist density at sea level, its height falloff per metre, and the density of the thin air above. */
   atmosphere?: [number, number, number];
   /** Shadow colour, highlight colour, strength. */
   split?: [number, number, number];

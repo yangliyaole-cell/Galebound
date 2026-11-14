@@ -1,95 +1,31 @@
 {
- "species": {
-  "oak": {
-   "placed": 3095,
-   "triangles": [
-    2746,
-    868,
-    84
-   ],
-   "cards": [
-    823,
-    44,
-    0
-   ]
-  },
-  "great": {
-   "placed": 3,
-   "triangles": [
-    5342,
-    1312,
-    196
-   ],
-   "cards": [
-    1815,
-    60,
-    0
-   ]
-  },
-  "blossom": {
-   "placed": 64,
-   "triangles": [
-    2734,
-    856,
-    84
-   ],
-   "cards": [
-    823,
-    44,
-    0
-   ]
-  },
-  "cypress": {
-   "placed": 782,
-   "triangles": [
-    1246,
-    564,
-    84
-   ],
-   "cards": [
-    245,
-    24,
-    0
-   ]
-  },
-  "pine": {
-   "placed": 753,
-   "triangles": [
-    1452,
-    278,
-    36
-   ],
-   "cards": [
-    641,
-    86,
-    0
-   ]
-  },
-  "bush": {
-   "placed": 1042,
-   "triangles": [
-    504,
-    260,
-    20
-   ],
-   "cards": [
-    72,
-    10,
-    0
-   ]
-  },
-  "rock": {
-   "placed": 2590,
-   "triangles": [
-    80,
-    80,
-    20
-   ],
-   "cards": [
-    0,
-    0,
-    0
-   ]
+  "tier": "medium",
+  "species": {
+    "bush": {
+      "placed": 12584,
+      "triangles": [
+        504,
+        260,
+        20
+      ],
+      "cards": [
+        72,
+        10,
+        0
+      ]
+    },
+    "rock": {
+      "placed": 7665,
+      "triangles": [
+        720,
+        720,
+        180
+      ],
+      "cards": [
+        0,
+        0,
+        0
+      ]
+    }
   }
- }
 }

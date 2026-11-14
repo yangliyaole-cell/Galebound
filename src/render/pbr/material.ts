@@ -7,7 +7,7 @@ export const pbrUniforms = {
   uPbrActive: { value: 0 },
   uPbrGround: { value: null as THREE.Texture | null },
   uPbrContact: { value: null as THREE.Texture | null },
-  uPbrWorldSize: { value: 2048 },
+  uPbrWorldSize: { value: 4096 },
 };
 const alternatives = new Map<THREE.Material, THREE.Material>();
 const originals = new Map<THREE.Material, THREE.Material>();

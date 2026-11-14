@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { Builder, archedProfile, orbAt, place } from '../build';
-import { buildMountainScenery } from '../mountain-scenery';
 import { createFlags } from '../flags';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
-import { BLOSSOM, FOREST, ISLAND, LIGHTHOUSE, START, STONES, WATCHTOWER, WINDMILL } from '../layout';
+import { BLOSSOM, FOREST, ISLAND, LIGHTHOUSE, START, STONES, VILLAGE, WATCHTOWER, WINDMILL } from '../layout';
 import { seatRock } from '../rock-geometry';
+import { buildHamlets } from './hamlets';
 import { detailCounters } from '../structure-detail';
 import { seededRandom } from '../noise';
 import { beam, fence, dryStoneWall, wrapStairs } from './common';
@@ -363,11 +363,12 @@ export function buildLandmarks(): { object: THREE.Group; spinners: Spinner[] } {
   islandPavilion(b);
   blossomShrine(b);
   forestCabin(b, rand);
-  dryStoneWall(b, [[-23, 84], [-43, 64], [-55, 44]], rand);
-  dryStoneWall(b, [[73, -119], [105, -93], [142, -101]], rand);
-  dryStoneWall(b, [[-134, -94], [-173, -91], [-198, -103]], rand);
+  const S = START, V = VILLAGE;
+  dryStoneWall(b, [[S.x - 23, S.z - 16], [S.x - 43, S.z - 36], [S.x - 55, S.z - 56]], rand);
+  dryStoneWall(b, [[V.x + 53, V.z + 111], [V.x + 85, V.z + 137], [V.x + 122, V.z + 129]], rand);
+  dryStoneWall(b, [[V.x - 154, V.z + 136], [V.x - 193, V.z + 139], [V.x - 218, V.z + 127]], rand);
   const object = b.build();
-  object.add(mill.object, buildMountainScenery(), createFlags([
+  object.add(mill.object, buildHamlets(), createFlags([
     { x: START.x - 27, y: heightAt(START.x - 22, START.z + 7) + 13, z: START.z + 7, color: 0xb74734, size: 1.1 },
   ]));
   return { object, spinners: [mill] };

@@ -35,11 +35,28 @@ export const NOISE_GLSL = /* glsl */ `
   }
 `;
 
-/** Soft moving cloud shadows, shared by terrain, grass, water and props. */
+/** The picture's sun: afternoon light from the west, a little behind the first view north. */
+export const SUN_DIRECTION: [number, number, number] = [-0.74, 0.62, 0.12];
+/** Clouds live in a slab of air between these heights (metres). */
+export const CLOUD_BASE = 1500;
+export const CLOUD_TOP = 4300;
+const shadowShift = [SUN_DIRECTION[0] / SUN_DIRECTION[1] * 2100, SUN_DIRECTION[2] / SUN_DIRECTION[1] * 2100];
+
+/**
+ * Where clouds stand, as a function of ground position. The sky marches
+ * through it and everything on the ground samples it for cloud shadow, so
+ * the shadows on the land belong to the clouds overhead.
+ */
 export const CLOUD_GLSL = /* glsl */ `
   uniform vec2 uCloudDrift;
+  float cloudCover(vec2 xz) {
+    vec2 q = xz * 0.00013 + uCloudDrift * 0.35;
+    float broad = gFbm3(q);
+    float lumps = gFbm3(q * 3.3 + 7.7);
+    return smoothstep(0.45, 0.66, broad * 0.56 + lumps * 0.48);
+  }
   float cloudShadow(vec2 xz) {
-    float c = gFbm3(xz * 0.0032 + uCloudDrift);
-    return 1.0 - 0.24 * smoothstep(0.5, 0.68, c);
+    float c = cloudCover(xz + vec2(${shadowShift[0].toFixed(1)}, ${shadowShift[1].toFixed(1)}));
+    return 1.0 - 0.46 * smoothstep(0.08, 0.7, c);
   }
 `;

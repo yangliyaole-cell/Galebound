@@ -32,7 +32,7 @@ export class Hud {
   constructor(touch: boolean, tier: Tier) {
     $('keys').innerHTML = touch
       ? '左侧拖动：移动（推到底奔跑）　右侧拖动：视角　双指：缩放'
-      : 'WASD 移动　·　Shift 奔跑　·　空格 跳跃　·　鼠标 视角　·　滚轮 缩放<br />滑翔中：A / D 转向　·　W 俯冲　·　S 抬升　·　空格 收起风布';
+      : 'WASD 移动　·　Shift 奔跑　·　空格 跳跃　·　鼠标 视角　·　滚轮 缩放<br />空中再按空格：张开风布滑翔　·　A / D 转向　·　W 俯冲　·　S 拉升　·　按住 Shift 收臂加速　·　空格 收起风布';
     this.hint.textContent = touch ? '' : 'WASD 移动 · Shift 奔跑 · 空格 跳跃 · 鼠标 视角';
     if (touch) this.showTouch();
 
