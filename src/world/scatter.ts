@@ -10,7 +10,8 @@ import { heightAt, normalAt, sstep } from './heightmap';
 import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, inPolygon, cityRadiusAt } from './layout';
 import { blossomDensity, forestDensity } from './maps';
 import { fbm, seededRandom } from './noise';
-import { waterLevelAt } from './mountain-layout';
+import { waterLevelAt as surfaceAt } from './heightmap';
+const waterLevelAt = (x: number, z: number): number => Math.max(0, surfaceAt(x, z));
 
 function finish(geo: THREE.BufferGeometry, colors: number[], leaf: number): THREE.BufferGeometry {
   const g = geo.index ? geo.toNonIndexed() : geo;

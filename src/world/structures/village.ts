@@ -6,7 +6,7 @@ import { BRIDGE, FIELDS, PIER, RIVER, ROADS, VILLAGE, WATER_LEVEL, distToPolylin
 import { seededRandom } from '../noise';
 import { beam, fence } from './common';
 import { ROOFS, SHUTTERS, WALLS, addHouse, type BuiltHouse } from './house';
-import { batchSettlementDetails } from '../scenes/batch-details';
+import { batchSettlementDetails } from './batch-details';
 import { structureDetail } from '../structure-detail';
 
 export interface VillageInfo {

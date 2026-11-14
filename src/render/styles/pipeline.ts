@@ -197,7 +197,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
       hemisphere.groundColor.set(preset.hemisphere[1]);
       hemisphere.intensity = preset.hemisphere[2];
       sunDir.set(...preset.direction).normalize();
-      scene.fog = new THREE.Fog(preset.fog[0], preset.fog[1], Math.min(quality.viewRange, preset.fog[2]));
+      scene.fog = new THREE.Fog(preset.fog[0], preset.fog[1], name === 'cinematic' ? preset.fog[2] : Math.min(quality.viewRange, preset.fog[2]));
       look.uniforms.uFog.value.set(preset.fog[0]);
       look.uniforms.uGrade.value.set(...preset.grade);
       const post = preset.post;

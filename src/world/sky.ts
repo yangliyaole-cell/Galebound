@@ -56,7 +56,7 @@ function createDome(sunDir: THREE.Vector3): THREE.Mesh {
         #include <colorspace_fragment>
       }`,
   });
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(5000, 48, 24), mat);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(20000, 48, 24), mat);
   dome.renderOrder = -4;
   dome.frustumCulled = false;
   return dome;
@@ -206,7 +206,9 @@ export function createSky(sunDir: THREE.Vector3): {
   far.renderOrder = -2;
   const near = createRidge(2300, 60, 330, 11.2, 0x6f9aa6, 9999);
   near.renderOrder = -1;
-  group.add(dome, cumulus, far, near);
+  // The ranges are real land now; no painted ridges are needed.
+  void far; void near;
+  group.add(dome, cumulus);
   return {
     object: group,
     update: (camera, dt) => {

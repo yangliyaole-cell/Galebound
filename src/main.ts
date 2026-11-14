@@ -12,7 +12,9 @@ import { Player } from './player/controller';
 import { prepareCapeShotFromPlayer, inspectCapeShotScene } from './player/character';
 import { buildHeightmap, createHeightTexture, heightAt } from './world/heightmap';
 import { START, ZONES } from './world/layout';
-import { buildBiome, buildSplat } from './world/maps';
+import { buildBiome, buildFields, buildSplat } from './world/maps';
+import { buildLandMaps } from './world/landmaps';
+import { cinematic } from './render/styles/cinematic';
 import { createTerrain, groundUniforms } from './world/terrain';
 import { createWater } from './world/water';
 import { HORIZON_COLOR, createSky } from './world/sky';
@@ -66,7 +68,7 @@ async function boot(): Promise<void> {
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(HORIZON_COLOR, 110, quality.viewRange);
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 7000);
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.5, 30000);
 
   let styles: StyleController | undefined;
   const resize = (): void => {
@@ -88,6 +90,9 @@ async function boot(): Promise<void> {
   buildHeightmap(quality.terrainCell);
   const heightTex = createHeightTexture();
   groundUniforms.uSplat.value = buildSplat(quality.splatSize);
+  groundUniforms.uFields.value = buildFields(Math.min(2048, quality.splatSize));
+  // Far ridges shadow the valleys behind them; baked once for the picture's own sun.
+  const landMaps = buildLandMaps(new THREE.Vector3(...cinematic.direction));
   groundUniforms.uBiome.value = buildBiome();
   groundUniforms.uDetail.value = groundDetailTexture();
 
@@ -111,9 +116,8 @@ async function boot(): Promise<void> {
 
   hud.loading('正在铺草、引水…');
   await nextFrame();
-  const terrain = createTerrain();
-  terrain.name = 'Terrain';
-  scene.add(terrain);
+  const terrain = createTerrain(heightTex, landMaps, quality.terrainSplit);
+  scene.add(terrain.object);
   scene.add(createWater(heightTex, sunDir, HORIZON_COLOR));
   const grass = createGrass(quality.grassNear, quality.grassFar, quality.flowers, heightTex);
   grass.name = 'Grass';
@@ -158,7 +162,7 @@ async function boot(): Promise<void> {
     player.character.rig.setMaskVisible?.(params.get('mask') !== 'off');
   }
   scene.add(player.character.root, player.character.cloth);
-  scene.userData.worldBuilt = shotState.worldBuilt = terrain.children.length > 0 && grass.children.length > 0;
+  scene.userData.worldBuilt = shotState.worldBuilt = grass.children.length > 0;
   shotState.assetsReady = params.get('hero') === 'classic' || !!player.character.rig.setCapeState;
   if (!shot && save.pos && !params.has('x')) {
     player.pos.set(save.pos[0], save.pos[1], save.pos[2]);
@@ -303,6 +307,7 @@ async function boot(): Promise<void> {
     sun.target.position.copy(player.pos);
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, dt);
+    terrain.update(camera);
     scatter.update(camera.position);
     updateStructureDetails(camera.position);
     for (const s of landmarks.spinners) s.wheel.rotation.z += s.speed * (0.1 + shared.uWindStrength.value) * dt;
@@ -356,6 +361,7 @@ async function boot(): Promise<void> {
     sun.target.position.copy(player.pos);
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, 0);
+    terrain.update(camera);
     scatter.update(camera.position);
     updateStructureDetails(camera.position);
     renderer.debug.onShaderError = (_gl, _program, vertex, fragment) => {
@@ -364,7 +370,7 @@ async function boot(): Promise<void> {
         renderer.getContext().getShaderInfoLog(fragment));
     };
     if (capeShot) {
-      shotState.scene = inspectCapeShotScene(scene, terrain, player.character, camera, heightAt, params.get('hero') !== 'classic');
+      shotState.scene = inspectCapeShotScene(scene, terrain.object, player.character, camera, heightAt, params.get('hero') !== 'classic');
       if (!shotState.scene.ok) throw new Error(shotState.scene.issues.join('; '));
       if (!shotState.assetsReady) throw new Error('Detailed soft cape asset did not load');
     }
@@ -391,6 +397,7 @@ async function boot(): Promise<void> {
     sun.target.position.copy(player.pos);
     sun.position.copy(sunDir).multiplyScalar(220).add(player.pos);
     sky.update(camera, 0);
+    terrain.update(camera);
     scatter.update(camera.position);
     updateStructureDetails(camera.position);
     life.update(0, 12, player.pos);
@@ -447,7 +454,7 @@ async function boot(): Promise<void> {
     }
     if (shot) shotState.renderedFrames = ++shotFrames;
     if (shot && shotFrames === 24 && !debugWindow.__galeShotError) {
-      if (capeShot) shotState.scene = inspectCapeShotScene(scene, terrain, player.character, camera, heightAt, params.get('hero') !== 'classic');
+      if (capeShot) shotState.scene = inspectCapeShotScene(scene, terrain.object, player.character, camera, heightAt, params.get('hero') !== 'classic');
       if (shotState.worldBuilt && shotState.assetsReady && shotState.shadersReady && (!capeShot || shotState.scene?.ok)) {
         renderer.getContext().finish();
         debugWindow.__galeShotReady = true;

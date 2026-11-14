@@ -1,8 +1,15 @@
 import * as THREE from 'three';
 import type { Input } from '../core/input';
 import { resolveWalls, supportHeight } from '../world/colliders';
-import { heightAt, normalAt, sstep } from '../world/heightmap';
-import { waterLevelAt } from '../world/mountain-layout';
+import { heightAt, normalAt, sstep, waterLevelAt as surfaceAt } from '../world/heightmap';
+import { HALF, WORLD_MARGIN } from '../world/layout';
+
+const EDGE = HALF - WORLD_MARGIN;
+/** Water surface here; where the ground is dry, a level safely below it. */
+const waterLevelAt = (x: number, z: number): number => {
+  const level = surfaceAt(x, z);
+  return level === -Infinity ? heightAt(x, z) - 3 : level;
+};
 import type { Wind } from '../world/wind';
 import { Character, type Motion } from './character';
 
@@ -68,8 +75,8 @@ export class Player {
   }
 
   private keepInWorld(): void {
-    this.pos.x = Math.max(-1000, Math.min(1000, this.pos.x));
-    this.pos.z = Math.max(-1000, Math.min(900, this.pos.z));
+    this.pos.x = Math.max(-EDGE, Math.min(EDGE, this.pos.x));
+    this.pos.z = Math.max(-EDGE, Math.min(EDGE, this.pos.z));
   }
 
   update(dt: number, time: number, input: Input, cameraYaw: number, wind: Wind): void {

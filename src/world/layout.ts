@@ -1,43 +1,36 @@
 import * as THREE from 'three';
+import { GALE, LAKES, coastZ, lakeShape, nearestRiver } from './gen/hydro';
 
 /**
  * The map. North is -Z, east is +X. All distances in metres.
  * Everything that decides where things are lives here.
  */
-export const SIZE = 2048;
+export const SIZE = 4096;
 export const HALF = SIZE / 2;
 export const WATER_LEVEL = 0;
+/** The player is kept this far inside the edge of the detailed terrain. */
+export const WORLD_MARGIN = 60;
 
-export const START = { x: 0, z: 100 };
-export const CITY = { x: 120, z: -640, wall: 195, hill: 345, plateau: 78, top: 104 };
-export const WINDMILL = { x: 340, z: -80 };
-export const LAKE = { x: -430, z: -300, rx: 130, rz: 100 };
-export const ISLAND = { x: -452, z: -306 };
-export const PLATEAU = { x: 620, z: -450, rx: 160, rz: 260, h: 46 };
-export const STONES = { x: 618, z: -400 };
-export const FOREST = { x: -430, z: 220, r: 250 };
-export const BLOSSOM = { x: -262, z: -28, r: 75 };
-export const LIGHTHOUSE = { x: 380, z: 505 };
-export const WATCHTOWER = { x: 250, z: 250 };
-export const BRIDGE = { x: 20, z: -242, length: 46, width: 5.2 };
-export const VILLAGE = { x: 20, z: -230, r: 150 };
-export const PIER = { x: -318, z: -282 };
-
-/** Rounded hills added on top of the rolling base terrain. */
-export const HILLS = [
-  { x: START.x, z: START.z, r: 62, h: 30 },
-  { x: WINDMILL.x, z: WINDMILL.z, r: 85, h: 21 },
-  { x: WATCHTOWER.x, z: WATCHTOWER.z, r: 80, h: 25 },
-  { x: BLOSSOM.x, z: BLOSSOM.z, r: 70, h: 9 },
-  { x: -120, z: 260, r: 120, h: 14 },
-  { x: -560, z: 40, r: 110, h: 20 },
-];
-/** Added after the sea and lake are carved, so they rise out of the water. */
-export const LATE_HILLS = [
-  { x: LIGHTHOUSE.x, z: LIGHTHOUSE.z, r: 85, h: 30 },
-  { x: ISLAND.x, z: ISLAND.z, r: 26, h: 11 },
-  { x: -180, z: 600, r: 60, h: 18 },
-];
+// The vale lies between the coastal downs (south) and the ranges (north, west).
+// From the starting hill the view runs north: village and bridge in the middle
+// distance, the walled city on its crag beyond, Cloudfall and the abbey on the
+// north-western scarp, and the glaciers behind them.
+export const START = { x: 0, z: 1250 };
+export const CITY = { x: 560, z: -380, wall: 195, hill: 345, plateau: 78, top: 152, base: 58, step: 10 };
+export const WINDMILL = { x: 940, z: 760 };
+export const LAKE = { x: -600, z: -180, rx: 195, rz: 128, level: 60 };
+export const ISLAND = { x: -634, z: -190 };
+export const PLATEAU = { x: 1660, z: -900, rx: 210, rz: 320, h: 60 };
+export const STONES = { x: 1656, z: -850 };
+export const FOREST = { x: -1050, z: 1050, r: 400 };
+export const BLOSSOM = { x: -520, z: 770, r: 90 };
+export const LIGHTHOUSE = { x: 700, z: Math.round(coastZ(700) - 80) };
+export const WATCHTOWER = { x: 800, z: 1480 };
+export const BRIDGE = { x: 150, z: 330, length: 46, width: 5.2, level: 48.5 };
+export const VILLAGE = { x: 150, z: 345, r: 150 };
+export const PIER = { x: -470, z: -86 };
+/** Where the Gale leaves its hanging valley: the lip of Cloudfall and the flow direction there. */
+export const SCARP = { x: -1376, z: -1186, ux: 0.6, uz: 0.8, rise: 140 };
 
 export type Pt = [number, number];
 
@@ -88,31 +81,20 @@ export function cityGate(a: number): { x: number; z: number } {
 }
 export const SOUTH_GATE = cityGate(SOUTH_GATE_ANGLE);
 export const EAST_GATE = cityGate(EAST_GATE_ANGLE);
-export const ABBEY = { x: -600, z: -495, floor: 64, halfWidth: 18, halfLength: 37, entranceZ: -458, tower: 89 };
+/** On the scarp top beside Cloudfall, looking south-east over the vale. */
+export const ABBEY = { x: -1180, z: -1480, floor: 262, halfWidth: 18, halfLength: 37, entranceZ: -1443, tower: 287 };
 
 export function smooth(points: Pt[], perSegment = 8): Pt[] {
   const curve = new THREE.SplineCurve(points.map(([x, z]) => new THREE.Vector2(x, z)));
   return curve.getPoints((points.length - 1) * perSegment).map((p) => [p.x, p.y] as Pt);
 }
 
-/** Alternating broad meanders and tight bends; one surveyed straight crossing at the village. */
-export const RIVER: Pt[] = smooth([
-  [-335, -300], [-290, -278], [-245, -291], [-192, -258], [-143, -269], [-91, -250],
-  [-42, -237], [20, -242], [72, -238], [126, -207], [193, -232], [252, -210],
-  [310, -183], [374, -201], [432, -169], [454, -116], [509, -74], [570, -55],
-  [603, 8], [572, 75], [602, 151], [654, 207], [646, 271], [599, 333],
-  [608, 410], [579, 467], [603, 548], [610, 665],
-]);
-export function lakeRadiusAt(a: number): number {
-  // Eastern shore remains a quiet bay for the existing pier.
-  return 1 + 0.11 * Math.sin(3 * a + 0.6) + 0.075 * Math.cos(5 * a - 0.7) + 0.04 * Math.sin(8 * a);
-}
+/** The Gale as a polyline, for placement tests. */
+export const RIVER: Pt[] = GALE.pts.filter((_, i) => i % 3 === 0).map((p) => [p.x, p.z] as Pt);
 export function lakeMetric(x: number, z: number): number {
-  const dx = (x - LAKE.x) / LAKE.rx, dz = (z - LAKE.z) / LAKE.rz;
-  return Math.hypot(dx, dz) / lakeRadiusAt(Math.atan2(dz, dx));
+  return lakeShape(LAKES[0], x, z);
 }
-export const riverWidthAt = (x: number, z: number): number =>
-  8.3 + 2.1 * Math.sin(x * 0.019 + z * 0.014) + 1.5 * Math.sin(x * 0.043 - z * 0.021);
+export const riverWidthAt = (x: number, z: number): number => { const r = nearestRiver(x, z, 160); return r.found ? r.width : 12; };
 
 export interface Road {
   id: string;
@@ -153,67 +135,26 @@ for (const street of CITY_STREETS) {
     return [x, z];
   });
 }
+const B = BRIDGE;
 export const ROADS: Road[] = [
-  road('start-village', 'dirt', 3.9, [[2, 92], [-17, 50], [-38, 15], [-17, -28], [25, -65], [33, -109], [12, -150], [5, -180], [20, -205], [20, -219]]),
-  road('river-bridge', 'cobble', 4.7, [[20, -219], [20, -265]], true),
-  road('village-city', 'dirt', 4.3, [[20, -265], [20, -274], [37, -292], [18, -330], [38, -364], [90, -390], [112, -424], [SOUTH_GATE.x, SOUTH_GATE.z]]),
-  road('mill-road', 'dirt', 3.2, [[12, -150], [63, -136], [96, -105], [149, -114], [198, -95], [230, -61], [276, -62], [318, -88], [334, -84]]),
-  road('lake-road', 'dirt', 3.0, [[5, -180], [-48, -187], [-90, -204], [-147, -205], [-189, -224], [-231, -231], [-260, -257], [-283, -245], [-298, -249], [-300, -261], [-300, -282]]),
-  road('coastal-trail', 'dirt', 2.8, [[6, 90], [56, 108], [83, 152], [148, 176], [185, 220], [237, 258], [265, 287], [303, 337], [312, 388], [354, 426], [376, 492]]),
-  road('grove-trail', 'dirt', 2.4, [[-6, 92], [-62, 89], [-107, 57], [-165, 39], [-209, -2], [-242, -16], [-288, 14], [-306, 74], [-363, 103], [-386, 160], [-420, 200]]),
-  road('highland-road', 'dirt', 3.0, [[EAST_GATE.x, EAST_GATE.z], [EAST_GATE.x + 20 * Math.cos(EAST_GATE_ANGLE), EAST_GATE.z + 20 * Math.sin(EAST_GATE_ANGLE)], [370, -469], [393, -490], [444, -465], [471, -417], [527, -397], [579, -420], [608, -410]]),
-  road('abbey-pilgrimage', 'dirt', 2.8, [[18, -330], [-44, -347], [-111, -330], [-181, -352], [-252, -360], [-325, -391], [-383, -426], [-460, -436], [-507, -456], [-535, -486], [-558, -486], [-572, -450], [-600, -450]]),
-  road('field-path', 'dirt', 2.2, [[-48, -187], [-59, -157], [-80, -135], [-70, -102], [-37, -71], [-17, -28]]),
-  road('north-hamlets', 'dirt', 2.5, [[-626, -713], [-602, -686], [-582, -676], [-561, -641], [-546, -596], [-549, -542], [-540, -490], [-553, -435], [-580, -407], [-600, -411], [-600, -450]]),
-  road('west-hamlet', 'dirt', 2.4, [[-770, -400], [-749, -375], [-710, -369], [-678, -343], [-640, -350], [-613, -319], [-603, -263], [-582, -206], [-529, -172], [-465, -157], [-403, -169], [-334, -211], [-300, -249]]),
-  road('east-hamlet', 'dirt', 2.3, [[-478, -432], [-495, -448], [-516, -446], [-535, -464], [-535, -486]]),
+  road('start-village', 'dirt', 3.9, [[2, 1242], [-16, 1180], [-52, 1090], [-66, 990], [-30, 880], [34, 770], [70, 650], [88, 540], [132, 440], [B.x, B.z + 46], [B.x, B.z + 23]]),
+  road('river-bridge', 'cobble', 4.7, [[B.x, B.z + 23], [B.x, B.z - 23]], true),
+  road('village-city', 'dirt', 4.3, [[B.x, B.z - 23], [B.x, B.z - 34], [176, 240], [172, 150], [226, 60], [322, -22], [402, -92], [470, -128], [530, -152], [SOUTH_GATE.x, SOUTH_GATE.z]]),
+  road('mill-road', 'dirt', 3.2, [[88, 540], [214, 566], [372, 604], [536, 640], [694, 688], [836, 738], [926, 764]]),
+  road('lake-road', 'dirt', 3.0, [[132, 440], [86, 396], [-8, 356], [-110, 318], [-196, 322], [-300, 250], [-372, 130], [-420, 20], [-462, -52], [PIER.x, PIER.z + 14]]),
+  road('coastal-trail', 'dirt', 2.8, [[6, 1258], [118, 1292], [262, 1338], [420, 1396], [580, 1446], [736, 1484], [790, 1500], [800, 1600], [752, 1720], [LIGHTHOUSE.x + 6, LIGHTHOUSE.z - 14]]),
+  road('grove-trail', 'dirt', 2.4, [[-6, 1250], [-128, 1212], [-262, 1122], [-378, 984], [-470, 852], [-516, 786], [-640, 822], [-782, 920], [-924, 1002], [-1040, 1046]]),
+  road('highland-road', 'dirt', 3.0, [[EAST_GATE.x, EAST_GATE.z], [EAST_GATE.x + 20 * Math.cos(EAST_GATE_ANGLE), EAST_GATE.z + 20 * Math.sin(EAST_GATE_ANGLE)], [880, -250], [1040, -300], [1200, -330], [1360, -400], [1470, -520], [1540, -660], [1610, -780], [1650, -840]]),
+  road('abbey-pilgrimage', 'dirt', 2.8, [[172, 150], [60, 96], [-40, 10], [-96, -110], [-190, -250], [-330, -360], [-470, -440], [-620, -520], [-740, -640], [-820, -790], [-880, -940], [-950, -1090], [-1010, -1230], [-1060, -1350], [-1120, -1410], [-1180, -1424], [-1180, -1443]]),
+  road('field-path', 'dirt', 2.2, [[-8, 356], [-60, 430], [-76, 530], [-40, 640], [34, 770]]),
   ...CITY_STREETS,
 ];
 
 /** Cobbled squares: [x, z, radius]. */
 export const PLAZAS: [number, number, number][] = [
-  [16, -196, 11], [CITY.x + 18, CITY.z + 100, 12], [CITY.x, CITY.z, CITY.plateau - 5],
+  [VILLAGE.x - 4, VILLAGE.z + 34, 11], [CITY.x + 18, CITY.z + 100, 12], [CITY.x, CITY.z, CITY.plateau - 5],
 ];
-export interface Field {
-  x: number; z: number; w: number; d: number; rot: number;
-  crop: 'wheat' | 'tilled' | 'cabbage' | 'lavender';
-  /** Outer parcels keep painted field colour but omit individual crop geometry on low. */
-  scenic?: boolean;
-}
-export const FIELDS: Field[] = [
-  { x: -115, z: -157, w: 43, d: 26, rot: 0.19, crop: 'wheat' },
-  { x: -164, z: -167, w: 36, d: 32, rot: -0.11, crop: 'tilled' },
-  { x: -116, z: -116, w: 42, d: 25, rot: 0.32, crop: 'cabbage' },
-  { x: 268, z: -22, w: 52, d: 34, rot: -0.24, crop: 'wheat' },
-  { x: 307, z: -139, w: 43, d: 26, rot: 0.37, crop: 'lavender' },
-  { x: 398, z: -48, w: 36, d: 36, rot: 0.13, crop: 'tilled' },
-  { x: -70, z: -343, w: 40, d: 27, rot: -0.27, crop: 'wheat' },
-  { x: 151, z: -158, w: 41, d: 24, rot: -0.08, crop: 'cabbage' },
-  { x: 204, z: -155, w: 31, d: 24, rot: 0.35, crop: 'wheat' },
-  { x: -200, z: -119, w: 38, d: 25, rot: -0.31, crop: 'lavender' },
-  { x: 159, z: -332, w: 36, d: 26, rot: 0.32, crop: 'tilled' },
-  { x: 219, z: -308, w: 42, d: 29, rot: -0.18, crop: 'wheat' },
-  { x: -278, z: -474, w: 64, d: 39, rot: -0.16, crop: 'wheat', scenic: true },
-  { x: -196, z: -439, w: 54, d: 36, rot: 0.21, crop: 'cabbage', scenic: true },
-  { x: -76, z: -416, w: 58, d: 35, rot: -0.28, crop: 'wheat', scenic: true },
-  { x: 483, z: -291, w: 59, d: 42, rot: 0.19, crop: 'cabbage', scenic: true },
-  { x: 552, z: -256, w: 54, d: 35, rot: -0.27, crop: 'wheat', scenic: true },
-  { x: 324, z: -364, w: 51, d: 30, rot: 0.08, crop: 'wheat', scenic: true },
-];
-/** Deliberately skewed parcels, shared by splat painting, crops and fences. */
-export function fieldPolygon(f: Field): Pt[] {
-  const outline = [[-0.47, -0.48], [0.24, -0.54], [0.5, -0.31], [0.46, 0.45], [-0.17, 0.51], [-0.52, 0.26]];
-  const c = Math.cos(f.rot), s = Math.sin(f.rot);
-  return outline.map(([u, v]) => [f.x + u * f.w * c - v * f.d * s, f.z + u * f.w * s + v * f.d * c]);
-}
-export function inPolygon(x: number, z: number, pts: Pt[]): boolean {
-  let inside = false;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const a = pts[i], b = pts[j];
-    if ((a[1] > z) !== (b[1] > z) && x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
-  }
-  return inside;
-}
+
 // Index short segments once; placement queries only inspect nearby roads.
 const roadCells = new Map<string, { r: Road; i: number }[]>();
 for (const r of ROADS) for (let i = 0; i < r.pts.length - 1; i++) {
@@ -238,6 +179,54 @@ export function roadClearance(x: number, z: number, kinds?: Road['kind']): numbe
   return d;
 }
 
+export interface Field {
+  x: number; z: number; w: number; d: number; rot: number;
+  crop: 'wheat' | 'tilled' | 'cabbage' | 'lavender';
+  /** Outer parcels keep painted field colour but omit individual crop geometry on low. */
+  scenic?: boolean;
+}
+/** Patchwork farmland: [centre x, centre z, columns, rows, rotation]. Parcels avoid water and roads. */
+const FIELD_BLOCKS: [number, number, number, number, number][] = [
+  [40, 580, 4, 3, 0.16], [310, 500, 4, 3, -0.2], [590, 520, 4, 2, 0.1], [330, 190, 4, 3, 0.3],
+  [640, 130, 4, 3, -0.12], [-20, 70, 3, 2, 0.5], [-220, 440, 4, 3, -0.3], [1010, 560, 3, 2, 0.24],
+  [800, 930, 3, 3, -0.16], [930, 40, 4, 3, 0.2], [1440, 170, 3, 2, -0.3], [150, -330, 3, 3, 0.1],
+  [-280, 950, 3, 2, 0.2], [340, 960, 4, 2, -0.1], [-520, 180, 3, 2, 0.36], [1120, -80, 3, 2, 0.4],
+  [260, -90, 3, 2, -0.4], [860, -520, 3, 2, 0.15], [-380, -420, 3, 2, -0.2], [520, 800, 3, 2, 0.3],
+];
+const CROPS: Field['crop'][] = ['wheat', 'tilled', 'cabbage', 'wheat', 'lavender', 'wheat', 'cabbage', 'tilled'];
+export const FIELDS: Field[] = [];
+{
+  let k = 0;
+  const jitter = (i: number): number => { const v = Math.sin(i * 127.1 + 31.7) * 43758.5453; return v - Math.floor(v) - 0.5; };
+  FIELD_BLOCKS.forEach(([cx, cz, cols, rows, rot], block) => {
+    const c = Math.cos(rot), s = Math.sin(rot);
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      k++;
+      const w = 44 + jitter(k) * 16, d = 30 + jitter(k + 500) * 10;
+      const u = (i - (cols - 1) / 2) * 50 + jitter(k + 90) * 6, v = (j - (rows - 1) / 2) * 35 + jitter(k + 190) * 5;
+      const x = cx + u * c - v * s, z = cz + u * s + v * c;
+      if (jitter(k + 900) > 0.34) continue;
+      if (nearestRiver(x, z, 90).found || roadClearance(x, z) < 26 || Math.hypot(x - VILLAGE.x, z - VILLAGE.z) < 95) continue;
+      if (LAKES.some((l) => lakeShape(l, x, z) < 1.35) || cityEdgeDistance(x, z) < 60) continue;
+      FIELDS.push({ x, z, w, d, rot: rot + jitter(k + 300) * 0.16, crop: CROPS[(k + block) % CROPS.length], scenic: block > 4 });
+    }
+  });
+}
+/** Deliberately skewed parcels, shared by splat painting, crops and fences. */
+export function fieldPolygon(f: Field): Pt[] {
+  const outline = [[-0.47, -0.48], [0.24, -0.54], [0.5, -0.31], [0.46, 0.45], [-0.17, 0.51], [-0.52, 0.26]];
+  const c = Math.cos(f.rot), s = Math.sin(f.rot);
+  return outline.map(([u, v]) => [f.x + u * f.w * c - v * f.d * s, f.z + u * f.w * s + v * f.d * c]);
+}
+export function inPolygon(x: number, z: number, pts: Pt[]): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a[1] > z) !== (b[1] > z) && x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+
 export function distToPolyline(x: number, z: number, pts: Pt[]): number {
   let best = Infinity;
   for (let i = 0; i < pts.length - 1; i++) {
@@ -256,15 +245,15 @@ export function distToPolyline(x: number, z: number, pts: Pt[]): number {
 
 /** Named regions, used for the title card shown when the player arrives. */
 export const ZONES: { name: string; sub: string; x: number; z: number; r: number }[] = [
-  { name: '启程丘', sub: 'Setting-Out Hill', x: START.x, z: START.z, r: 80 },
-  { name: '河谷村', sub: 'Riverbend Village', x: VILLAGE.x, z: VILLAGE.z, r: 120 },
-  { name: '风车丘', sub: 'Windmill Rise', x: WINDMILL.x, z: WINDMILL.z, r: 90 },
-  { name: '云瀑修道院', sub: 'Cloudfall Abbey', x: ABBEY.x, z: ABBEY.z, r: 90 },
-  { name: '高城', sub: 'Hightown', x: CITY.x, z: CITY.z, r: CITY.wall + 10 },
-  { name: '镜湖', sub: 'Mirror Lake', x: LAKE.x, z: LAKE.z, r: 170 },
-  { name: '低语林', sub: 'Whisperwood', x: FOREST.x, z: FOREST.z, r: 210 },
-  { name: '花谷', sub: 'Petal Hollow', x: BLOSSOM.x, z: BLOSSOM.z, r: 80 },
-  { name: '望海岬', sub: 'Lighthouse Cape', x: LIGHTHOUSE.x, z: LIGHTHOUSE.z, r: 95 },
-  { name: '旧瞭望塔', sub: 'The Old Watch', x: WATCHTOWER.x, z: WATCHTOWER.z, r: 70 },
-  { name: '石阵高地', sub: 'Standing Stones', x: PLATEAU.x, z: PLATEAU.z, r: 190 },
+  { name: '启程丘', sub: 'Setting-Out Hill', x: START.x, z: START.z, r: 110 },
+  { name: '河谷村', sub: 'Riverbend Village', x: VILLAGE.x, z: VILLAGE.z, r: 150 },
+  { name: '风车丘', sub: 'Windmill Rise', x: WINDMILL.x, z: WINDMILL.z, r: 120 },
+  { name: '云瀑修道院', sub: 'Cloudfall Abbey', x: ABBEY.x, z: ABBEY.z, r: 130 },
+  { name: '高城', sub: 'Hightown', x: CITY.x, z: CITY.z, r: CITY.wall + 30 },
+  { name: '镜湖', sub: 'Mirror Lake', x: LAKE.x, z: LAKE.z, r: 240 },
+  { name: '低语林', sub: 'Whisperwood', x: FOREST.x, z: FOREST.z, r: 340 },
+  { name: '花谷', sub: 'Petal Hollow', x: BLOSSOM.x, z: BLOSSOM.z, r: 100 },
+  { name: '望海岬', sub: 'Lighthouse Cape', x: LIGHTHOUSE.x, z: LIGHTHOUSE.z, r: 120 },
+  { name: '旧瞭望塔', sub: 'The Old Watch', x: WATCHTOWER.x, z: WATCHTOWER.z, r: 90 },
+  { name: '石阵高地', sub: 'Standing Stones', x: PLATEAU.x, z: PLATEAU.z, r: 260 },
 ];

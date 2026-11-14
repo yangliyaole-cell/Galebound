@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { fbm, seededRandom } from './noise';
+import { macroSlope } from './gen/macro';
+import { nearestRiver } from './gen/hydro';
 import { heightAt, normalAt, sstep } from './heightmap';
 import {
   BLOSSOM, CITY, FIELDS, FOREST, HALF, PLATEAU, PLAZAS, ROADS, SIZE, START, STONES, VILLAGE, WINDMILL,
-  WATCHTOWER, LIGHTHOUSE, ABBEY, cityWallPolygon, cityEdgeDistance, fieldPolygon, inPolygon, roadClearance,
+  WATCHTOWER, LIGHTHOUSE, ABBEY, cityWallPolygon, cityEdgeDistance, fieldPolygon, inPolygon, roadClearance, type Field,
 } from './layout';
 
 let splatSize = 0;
@@ -48,8 +50,10 @@ export function buildSplat(size: number): THREE.CanvasTexture {
     ctx.fill();
   }
 
-  ctx.fillStyle = 'rgb(0,0,255)';
+  // Blue carries each parcel's furrow direction, as a fraction of a half turn.
   for (const f of FIELDS) {
+    const turn = ((f.rot % Math.PI) + Math.PI) % Math.PI;
+    ctx.fillStyle = `rgb(0,0,${Math.round(turn / Math.PI * 255)})`;
     ctx.beginPath();
     fieldPolygon(f).forEach(([x, z], i) => i ? ctx.lineTo(px(x), px(z)) : ctx.moveTo(px(x), px(z)));
     ctx.closePath();
@@ -76,6 +80,29 @@ export function buildSplat(size: number): THREE.CanvasTexture {
   return tex;
 }
 
+export const CROP_COLORS: Record<Field['crop'], number> = { wheat: 0xd2bb62, tilled: 0x9a7556, cabbage: 0x6fa857, lavender: 0x9a86b8 };
+/** Crop colour of every parcel, with the parcel outline in alpha. */
+export function buildFields(size: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const s = size / SIZE;
+  const px = (v: number): number => (v + HALF) * s;
+  for (const f of FIELDS) {
+    ctx.fillStyle = `#${CROP_COLORS[f.crop].toString(16).padStart(6, '0')}`;
+    ctx.beginPath();
+    fieldPolygon(f).forEach(([x, z], i) => i ? ctx.lineTo(px(x), px(z)) : ctx.moveTo(px(x), px(z)));
+    ctx.closePath();
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.flipY = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
 function splat(x: number, z: number, channel: number): number {
   const s = splatSize / SIZE;
   const i = Math.min(splatSize - 1, Math.max(0, Math.round((x + HALF) * s)));
@@ -86,7 +113,18 @@ export const roadAt = (x: number, z: number): number => splatSize ? splat(x, z, 
 export const cobbleAt = (x: number, z: number): number => splatSize ? splat(x, z, 1) : Math.max(
   1 - sstep(-0.7, 1, roadClearance(x, z, 'cobble')),
   ...PLAZAS.map(([px, pz, r]) => 1 - sstep(r - 1, r + 1, Math.hypot(x - px, z - pz))));
-export const fieldAt = (x: number, z: number): number => splatSize ? splat(x, z, 2) : +FIELDS.some((f) => inPolygon(x, z, fieldPolygon(f)));
+const fieldCells = new Map<number, Field[]>();
+for (const f of FIELDS) {
+  const key = Math.floor(f.x / 96) * 4096 + Math.floor(f.z / 96);
+  fieldCells.set(key, [...(fieldCells.get(key) ?? []), f]);
+}
+export function fieldAt(x: number, z: number): number {
+  const ix = Math.floor(x / 96), iz = Math.floor(z / 96);
+  for (let j = iz - 1; j <= iz + 1; j++) for (let i = ix - 1; i <= ix + 1; i++) {
+    for (const f of fieldCells.get(i * 4096 + j) ?? []) if (inPolygon(x, z, fieldPolygon(f))) return 1;
+  }
+  return 0;
+}
 
 const dist = (x: number, z: number, p: { x: number; z: number }): number => Math.hypot(x - p.x, z - p.z);
 
@@ -97,16 +135,21 @@ export function blossomDensity(x: number, z: number): number {
 /** 0..1 chance of a tree at this spot. */
 export function forestDensity(x: number, z: number): number {
   const h = heightAt(x, z);
-  if (h < 1.7) return 0;
-  let d = sstep(0.52, 0.7, fbm(x / 170 + 40, z / 170 - 13, 3)) * 0.5;
-  if (x < -500 && z < -340) d = Math.max(d, 0.64 * sstep(0.28, 0.6, fbm(x / 95 + 13, z / 95, 3)));
+  if (h < 2.5) return 0;
+  const slope = macroSlope(x, z);
+  // Woods keep to slopes and hilltops that the plough leaves alone; the valley floor is farmed.
+  let d = sstep(0.5, 0.68, fbm(x / 210 + 40, z / 210 - 13, 3) + slope * 0.9 - 0.12) * 0.62;
+  d = Math.max(d, sstep(0.16, 0.42, slope) * 0.6);
   const wood = dist(x, z, FOREST) / FOREST.r + (fbm(x / 60, z / 60, 2) - 0.5) * 0.3;
   d = Math.max(d, 1 - sstep(0.72, 1.0, wood));
+  // Alders and willows follow the water; copses stand along the lanes.
+  const river = nearestRiver(x, z, 60);
+  if (river.found) d = Math.max(d, 0.5 * sstep(river.width * 0.5 + 26, river.width * 0.5 + 6, river.distance) * sstep(0.35, 0.6, fbm(x / 38, z / 38, 2)));
+  d = Math.max(d, 0.34 * sstep(16, 5, roadClearance(x, z, 'dirt')) * sstep(0.56, 0.7, fbm(x / 30 + 5, z / 30, 2)));
   d *= sstep(8, 70, cityEdgeDistance(x, z));
   d *= sstep(52, 95, dist(x, z, ABBEY));
-  // Keep the two landmark sight corridors clear of random trees.
-  if (z < START.z && z > CITY.z && Math.abs(x - (START.x + (CITY.x - START.x) * (START.z - z) / (START.z - CITY.z))) < 24) d = 0;
-  if (z < START.z && z > ABBEY.z && Math.abs(x - (ABBEY.x * (START.z - z) / (START.z - ABBEY.z))) < 20) d = 0;
+  // Keep the first view of the city clear of random trees.
+  if (z < START.z && z > START.z - 420 && Math.abs(x - START.x - (CITY.x - START.x) * (START.z - z) / (START.z - CITY.z)) < 34) d = 0;
   d *= 0.08 + 0.92 * sstep(VILLAGE.r * 0.55, VILLAGE.r, dist(x, z, VILLAGE));
   d *= sstep(26, 70, dist(x, z, START));
   d *= sstep(28, 70, dist(x, z, WINDMILL));
@@ -115,7 +158,7 @@ export function forestDensity(x: number, z: number): number {
   d *= sstep(30, 60, dist(x, z, STONES));
   d *= sstep(0.75, 1.1, dist(x, z, BLOSSOM) / BLOSSOM.r);
   d *= 1 - fieldAt(x, z);
-  d *= 1 - sstep(150, 205, h);
+  d *= 1 - sstep(520, 760, h);
   return d;
 }
 
@@ -130,13 +173,13 @@ export function dryness(x: number, z: number): number {
   const pd = Math.hypot((x - PLATEAU.x) / PLATEAU.rx, (z - PLATEAU.z) / PLATEAU.rz);
   let d = 0.75 * (1 - sstep(0.6, 1.0, pd));
   d = Math.max(d, sstep(0.58, 0.8, fbm(x / 300 - 4, z / 300 + 9, 2)) * 0.6);
-  d = Math.max(d, sstep(70, 130, heightAt(x, z)) * 0.8);
+  d = Math.max(d, sstep(190, 420, heightAt(x, z)) * 0.8);
   return d;
 }
 
 /** Low-resolution map of forest (R), flowers (G), dryness (B) and flatness (A). */
 export function buildBiome(): THREE.DataTexture {
-  const size = 256;
+  const size = 512;
   const bytes = new Uint8Array(size * size * 4);
   const normal = new THREE.Vector3();
   for (let j = 0; j < size; j++) {

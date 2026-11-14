@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { Builder, archedProfile, orbAt, place } from '../build';
-import { buildMountainScenery } from '../mountain-scenery';
 import { createFlags } from '../flags';
 import { addBox, addRound } from '../colliders';
 import { heightAt } from '../heightmap';
@@ -367,7 +366,7 @@ export function buildLandmarks(): { object: THREE.Group; spinners: Spinner[] } {
   dryStoneWall(b, [[73, -119], [105, -93], [142, -101]], rand);
   dryStoneWall(b, [[-134, -94], [-173, -91], [-198, -103]], rand);
   const object = b.build();
-  object.add(mill.object, buildMountainScenery(), createFlags([
+  object.add(mill.object, createFlags([
     { x: START.x - 27, y: heightAt(START.x - 22, START.z + 7) + 13, z: START.z + 7, color: 0xb74734, size: 1.1 },
   ]));
   return { object, spinners: [mill] };

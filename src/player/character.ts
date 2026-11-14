@@ -329,7 +329,7 @@ export function prepareCapeShotFromPlayer(
 }
 
 /** Shared by the browser ready gate and the Node scene regression; no renderer required. */
-export function inspectCapeShotScene(scene: THREE.Scene, terrain: THREE.Group, character: Character,
+export function inspectCapeShotScene(scene: THREE.Scene, terrain: THREE.Object3D, character: Character,
   camera: THREE.PerspectiveCamera, groundAt: (x: number, z: number) => number, requireCape = true) {
   scene.updateMatrixWorld(true); camera.updateMatrixWorld(true);
   const issues: string[] = [];

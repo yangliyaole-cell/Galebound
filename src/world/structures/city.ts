@@ -10,7 +10,7 @@ import { buildPalace } from './palace';
 import { planCityParcels } from './city-parcels';
 import { buildTerraceWalls } from './city-terraces';
 import { addHouse } from './house';
-import { batchSettlementDetails } from '../scenes/batch-details';
+import { batchSettlementDetails } from './batch-details';
 import { stall } from './village';
 
 const STONE = 0xdad3c3;
