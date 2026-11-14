@@ -52,7 +52,9 @@ function detailHeight(x: number, z: number): number {
   if (river.found && rim > 0.02) {
     const half = river.width * 0.5, d = river.distance;
     if (river.fall) {
-      if (d < half) h = Math.min(h, river.level - 0.8);
+      // The fall has cut a recess back into the cliff, rounded at its sides.
+      const recess = half + 5;
+      if (d < recess + 8) h = lerp(Math.min(h, river.level - 0.8), h, sstep(recess, recess + 8, d));
     } else {
       const channel = d < half ? river.level - channelDepth(river.width, d)
         : river.level + 0.25 + 0.75 * sstep(half, half + 4.5, d) + (d - half) * 0.022;

@@ -151,7 +151,8 @@ export function createWater(heightTex: THREE.Texture, sunDir: THREE.Vector3, hor
     let previous = -1;
     for (let i = 0; i < river.pts.length; i++) {
       const p = river.pts[i];
-      if (p.level < 0.04 || inLake(p.x, p.z)) { previous = -1; continue; }
+      // Falls are drawn as curtains of their own (waterfalls.ts).
+      if (p.level < 0.04 || p.fall || inLake(p.x, p.z)) { previous = -1; continue; }
       const next = river.pts[Math.min(river.pts.length - 1, i + 1)], before = river.pts[Math.max(0, i - 1)];
       const run = Math.hypot(next.x - before.x, next.z - before.z) || 1;
       const drop = (before.level - next.level) / run;

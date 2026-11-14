@@ -17,6 +17,7 @@ import { buildLandMaps } from './world/landmaps';
 import { cinematic } from './render/styles/cinematic';
 import { createTerrain, groundUniforms } from './world/terrain';
 import { createWater } from './world/water';
+import { createWaterfalls } from './world/waterfalls';
 import { HORIZON_COLOR, createSky } from './world/sky';
 import { createGrass } from './world/grass';
 import { createScatter } from './world/scatter';
@@ -132,6 +133,7 @@ async function boot(): Promise<void> {
   lap('terrain');
   scene.add(terrain.object);
   scene.add(createWater(heightTex, sunDir, HORIZON_COLOR));
+  scene.add(createWaterfalls(sunDir, quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0));
   const grass = createGrass(quality.grassNear, quality.grassFar, quality.flowers, heightTex);
   grass.name = 'Grass';
   scene.add(grass);

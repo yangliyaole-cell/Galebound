@@ -91,23 +91,52 @@ function cone(radius: number, height: number, y: number, sides: number, shade: n
   return finish(g, colors, 1);
 }
 
+/**
+ * A boulder: a dense sphere cut by a handful of planes, as real stone breaks
+ * along its joints. Each cut leaves a nearly flat face with a softly rounded
+ * edge; small noise roughens the faces; the base is flattened and buried.
+ */
 function rockGeometry(detail: number, seed: number): THREE.BufferGeometry {
-  const g = new THREE.IcosahedronGeometry(1, detail);
+  const g = new THREE.IcosahedronGeometry(1, detail > 0 ? 5 : 2);
   const pos = g.attributes.position;
+  const rand = seededRandom(seed * 977 + 13);
+  const planes: { n: THREE.Vector3; d: number }[] = [];
+  for (let k = 0; k < 9; k++) {
+    const n = new THREE.Vector3(rand() - 0.5, (rand() - 0.5) * 1.4 + 0.25, rand() - 0.5).normalize();
+    planes.push({ n, d: 0.55 + rand() * 0.3 });
+  }
   const v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i);
-    const k = 0.7 + 0.6 * fbm(v.x * 1.6 + v.y * 2.2 + seed, v.z * 1.6 - v.y * 1.9 + seed, 2);
-    pos.setXYZ(i, v.x * k, Math.max(-0.35, v.y * k * 0.75), v.z * k);
+    // Stretch to an irregular block first.
+    v.set(v.x * 1.25, v.y * 0.85, v.z);
+    // Soft clamp onto each joint plane: smooth-min keeps the edges from going razor sharp.
+    for (const p of planes) {
+      const over = v.dot(p.n) - p.d;
+      const k = 0.09;
+      const soft = over > -k ? (over + k) * (over + k) / (4 * k) : 0;
+      if (soft > 0) v.addScaledVector(p.n, -Math.min(soft, over + k));
+    }
+    const grain = (fbm(v.x * 5 + seed, v.z * 5 + v.y * 3, 3) - 0.5) * 0.06 + (fbm(v.x * 13 - seed, v.y * 13 + v.z, 2) - 0.5) * 0.02;
+    v.multiplyScalar(1 + grain);
+    v.y = Math.max(-0.3, v.y);
+    pos.setXYZ(i, v.x, v.y, v.z);
   }
   g.computeVertexNormals();
   const nor = g.attributes.normal;
   const colors: number[] = [];
   for (let i = 0; i < pos.count; i++) {
-    // Moss gathers on the top faces.
-    const moss = sstep(0.55, 0.9, nor.getY(i)) * sstep(0.45, 0.6, fbm(pos.getX(i) * 2, pos.getZ(i) * 2 + seed, 2));
-    const base = 0.82 + 0.18 * nor.getY(i);
-    colors.push(base * (1 - moss * 0.35), base * (1 - moss * 0.05), base * (1 - moss * 0.5));
+    // Moss and lichen on the tops; darker, damp stone near the ground; streaks where rain runs off.
+    const up = nor.getY(i), y = pos.getY(i);
+    const patch = sstep(0.42, 0.62, fbm(pos.getX(i) * 2.2 + seed, pos.getZ(i) * 2.2 - seed, 3));
+    const moss = sstep(0.45, 0.85, up) * patch;
+    const lichen = sstep(0.62, 0.7, fbm(pos.getX(i) * 9 + seed, pos.getZ(i) * 9 + y * 4, 2)) * 0.5;
+    const damp = 1 - 0.28 * sstep(0.1, -0.3, y);
+    const streak = 1 - 0.12 * sstep(0.55, 0.75, fbm(pos.getX(i) * 4 + pos.getZ(i) * 4, y * 0.6 + seed, 2)) * (1 - up);
+    const base = (0.8 + 0.2 * up) * damp * streak;
+    let r = base, gg = base * 0.98, bb = base * 0.94;
+    r = r * (1 - moss * 0.62) + lichen * 0.12; gg = gg * (1 - moss * 0.12) + lichen * 0.1; bb = bb * (1 - moss * 0.82) + lichen * 0.04;
+    colors.push(r, gg, bb);
   }
   return finish(g, colors, 1);
 }
@@ -362,7 +391,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
       if (heightAt(x, z) > waterLevelAt(x, z) + 1 && clear(x, z)) place('rock', x, z, 0.7 + rand() * 1.5, 0.65);
     }
   }
-  const STEP = 8;
+  const STEP = 7;
   for (let gz = -HALF + 12; gz < HALF - 12; gz += STEP) {
     for (let gx = -HALF + 12; gx < HALF - 12; gx += STEP) {
       const x = gx + (rand() - 0.5) * STEP * 0.9;
@@ -378,7 +407,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
         continue;
       }
       const density = forestDensity(x, z);
-      if (roll > density * 0.8) continue;
+      if (roll > density * 0.97) continue;
       const deep = 1 - sstep(0.6, 1, Math.hypot(x - FOREST.x, z - FOREST.z) / FOREST.r);
       const high = sstep(300, 520, h);
       let name = 'oak';

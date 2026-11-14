@@ -146,8 +146,10 @@ export function forestDensity(x: number, z: number): number {
   if (h < 2.5) return 0;
   const slope = macroSlope(x, z);
   // Woods keep to slopes and hilltops that the plough leaves alone; the valley floor is farmed.
-  let d = sstep(0.5, 0.68, fbm(x / 210 + 40, z / 210 - 13, 3) + slope * 0.9 - 0.12) * 0.62;
-  d = Math.max(d, sstep(0.16, 0.42, slope) * 0.6);
+  // Woods come in stands with clear edges: inside a stand the canopy closes, outside it is open pasture.
+  // Steep ground that cannot be grazed is more often wooded.
+  const stand = fbm(x / 230 + 40, z / 230 - 13, 4) + 0.18 * (fbm(x / 55 + 3, z / 55 + 7, 2) - 0.5) + Math.min(slope, 0.5) * 0.55;
+  let d = sstep(0.55, 0.6, stand) * (0.86 + 0.14 * fbm(x / 20, z / 20, 2));
   const wood = dist(x, z, FOREST) / FOREST.r + (fbm(x / 60, z / 60, 2) - 0.5) * 0.3;
   d = Math.max(d, 1 - sstep(0.72, 1.0, wood));
   // Alders and willows follow the water; copses stand along the lanes.

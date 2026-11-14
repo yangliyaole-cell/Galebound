@@ -82,8 +82,9 @@ export function cityGate(a: number): { x: number; z: number } {
 }
 export const SOUTH_GATE = cityGate(SOUTH_GATE_ANGLE);
 export const EAST_GATE = cityGate(EAST_GATE_ANGLE);
-/** On the scarp top beside Cloudfall, looking south-east over the vale. */
-export const ABBEY = { x: -1180, z: -1480, floor: 262, halfWidth: 18, halfLength: 37, entranceZ: -1443, tower: 287 };
+/** On a natural shelf of the scarp top, above Cloudfall, looking south-east over the vale.
+ * Its road was routed by scripts/route-road.mjs and switches back up the scarp. */
+export const ABBEY = { x: -1535, z: -1477, floor: 283, halfWidth: 18, halfLength: 37, entranceZ: -1440, tower: 308 };
 
 export function smooth(points: Pt[], perSegment = 8): Pt[] {
   const curve = new THREE.SplineCurve(points.map(([x, z]) => new THREE.Vector2(x, z)));
@@ -146,7 +147,7 @@ export const ROADS: Road[] = [
   road('coastal-trail', 'dirt', 2.8, [[6, 1258], [118, 1292], [262, 1338], [420, 1396], [580, 1446], [736, 1484], [790, 1500], [800, 1600], [752, 1720], [LIGHTHOUSE.x + 6, LIGHTHOUSE.z - 14]]),
   road('grove-trail', 'dirt', 2.4, [[-6, 1250], [-128, 1212], [-262, 1122], [-378, 984], [-470, 852], [-516, 786], [-640, 822], [-782, 920], [-924, 1002], [-1040, 1046]]),
   road('highland-road', 'dirt', 3.0, [[EAST_GATE.x, EAST_GATE.z], [EAST_GATE.x + 20 * Math.cos(EAST_GATE_ANGLE), EAST_GATE.z + 20 * Math.sin(EAST_GATE_ANGLE)], [880, -250], [1040, -300], [1200, -330], [1360, -400], [1470, -520], [1540, -660], [1610, -780], [1650, -840]]),
-  road('abbey-pilgrimage', 'dirt', 2.8, [[172, 150], [60, 96], [-40, 10], [-96, -110], [-190, -250], [-330, -360], [-470, -440], [-620, -520], [-740, -640], [-820, -790], [-880, -940], [-950, -1090], [-1010, -1230], [-1060, -1350], [-1120, -1410], [-1180, -1424], [-1180, -1443]]),
+  road('abbey-pilgrimage', 'dirt', 2.8, [[172, 150], [60, 96], [-40, 10], [-96, -110], [-190, -250], [-330, -360], [-470, -440], [-620, -520], [-740, -640], [-820, -790], [-883, -940], [-891, -988], [-931, -1004], [-979, -1004], [-1027, -1004], [-1075, -1028], [-1107, -1052], [-1115, -1100], [-1107, -1148], [-1107, -1196], [-1139, -1228], [-1195, -1228], [-1243, -1228], [-1291, -1228], [-1339, -1204], [-1315, -1252], [-1283, -1284], [-1251, -1316], [-1219, -1348], [-1187, -1380], [-1163, -1412], [-1147, -1460], [-1147, -1500], [-1171, -1452], [-1211, -1420], [-1259, -1396], [-1227, -1428], [-1203, -1476], [-1203, -1524], [-1203, -1572], [-1227, -1524], [-1251, -1492], [-1291, -1468], [-1339, -1444], [-1387, -1420], [-1435, -1396], [-1483, -1372], [-1499, -1332], [-1523, -1356], [-1539, -1404], [-1535, -1440]]),
   road('field-path', 'dirt', 2.2, [[-8, 356], [-60, 430], [-76, 530], [-40, 640], [34, 770]]),
   ...CITY_STREETS,
 ];
