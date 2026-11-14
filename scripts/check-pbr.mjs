@@ -69,8 +69,8 @@ try {
   const { toon } = await server.ssrLoadModule('/src/render/toon.ts');
   const { createPbrLighting } = await server.ssrLoadModule('/src/render/pbr/lighting.ts');
   check('eight unique registered surfaces with finite nonzero relief', () => {
-    assert.equal(Object.keys(lib.PBR_MATERIALS).length, 8);
-    assert.equal(new Set(Object.values(lib.PBR_MATERIALS).map((entry) => entry.id)).size, 8);
+    assert.equal(Object.keys(lib.PBR_MATERIALS).length, 9);
+    assert.equal(new Set(Object.values(lib.PBR_MATERIALS).map((entry) => entry.id)).size, 9);
     for (const entry of Object.values(lib.PBR_MATERIALS)) assert.ok(entry.relief > 0 && entry.relief < .2);
   });
   check('low allocates no multilayer / PMREM / cascades / contact map; medium 2, high 3 cascades', () => {

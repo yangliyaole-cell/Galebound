@@ -5,7 +5,7 @@ import { nearestRiver } from './gen/hydro';
 import { heightAt, normalAt, sstep } from './heightmap';
 import {
   BLOSSOM, CITY, FIELDS, FOREST, HALF, PLATEAU, PLAZAS, ROADS, SIZE, START, STONES, VILLAGE, WINDMILL,
-  WATCHTOWER, LIGHTHOUSE, ABBEY, cityWallPolygon, cityEdgeDistance, fieldPolygon, inPolygon, roadClearance, type Field,
+  WATCHTOWER, LIGHTHOUSE, ABBEY, CITY_MAX_RADIUS, CITY_SQUARES, cityWallPolygon, cityEdgeDistance, fieldPolygon, inPolygon, roadClearance, squareDistance, type Field,
 } from './layout';
 
 let splatSize = 0;
@@ -29,23 +29,34 @@ export function buildSplat(size: number): THREE.CanvasTexture {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Inside the walls the ground is trodden earth and worn setts, with a few
-  // gardens left green between the houses.
+  // Inside the walls the streets and squares are paved meshes; between them lie
+  // yards of trodden earth among garden grass.
   ctx.save();
-  ctx.globalCompositeOperation = 'source-over';
   ctx.beginPath();
   cityWallPolygon.forEach(([x, z], i) => i ? ctx.lineTo(px(x), px(z)) : ctx.moveTo(px(x), px(z)));
   ctx.closePath(); ctx.clip();
-  ctx.fillStyle = 'rgb(150,140,0)';
-  ctx.fillRect(0, 0, size, size);
   const rand = seededRandom(208);
-  for (let i = 0; i < 160; i++) {
-    const x = CITY.x + (rand() - 0.5) * 600, z = CITY.z + (rand() - 0.5) * 600, r = 4 + rand() * 7;
-    const g = ctx.createRadialGradient(px(x), px(z), 0, px(x), px(z), r * s);
-    g.addColorStop(0, 'rgba(0,0,0,0.95)'); g.addColorStop(0.7, 'rgba(0,0,0,0.6)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g; ctx.fillRect(px(x - r), px(z - r), r * 2 * s, r * 2 * s);
+  for (let i = 0; i < 420; i++) {
+    const a = rand() * Math.PI * 2, r = CITY.foot + rand() * (CITY_MAX_RADIUS - CITY.foot);
+    const x = CITY.x + Math.cos(a) * r, z = CITY.z + Math.sin(a) * r, rr = 3 + rand() * 6;
+    const g = ctx.createRadialGradient(px(x), px(z), 0, px(x), px(z), rr * s);
+    g.addColorStop(0, 'rgba(190,0,0,0.9)'); g.addColorStop(1, 'rgba(190,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(px(x - rr), px(z - rr), rr * 2 * s, rr * 2 * s);
   }
   ctx.restore();
+  // Squares are paved: keep the grass off them.
+  ctx.fillStyle = 'rgb(0,255,0)';
+  for (const q of CITY_SQUARES) {
+    ctx.beginPath();
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2;
+      let lo = 0, hi = 80;
+      for (let k = 0; k < 18; k++) { const m = (lo + hi) / 2; if (squareDistance(q, q.x + Math.cos(a) * m, q.z + Math.sin(a) * m) < 1) lo = m; else hi = m; }
+      const x = q.x + Math.cos(a) * lo, z = q.z + Math.sin(a) * lo;
+      if (i) ctx.lineTo(px(x), px(z)); else ctx.moveTo(px(x), px(z));
+    }
+    ctx.closePath(); ctx.fill();
+  }
   ctx.globalCompositeOperation = 'lighter';
   ctx.fillStyle = 'rgb(0,255,0)';
   for (const [x, z, r] of PLAZAS) {

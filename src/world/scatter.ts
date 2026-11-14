@@ -7,7 +7,7 @@ import { blossomTexture, leafTexture, needleTexture } from '../render/textures';
 import { addRound, surfaceTop } from './colliders';
 import { foliageMaterial, leafCards, type Part } from './foliage';
 import { heightAt, normalAt, sstep } from './heightmap';
-import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, cityRadiusAt } from './layout';
+import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, cityRadiusAt, citySquareAt, CITY_MAX_RADIUS } from './layout';
 import { blossomDensity, fieldAt, forestDensity } from './maps';
 import { fbm, seededRandom } from './noise';
 import { Forest } from './flora/forest';
@@ -415,6 +415,29 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
       else if (kind > 0.86 - deep * 0.06) name = 'cypress';
       const scale = (name === 'pine' ? 1.0 : 0.85) + size * (0.8 + deep * 0.7);
       place(name, x, z, scale);
+    }
+  }
+
+  // Hightown's gardens: fruit trees, cypresses and shrubs in the yards behind the
+  // street fronts and in the orchards under the wall, never on paving or in a house.
+  {
+    const free = (x: number, z: number): boolean => roadClearance(x, z) > 2 && !citySquareAt(x, z, 3) &&
+      surfaceTop(x, z) - heightAt(x, z) < 0.05 && surfaceTop(x + 1.8, z + 1.8) - heightAt(x + 1.8, z + 1.8) < 0.05 &&
+      surfaceTop(x - 1.8, z - 1.8) - heightAt(x - 1.8, z - 1.8) < 0.05 && surfaceTop(x + 1.8, z - 1.8) - heightAt(x + 1.8, z - 1.8) < 0.05;
+    const STEP = 5.5;
+    for (let gz = CITY.z - CITY_MAX_RADIUS; gz < CITY.z + CITY_MAX_RADIUS; gz += STEP) {
+      for (let gx = CITY.x - CITY_MAX_RADIUS; gx < CITY.x + CITY_MAX_RADIUS; gx += STEP) {
+        const x = gx + (rand() - 0.5) * STEP * 0.8, z = gz + (rand() - 0.5) * STEP * 0.8;
+        const roll = rand(), kind = rand(), size = rand();
+        if (!insideCity(x, z, 7) || Math.hypot(x - CITY.x, z - CITY.z) < CITY.foot + 6) continue;
+        // Gardens come in clumps; some yards stay open grass.
+        const garden = 0.25 + 0.75 * sstep(0.38, 0.62, fbm(x / 38 + 3, z / 38 - 8, 2));
+        if (roll > garden * 0.55 || !free(x, z)) continue;
+        if (kind < 0.22) place('cypress', x, z, 0.7 + size * 0.6);
+        else if (kind < 0.34) place('blossom', x, z, 0.55 + size * 0.4);
+        else if (kind < 0.62) place('bush', x, z, 1 + size * 1.8, 0.9, 0.1);
+        else place('oak', x, z, 0.5 + size * 0.45);
+      }
     }
   }
 

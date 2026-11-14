@@ -355,7 +355,7 @@ export function createLife(village: VillageInfo, city: CityInfo, count: number):
   });
   // Townsfolk follow the generated market lane in both directions, rather than
   // cutting straight through houses between old circular-city waypoints.
-  const marketLane = CITY_STREETS.find((r) => r.id === 'market-lane')!;
+  const marketLane = CITY_STREETS.find((r) => r.id === 'avenue')!;
   const lanePoints = marketLane.pts.filter((_, i) => i % 3 === 0).map(([x, z], i) => ({ x, z, wait: i % 5 === 0 ? 2 : 0 }));
   const townLoop: Target[] = [...lanePoints, ...lanePoints.slice(1, -1).reverse()];
   for (let i = 0; i < Math.min(count, 5); i++) {
