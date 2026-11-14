@@ -89,8 +89,14 @@ PbrSurface pPaving(vec2 p) {
   PbrSurface s=pMasonry(p*2.4+vec2(pNoise(p*.21)*.6,0));
   float wear=pNoise(p*.35);
   // Warm limestone setts: undo the masonry's cool cast and lift them towards cream.
-  s.albedo=mix(s.albedo,vec3(dot(s.albedo,vec3(.33))),.55)*vec3(1.2,1.1,.92)*(.98+wear*.14);
-  s.roughness=mix(s.roughness,.72,.35+wear*.2);
+  s.albedo=mix(vec3(dot(s.albedo,vec3(.33))),s.albedo,.4)*vec3(1.42,1.3,1.08)*(.96+wear*.14);
+  // Matt worn stone: little sky sheen at grazing angles.
+  s.roughness=mix(.86,.95,wear);
+  // Once a sett is smaller than a pixel or two, show the even worn tone instead of moire.
+  float footprint=length(fwidth(p*2.4));
+  float far=smoothstep(.12,.45,footprint);
+  s.albedo=mix(s.albedo,vec3(.93,.86,.74)*(.96+wear*.1),far);
+  s.height=mix(s.height,.4,far);
   return s;
 }
 PbrSurface pPlaster(vec2 p) {

@@ -22,7 +22,7 @@ export const START = { x: 0, z: 1250 };
  * castle stands on, `foot` where its rock face meets the town, `top` the crown's height
  * and `fall` how far the town descends from the foot of the crown to the wall.
  */
-export const CITY = { x: 560, z: -380, wall: 345, plateau: 88, foot: 106, top: 160, fall: 52 };
+export const CITY = { x: 560, z: -380, wall: 345, plateau: 88, foot: 104, top: 160, fall: 47 };
 export const WINDMILL = { x: 940, z: 760 };
 export const LAKE = { x: -600, z: -180, rx: 195, rz: 128, level: 60 };
 export const ISLAND = { x: -634, z: -190 };

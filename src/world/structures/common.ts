@@ -254,8 +254,13 @@ export function wallRing(b: Builder, o: RingOptions): RingResult {
       const x1 = run / 2;
       const [sx, sz] = local(0, -outward * (o.thickness / 2 + 1.0));
       const [bx, bz] = local(-x1, -outward * (o.thickness / 2 + 1.0));
-      const foot = heightAt(bx, bz);
       const head = top(x1);
+      // The foot is where the ground meets it; lift it if the ground swells higher along the way up.
+      let foot = heightAt(bx, bz);
+      for (let u = -x1; u <= x1 * 0.7; u += 0.5) {
+        const t = (u + x1) / run, [gx, gz] = local(u, -outward * (o.thickness / 2 + 1.0));
+        foot = Math.max(foot, (heightAt(gx, gz) + 0.02 - t * head) / (1 - t));
+      }
       wallStairRamps.push({ x: sx, z: sz, theta, run, foot, head });
       const ramp = new THREE.Shape();
       ramp.moveTo(-x1, base);

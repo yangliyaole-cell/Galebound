@@ -48,10 +48,48 @@ export function place(x: number, y: number, z: number, rot = 0): THREE.Matrix4 {
  * Collects simple solids, tinted per vertex, and merges them into one mesh per
  * material. A whole village becomes a handful of draw calls.
  */
+/** Growable flat triangle soup: positions, normals and colours, non-indexed. */
+class Soup {
+  pos = new Float32Array(36 * 3 * 64);
+  nor = new Float32Array(36 * 3 * 64);
+  col = new Float32Array(36 * 3 * 64);
+  n = 0;
+  reserve(vertices: number): void {
+    const need = (this.n + vertices) * 3;
+    if (need <= this.pos.length) return;
+    let size = this.pos.length * 2;
+    while (size < need) size *= 2;
+    for (const key of ['pos', 'nor', 'col'] as const) { const next = new Float32Array(size); next.set(this[key]); this[key] = next; }
+  }
+  geometry(): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos.slice(0, this.n * 3), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(this.nor.slice(0, this.n * 3), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(this.col.slice(0, this.n * 3), 3));
+    return g;
+  }
+}
+// Box faces: normal, then the two in-plane axes (u x v = normal), as unit vectors.
+const BOX_FACES = [
+  [1, 0, 0, 0, 0, -1, 0, 1, 0], [-1, 0, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 1, 0, 0, 0, 0, -1],
+  [0, -1, 0, 1, 0, 0, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 1, 0], [0, 0, -1, -1, 0, 0, 0, 1, 0],
+];
+const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]];
+
 export class Builder {
   private readonly parts = new Map<Mat, THREE.BufferGeometry[]>();
   private readonly detailParts = new Map<string, Map<Mat, THREE.BufferGeometry[]>>();
+  /** Boxes go straight into flat arrays: no geometry objects, so no garbage. */
+  private readonly soups = new Map<string, Map<Mat, Soup>>();
   private detailing = false;
+
+  private soup(mat: Mat, cell: string): Soup {
+    let byMat = this.soups.get(cell);
+    if (!byMat) this.soups.set(cell, byMat = new Map());
+    let soup = byMat.get(mat);
+    if (!soup) byMat.set(mat, soup = new Soup());
+    return soup;
+  }
 
   /** Decorative geometry is spatially merged and culled/faded, absent on low. */
   detail(generate: () => void): void {
@@ -87,7 +125,52 @@ export class Builder {
 
   /** A facade inset/shutter: its unseen back and edge faces are unnecessary. */
   panel(mat: Mat, x: number, y: number, z: number, w: number, h: number, d: number, rot: number, color: number): void {
-    this.add(mat, new THREE.PlaneGeometry(w, h).translate(0, h / 2, d / 2), color, place(x, y, z, rot));
+    const a = -w / 2, b = w / 2, f = d / 2;
+    this.emit(mat, [a, 0, f, b, 0, f, b, h, f, a, 0, f, b, h, f, a, h, f], color, place(x, y, z, rot), 0);
+  }
+
+  /**
+   * Triangles given in local coordinates, transformed by `matrix` (rigid), with flat
+   * normals and the same foot-darkening as `add`, written straight into the soups.
+   */
+  emit(mat: Mat, local: ArrayLike<number>, color: number, matrix: THREE.Matrix4 | null, shade = 0): void {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 1; i < local.length; i += 3) { lo = Math.min(lo, local[i]); hi = Math.max(hi, local[i]); }
+    const span = Math.max(1e-3, hi - lo), e = matrix?.elements;
+    const count = local.length / 3;
+    let cell = '';
+    if (this.detailing) {
+      let cx = 0, cz = 0;
+      for (let i = 0; i < local.length; i += 3) {
+        const x = local[i], y = local[i + 1], z = local[i + 2];
+        cx += e ? e[0] * x + e[4] * y + e[8] * z + e[12] : x;
+        cz += e ? e[2] * x + e[6] * y + e[10] * z + e[14] : z;
+      }
+      cell = `${Math.floor(cx / count / 128)},${Math.floor(cz / count / 128)}`;
+    }
+    const soup = this.soup(mat, cell);
+    soup.reserve(count);
+    tmp.set(color);
+    const { r, g, b } = tmp, { pos, nor, col } = soup;
+    let o = soup.n * 3;
+    for (let i = 0; i < local.length; i += 9) {
+      for (let k = 0; k < 3; k++) {
+        const x = local[i + k * 3], y = local[i + k * 3 + 1], z = local[i + k * 3 + 2];
+        pos[o + k * 3] = e ? e[0] * x + e[4] * y + e[8] * z + e[12] : x;
+        pos[o + k * 3 + 1] = e ? e[1] * x + e[5] * y + e[9] * z + e[13] : y;
+        pos[o + k * 3 + 2] = e ? e[2] * x + e[6] * y + e[10] * z + e[14] : z;
+        const s = 1 - shade * (1 - (y - lo) / span);
+        col[o + k * 3] = r * s; col[o + k * 3 + 1] = g * s; col[o + k * 3 + 2] = b * s;
+      }
+      const ax = pos[o + 3] - pos[o], ay = pos[o + 4] - pos[o + 1], az = pos[o + 5] - pos[o + 2];
+      const bx = pos[o + 6] - pos[o], by = pos[o + 7] - pos[o + 1], bz = pos[o + 8] - pos[o + 2];
+      let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+      const len = Math.hypot(nx, ny, nz) || 1;
+      nx /= len; ny /= len; nz /= len;
+      for (let k = 0; k < 3; k++) { nor[o + k * 3] = nx; nor[o + k * 3 + 1] = ny; nor[o + k * 3 + 2] = nz; }
+      o += 9;
+    }
+    soup.n += count;
   }
 
   /** Open window moulding with real inner/outer reveals, omitting its buried back. */
@@ -104,10 +187,7 @@ export class Builder {
       quad([...outer[j], -depth / 2], nf, of, [...outer[i], -depth / 2]);
       quad(inf, inn, [...inner[j], -depth / 2], [...inner[i], -depth / 2]);
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    g.computeVertexNormals();
-    this.add('wood', g, color, place(x, y, z, rot), 0.12);
+    this.emit('wood', vertices, color, place(x, y, z, rot), 0.12);
   }
 
   /**
@@ -142,14 +222,38 @@ export class Builder {
     else parts.set(mat, [g]);
   }
 
-  /** Box standing on (x, y, z), rotated about its vertical axis. */
+  /** Box standing on (x, y, z), rotated about its vertical axis. Darkened towards its foot by `shade`. */
   box(mat: Mat, x: number, y: number, z: number, w: number, h: number, d: number, rot = 0, color = 0xffffff, shade = 0.12): void {
-    this.add(mat, new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0), color, place(x, y, z, rot), shade);
+    const cell = this.detailing ? `${Math.floor(x / 128)},${Math.floor(z / 128)}` : '';
+    const soup = this.soup(mat, cell);
+    soup.reserve(36);
+    const c = Math.cos(rot), s = Math.sin(rot), hw = w / 2, hh = h / 2, hd = d / 2;
+    tmp.set(color);
+    const { r, g, b } = tmp;
+    let o = soup.n * 3;
+    const { pos, nor, col } = soup;
+    for (const [nx, ny, nz, ux, uy, uz, vx, vy, vz] of BOX_FACES) {
+      const wnx = nx * c + nz * s, wnz = -nx * s + nz * c;
+      for (const [cu, cv] of CORNERS) {
+        // Local corner: centre of the face plus the two in-plane offsets.
+        const lx = (nx + ux * cu + vx * cv) * hw, ly = (ny + uy * cu + vy * cv) * hh + hh, lz = (nz + uz * cu + vz * cv) * hd;
+        pos[o] = x + lx * c + lz * s; pos[o + 1] = y + ly; pos[o + 2] = z - lx * s + lz * c;
+        nor[o] = wnx; nor[o + 1] = ny; nor[o + 2] = wnz;
+        const k = 1 - shade * (1 - ly / Math.max(1e-3, h));
+        col[o] = r * k; col[o + 1] = g * k; col[o + 2] = b * k;
+        o += 3;
+      }
+    }
+    soup.n += 36;
   }
 
   /** Box given a full transform, for tilted beams and roof slabs. */
   slab(mat: Mat, w: number, h: number, d: number, matrix: THREE.Matrix4, color = 0xffffff): void {
-    this.add(mat, new THREE.BoxGeometry(w, h, d), color, matrix);
+    const local: number[] = [];
+    for (const [nx, ny, nz, ux, uy, uz, vx, vy, vz] of BOX_FACES) for (const [cu, cv] of CORNERS) {
+      local.push((nx + ux * cu + vx * cv) * w / 2, (ny + uy * cu + vy * cv) * h / 2, (nz + uz * cu + vz * cv) * d / 2);
+    }
+    this.emit(mat, local, color, matrix, 0);
   }
 
   cyl(mat: Mat, x: number, y: number, z: number, top: number, bottom: number, h: number, color = 0xffffff, seg = 14, shade = 0.12): void {
@@ -215,8 +319,7 @@ export class Builder {
             const y0 = Math.sin(j / 3 * Math.PI) * 0.045, y1 = Math.sin((j + 1) / 3 * Math.PI) * 0.045;
             vertices.push(-0.075,y0,z0, -0.075,y1,z1, 0.075,y1,z1, -0.075,y0,z0, 0.075,y1,z1, 0.075,y0,z0);
           }
-          const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(vertices,3)); g.computeVertexNormals();
-          this.add('roof',g,color,transform);
+          this.emit('roof', vertices, color, transform, 0);
         }
       }
     });
@@ -231,6 +334,18 @@ export class Builder {
   }
 
   build(castShadow = true): THREE.Group {
+    // Fold the box soups in with the other parts of their material and cell.
+    for (const [cell, byMat] of this.soups) for (const [mat, soup] of byMat) {
+      if (!soup.n) continue;
+      let parts = this.parts;
+      if (cell) {
+        if (!this.detailParts.has(cell)) this.detailParts.set(cell, new Map());
+        parts = this.detailParts.get(cell)!;
+      }
+      const list = parts.get(mat);
+      if (list) list.push(soup.geometry()); else parts.set(mat, [soup.geometry()]);
+    }
+    this.soups.clear();
     const group = new THREE.Group();
     const mats = getMaterials();
     for (const [mat, list] of this.parts) {

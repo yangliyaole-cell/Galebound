@@ -8,6 +8,7 @@ import { squareLevel } from '../city-plan';
 import { seededRandom } from '../noise';
 import { wallRing, wallStairRamps } from './common';
 import { PALACE, buildPalace } from './palace';
+import { embellishPalace } from './palace-court';
 import { planCityParcels } from './city-parcels';
 import { buildCityStreets } from './city-streets';
 import { buildCityProps } from './city-props';
@@ -42,7 +43,8 @@ function aqueduct(b: Builder): Line {
   const start = { x: CITY.x + Math.cos(-1.22) * (CITY_MAX_RADIUS + 190), z: CITY.z + Math.sin(-1.22) * (CITY_MAX_RADIUS + 190) };
   const a = Math.atan2(start.z - CITY.z, start.x - CITY.x);
   const radius = cityRadiusAt(a);
-  const end = { x: CITY.x + Math.cos(a) * (radius - 14), z: CITY.z + Math.sin(a) * (radius - 14) };
+  // It crosses the wall and ends just inside it, clear of the lane that runs under the wall.
+  const end = { x: CITY.x + Math.cos(a) * (radius - 2), z: CITY.z + Math.sin(a) * (radius - 2) };
   const wallGround = heightAt(CITY.x + Math.cos(a) * radius, CITY.z + Math.sin(a) * radius);
   const level = Math.max(heightAt(start.x, start.z), heightAt(end.x, end.z), wallGround + 11.5) + 1;
   const length = Math.hypot(end.x - start.x, end.z - start.z);
@@ -78,8 +80,8 @@ function aqueduct(b: Builder): Line {
   addBox(mx, mz, length / 2, width / 2, theta, level, level - 2.2);
 
   // It ends in a cistern on the hillside.
-  const ex = start.x + dx * (length + 4.5);
-  const ez = start.z + dz * (length + 4.5);
+  const ex = start.x + dx * (length - 1);
+  const ez = start.z + dz * (length - 1);
   b.cyl('stone', ex, heightAt(ex, ez) - 4, ez, 5.4, 5.8, level - heightAt(ex, ez) + 4.3, STONE, 16, 0.15);
   b.cyl('plain', ex, level + 0.2, ez, 4.6, 4.6, 0.12, 0x4f9fd0, 16, 0);
   addRound(ex, ez, 5.4, level + 0.3);
@@ -186,7 +188,7 @@ function grandStair(b: Builder, rFrom: number, yFrom: number): { x: number; z: n
     const top = y + stepRise;
     const ground = Math.min(heightAt(CITY.x + ux * r, CITY.z + uz * r), heightAt(CITY.x + ux * (r - len), CITY.z + uz * (r - len)));
     b.box('paving', x, Math.min(ground, y) - 0.6, z, len + 0.02, top - Math.min(ground, y) + 0.6, width, theta, 0xf4ead6, 0.2);
-    b.detail(() => b.block(CITY.x + ux * (r - 0.1), top - 0.1, CITY.z + uz * (r - 0.1), width + 0.02, 0.12, 0.2, theta + Math.PI / 2, 0xf3ebdb, 0.03));
+    b.detail(() => b.box('paving', CITY.x + ux * (r - 0.1), top - 0.1, CITY.z + uz * (r - 0.1), 0.2, 0.13, width + 0.02, theta, 0xf3ebdb, 0));
     // Balustraded cheek walls.
     for (const side of [-1, 1]) {
       const sx = x + Math.sin(theta) * (width / 2 + 0.35) * side, sz = z + Math.cos(theta) * (width / 2 + 0.35) * side;
@@ -220,7 +222,12 @@ export interface CityInfo {
   houseCount: number;
 }
 
+/** Milliseconds per stage of the last city build, for boot profiling. */
+export const cityBuildTimes: Record<string, number> = {};
+
 export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpot[]; info: CityInfo } {
+  let mark = performance.now();
+  const lap = (stage: string): void => { const now = performance.now(); cityBuildTimes[stage] = Math.round(now - mark); mark = now; };
   const b = new Builder();
   const rand = seededRandom(91);
   const flags: FlagSpot[] = [];
@@ -250,8 +257,11 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
     orbAt(id, t.x, t.z, 1.3);
   }
 
+  lap('wall');
   const water = aqueduct(b);
   buildPalace(b, flags);
+  embellishPalace(b, flags);
+  lap('palace');
 
   const market = CITY_SQUARES.find((q) => q.kind === 'market')!;
   fountain(b, market.x, market.z, squareLevel.get(market)!, rand);
@@ -273,6 +283,7 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
       .flatMap((r) => [-1, -0.5, 0, 0.5, 1].map((t) => ({ x: r.x + t * r.run / 2 * Math.cos(r.theta), z: r.z - t * r.run / 2 * Math.sin(r.theta), r: 3.6 }))),
   ];
   const parcels = planCityParcels(keepOut, (x, z) => distToLine(x, z, water));
+  lap('parcels');
   const smoke: number[] = [];
   parcels.forEach((h, i) => {
     const built = addHouse(b, { ...h, simple: detail > 1 ? 1 : 2 }, rand);
@@ -286,11 +297,16 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
     const count = i + 1;
     if (count <= 116 && count % 37 === 5) orbAt(`city-roof-${count}`, h.x, h.z, 1.2);
   });
-  buildCityStreets(b, parcels);
+  lap('houses');
+  // The forecourt stays open where the grand stair leaves it for the castle gate.
+  buildCityStreets(b, parcels, (x, z) => x < cx && Math.abs(z - cz) < 6.5 && cx - x < foreR + 4);
+  lap('streets');
 
   buildCityProps(b, parcels, rand);
+  lap('props');
 
   const object = batchSettlementDetails(b.build());
+  lap('merge');
   object.add(chimneySmoke(smoke));
   return { object, flags, info: { plaza: { x: market.x, z: market.z }, houseCount: parcels.length, southGate: { x: SOUTH_GATE.x, z: SOUTH_GATE.z + 8 } } };
 }

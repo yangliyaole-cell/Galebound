@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Builder, orbAt, place } from '../build';
 import { addBox, addRound } from '../colliders';
 import { CITY_SQUARES, CITY_STREETS, squareDistance, type CitySquare } from '../layout';
-import { squareLevel, streetProfiles } from '../city-plan';
+import { nearestStreet, squareLevel, streetProfiles } from '../city-plan';
 import type { HouseSpec } from './house';
 
 const IRON = 0x2e2a28;
@@ -192,21 +192,23 @@ function makeHouseTest(plots: HouseSpec[]): (x: number, z: number, pad: number) 
  */
 export function buildCityProps(b: Builder, plots: HouseSpec[], rand: () => number): void {
   const inHouse = makeHouseTest(plots);
+  // Square furniture keeps out of the way of every street crossing the square.
+  const inWay = (x: number, z: number): boolean => { const s = nearestStreet(x, z); return !!s && s.d < s.half + 1; };
   for (const q of CITY_SQUARES) {
     const y = squareLevel.get(q)! + 0.04;
     const small = Math.min(q.rx, q.rz);
     // Lanterns and benches round the edge, planters at the corners.
     for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
       const [lx, lz] = onSquare(q, u * (q.rx - 2.2), v * (q.rz - 2.2));
-      if (squareDistance(q, lx, lz) < -0.8) lamp(b, lx, y, lz);
+      if (squareDistance(q, lx, lz) < -0.8 && !inWay(lx, lz)) lamp(b, lx, y, lz);
       const [px, pz] = onSquare(q, u * (q.rx - 4.2), v * (q.rz - 2.4));
-      if (q.kind !== 'well' && squareDistance(q, px, pz) < -1) planter(b, px, y, pz, rand);
+      if (q.kind !== 'well' && squareDistance(q, px, pz) < -1 && !inWay(px, pz)) planter(b, px, y, pz, rand);
     }
     if (q.kind === 'well') {
       well(b, q.x, y, q.z, q.rot);
       const [bx, bz] = onSquare(q, 0, q.rz - 2);
-      bench(b, bx, y, bz, q.rot + Math.PI);
-      for (let k = 0; k < 3; k++) { const [x, z] = onSquare(q, q.rx - 2.5 - k * 0.8, -q.rz + 2.2); barrel(b, x, y, z, rand); }
+      if (!inWay(bx, bz)) bench(b, bx, y, bz, q.rot + Math.PI);
+      for (let k = 0; k < 3; k++) { const [x, z] = onSquare(q, q.rx - 2.5 - k * 0.8, -q.rz + 2.2); if (!inWay(x, z)) barrel(b, x, y, z, rand); }
     }
     if (q.kind === 'market') {
       // Two rows of stalls along the long sides, leaving the middle and the fountain clear.
@@ -217,6 +219,7 @@ export function buildCityProps(b: Builder, plots: HouseSpec[], rand: () => numbe
       }
       for (let k = 0; k < 6; k++) {
         const [x, z] = onSquare(q, (rand() - 0.5) * q.rx * 1.6, (rand() < 0.5 ? -1 : 1) * small * 0.82);
+        if (inWay(x, z)) continue;
         if (rand() < 0.5) barrel(b, x, y, z, rand); else crates(b, x, y, z, rand() * 3, rand);
       }
     }
@@ -231,12 +234,12 @@ export function buildCityProps(b: Builder, plots: HouseSpec[], rand: () => numbe
     if (q.kind === 'cathedral') {
       for (const u of [-1, 1]) {
         const [x, z] = onSquare(q, u * q.rx * 0.45, 0);
-        bench(b, x, y, z, q.rot + Math.PI / 2 * u);
+        if (!inWay(x, z)) bench(b, x, y, z, q.rot + Math.PI / 2 * u);
       }
     }
     for (let k = 0; k < (q.kind === 'well' ? 1 : 3); k++) {
       const [x, z] = onSquare(q, (rand() - 0.5) * q.rx, (rand() < 0.5 ? -1 : 1) * (q.rz - 1.6));
-      if (squareDistance(q, x, z) < -0.6) bench(b, x, y, z, Math.atan2(q.x - x, q.z - z));
+      if (squareDistance(q, x, z) < -0.6 && !inWay(x, z)) bench(b, x, y, z, Math.atan2(q.x - x, q.z - z));
     }
   }
 
@@ -256,7 +259,9 @@ export function buildCityProps(b: Builder, plots: HouseSpec[], rand: () => numbe
         since = 0;
         const side = i % 2 ? 1 : -1;
         const lx = a[0] + nx * (half - 0.45) * side, lz = a[1] + nz * (half - 0.45) * side;
-        lamp(b, lx, y + 0.04, lz);
+        // Not where another street crosses.
+        const other = nearestStreet(lx, lz, (r) => r !== road);
+        if (!other || other.d > other.half + 1) lamp(b, lx, y + 0.04, lz);
       }
       const both = inHouse(a[0] + nx * (half + 1.2), a[1] + nz * (half + 1.2), 0) && inHouse(a[0] - nx * (half + 1.2), a[1] - nz * (half + 1.2), 0);
       if (!both) continue;

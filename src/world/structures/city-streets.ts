@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Builder, place } from '../build';
 import { addBox } from '../colliders';
 import { heightAt } from '../heightmap';
-import { CITY, CITY_SQUARES, CITY_STREETS, squareDistance, type CitySquare, type Road } from '../layout';
+import { CITY, CITY_SQUARES, CITY_STREETS, EAST_GATE, SOUTH_GATE, squareDistance, type CitySquare, type Road } from '../layout';
 import { cityBase, nearestStreet, squareLevel, streetProfiles } from '../city-plan';
 import { seededRandom } from '../noise';
 import type { HouseSpec } from './house';
@@ -74,6 +74,9 @@ function samples(road: Road, step: number): Sample[] {
   return out;
 }
 
+/** Through a gate the way is a smooth ramp, never steps. */
+const nearGate = (x: number, z: number): boolean => [SOUTH_GATE, EAST_GATE].some((g) => Math.hypot(x - g.x, z - g.z) < 16);
+
 /** Steep enough that the street is laid as steps rather than a ramp. */
 const STEP_GRADE = 0.105;
 
@@ -82,7 +85,8 @@ const STEP_GRADE = 0.105;
  * squares with their parapets. Walls only stand where the cut or fill is real and
  * no house front already holds the ground.
  */
-export function buildCityStreets(b: Builder, plots: HouseSpec[]): void {
+/** `open` marks ground that must stay unwalled, such as the foot of the grand stair. */
+export function buildCityStreets(b: Builder, plots: HouseSpec[], open: (x: number, z: number) => boolean = () => false): void {
   const inHouse = makeHouseTest(plots);
   const rand = seededRandom(4471);
   for (const road of CITY_STREETS) {
@@ -91,7 +95,7 @@ export function buildCityStreets(b: Builder, plots: HouseSpec[]): void {
     stepStreet(b, road, line);
     edgeStreet(b, road, line, inHouse, rand);
   }
-  for (const q of CITY_SQUARES) paveSquare(b, q, inHouse);
+  for (const q of CITY_SQUARES) paveSquare(b, q, (x, z, pad) => inHouse(x, z, pad) || open(x, z));
 }
 
 /** Ribbon of setts across the street, with a shallow central gutter on the wider ones. */
@@ -106,8 +110,8 @@ function paveStreet(b: Builder, road: Road, line: Sample[], rand: () => number):
   for (let k = 0; k < line.length - 1; k++) {
     const p = line[k], q = line[k + 1];
     const grade = Math.abs(q.level - p.level) / Math.max(1e-3, q.s - p.s);
-    if (road.stairs || grade > STEP_GRADE) continue;
     const mx = (p.x + q.x) / 2, mz = (p.z + q.z) / 2;
+    if ((road.stairs || grade > STEP_GRADE) && !nearGate(mx, mz)) continue;
     if (CITY_SQUARES.some((sq) => squareDistance(sq, mx, mz) < -1.5)) continue;
     const wear = 0.94 + rand() * 0.08;
     for (let j = 0; j < across; j++) {
@@ -151,19 +155,20 @@ function stepStreet(b: Builder, road: Road, line: Sample[]): void {
   while (s < total - 0.2) {
     const here = at(s), ahead = at(Math.min(total, s + 2));
     const grade = Math.abs(ahead.level - here.level) / Math.max(1e-3, ahead.s - here.s);
-    if (!road.stairs && grade <= STEP_GRADE) { s += 0.8; continue; }
+    if ((!road.stairs && grade <= STEP_GRADE) || nearGate(here.x, here.z)) { s += 0.8; continue; }
     // Rise about 0.16 m; long shallow treads (a cordonata) where the lane is gentle.
     const tread = Math.min(2.4, Math.max(0.36, 0.16 / Math.max(grade, 0.02)));
     const end = at(Math.min(total, s + tread)), mid = at(Math.min(total, s + tread / 2));
-    if (paved(mid.x, mid.z, road, -0.5) && CITY_SQUARES.some((q) => squareDistance(q, mid.x, mid.z) < 0)) { s += tread; continue; }
+    // Where it crosses or runs into another street or a square, that paving takes over.
+    if (paved(mid.x, mid.z, road, -0.3)) { s += tread; continue; }
     const top = Math.max(here.level, end.level) + 0.02;
     const bottom = Math.min(here.level, end.level) - 0.5;
     const theta = Math.atan2(-mid.dz, mid.dx);
     b.box('paving', mid.x, bottom, mid.z, tread + 0.04, top - bottom, mid.half * 2, theta, SETT, 0.25);
     // Nosing: a slightly paler worn lip on each step.
     const downhill = end.level < here.level ? 1 : -1;
-    b.detail(() => b.block(mid.x + mid.dx * (tread / 2 - 0.08) * downhill, top - 0.1, mid.z + mid.dz * (tread / 2 - 0.08) * downhill,
-      mid.half * 2 + 0.02, 0.12, 0.2, theta + Math.PI / 2, COPING, 0.03));
+    b.detail(() => b.box('paving', mid.x + mid.dx * (tread / 2 - 0.09) * downhill, top - 0.1, mid.z + mid.dz * (tread / 2 - 0.09) * downhill,
+      0.2, 0.13, mid.half * 2 + 0.02, theta, COPING, 0));
     s += tread;
   }
 }

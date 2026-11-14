@@ -19,7 +19,7 @@ const HAIRS = [0x3a2a22, 0x6b4a2e, 0x8a6a3c, 0xb9a077, 0x9c9c9c, 0x241c1a];
 const CLOTHES = [0xc7d3bb, 0xd8ad88, 0x8ea6c6, 0xc7866a, 0xe7dbbf, 0x98ae78, 0xb58da6, 0xd9c27a, 0x6f88a8, 0xa85a4a, 0x7a9a6a, 0xe0d0b0];
 
 // Parts: 0 body, 1/2 legs, 3/4 arms. aPaint: 0 skin, 1 clothes, 2 hair, 3 legs/boots.
-function figure(skirt: boolean): THREE.BufferGeometry {
+function figure(skirt: boolean, extra: 'none' | 'hat' | 'basket'): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const add = (g: THREE.BufferGeometry, part: number, paint: number): void => {
     const geo = g.index ? g.toNonIndexed() : g;
@@ -42,6 +42,15 @@ function figure(skirt: boolean): THREE.BufferGeometry {
   add(new THREE.CylinderGeometry(0.05, 0.06, 0.08, 6).translate(0, 1.5, 0), 0, 0);
   add(new THREE.SphereGeometry(0.115, 10, 8).scale(0.95, 1.08, 1).translate(0, 1.62, 0.01), 0, 0);
   add(new THREE.SphereGeometry(0.122, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55).scale(1, 1.05, 1.05).translate(0, 1.64, -0.012), 0, 2);
+  if (extra === 'hat') {
+    add(new THREE.CylinderGeometry(0.21, 0.22, 0.025, 12).translate(0, 1.72, 0), 0, 3);
+    add(new THREE.CylinderGeometry(0.1, 0.12, 0.13, 10).translate(0, 1.79, 0), 0, 3);
+  }
+  if (extra === 'basket') {
+    // Carried on the left forearm, so it swings with it.
+    add(new THREE.CylinderGeometry(0.17, 0.13, 0.2, 10).translate(-0.31, 0.86, 0.06), 3, 3);
+    add(new THREE.TorusGeometry(0.13, 0.015, 4, 10, Math.PI).translate(-0.31, 0.96, 0.06), 3, 3);
+  }
   const g = mergeGeometries(parts);
   g.computeVertexNormals();
   return g;
@@ -116,8 +125,9 @@ export function createCrowd(count: number): { object: THREE.Group; update: (time
   };
 
   const total = walkers.length + standers.length;
-  const meshes = [false, true].map((skirt) => {
-    const mesh = new THREE.InstancedMesh(figure(skirt), material, total);
+  const variants: [boolean, 'none' | 'hat' | 'basket'][] = [[false, 'none'], [true, 'none'], [false, 'hat'], [true, 'basket']];
+  const meshes = variants.map(([skirt, extra]) => {
+    const mesh = new THREE.InstancedMesh(figure(skirt, extra), material, total);
     mesh.frustumCulled = false;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -125,13 +135,13 @@ export function createCrowd(count: number): { object: THREE.Group; update: (time
     group.add(mesh);
     return mesh;
   });
-  // Each figure belongs to one of the two meshes; per-instance colours and gait live in attributes.
+  // Each figure belongs to one of the variant meshes; per-instance colours and gait live in attributes.
   const kind: number[] = [], slot: number[] = [];
-  const counts = [0, 0];
+  const counts = variants.map(() => 0);
   const attrs = meshes.map(() => ({ cloth: new Float32Array(total * 3), skin: new Float32Array(total * 3), hair: new Float32Array(total * 3), gait: new Float32Array(total * 4) }));
   const color = new THREE.Color();
   for (let i = 0; i < total; i++) {
-    const k = rand() < 0.45 ? 1 : 0, j = counts[k]++;
+    const roll = rand(), k = roll < 0.36 ? 0 : roll < 0.7 ? 1 : roll < 0.85 ? 2 : 3, j = counts[k]++;
     kind.push(k); slot.push(j);
     const a = attrs[k];
     color.set(pick(CLOTHES)).multiplyScalar(0.85 + rand() * 0.2).toArray(a.cloth, j * 3);

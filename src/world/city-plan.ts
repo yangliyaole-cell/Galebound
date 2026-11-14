@@ -12,7 +12,8 @@ import { CITY, CITY_SQUARES, CITY_STREETS, cityRadiusAt, squareDistance, type Ci
 export function cityBase(x: number, z: number): number {
   const dx = x - CITY.x, dz = z - CITY.z, r = Math.hypot(dx, dz);
   if (r <= CITY.plateau) return CITY.top;
-  const upper = CITY.top - 9;
+  // A rock face of ~14 m from the crown down to its foot: steep enough to read as cliff.
+  const upper = CITY.top - 14;
   if (r < CITY.foot) {
     const t = (r - CITY.plateau) / (CITY.foot - CITY.plateau);
     return lerp(CITY.top, upper, t * t * (3 - 2 * t)) + 0.8 * sfbm(x / 9, z / 9, 2) * t * (1 - t);
