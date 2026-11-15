@@ -344,8 +344,11 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
   const lists = new Map<string, Instance[][]>();
   for (const name of names) lists.set(name, Array.from({ length: REGIONS * REGIONS }, () => []));
 
+  const rockNormal = new THREE.Vector3();
   const place = (name: string, x: number, z: number, scale: number, squash = 1, sink = 0.25): void => {
     if (name === 'rock' && roadClearance(x, z) < scale * 0.8 + 0.8) return;
+    // A loose boulder does not stay on a slope: it rolls to the foot of it.
+    if (name === 'rock' && normalAt(x, z, rockNormal).y < 0.9) return;
     const ri = Math.floor((x + HALF) / REGION);
     const rj = Math.floor((z + HALF) / REGION);
     if (ri < 0 || rj < 0 || ri >= REGIONS || rj >= REGIONS) return;
@@ -492,8 +495,12 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
         place('bush', x, z, 0.8 + size * 1.3, 0.8 + squash * 0.4, 0.1);
         continue;
       }
-      // Boulders gather on steep ground, shores and high country.
-      const chance = 0.012 + sstep(0.86, 0.7, ny) * 0.4 + sstep(60, 140, h) * 0.25 + (h < 3 ? 0.08 : 0);
+      // Boulders gather where they come to rest: at the foot of steep ground, on shores and in high country.
+      let above = 1;
+      if (ny >= 0.9) for (const [ox, oz] of [[9, 0], [-9, 0], [0, 9], [0, -9]]) {
+        if (heightAt(x + ox, z + oz) > h + 2.5) above = Math.min(above, normalAt(x + ox, z + oz, rockNormal).y);
+      }
+      const chance = 0.012 + sstep(0.86, 0.66, above) * 0.34 + sstep(60, 140, h) * 0.25 + (h < 3 ? 0.08 : 0);
       if (roll > 1 - chance) {
         const s = 0.4 + size * size * 2.6 + sstep(80, 160, h) * size * 2;
         place('rock', x, z, s, 0.55 + squash * 0.4, 0.2);

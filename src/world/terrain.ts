@@ -82,15 +82,12 @@ export const GROUND_GLSL = /* glsl */ `
     // Bedding: bands that follow height, bent a little by the lie of the land.
     float strata = gNoise(vec2(wp.y * 0.3 + mid * 4.0 + broad * 9.0, 3.7));
     rockCol *= 0.8 + 0.34 * strata;
-    // On true cliffs the beds show: thick pale ones standing proud, thin dark ones weathered back.
+    // On true cliffs the bedding shows only as soft, tilted, wandering changes of tone; the joints
+    // between blocks (rockFace, below) carry the structure. Hard level stripes read as painted on.
     float cliffness = smoothstep(0.62, 0.3, ny);
-    float bedY = wp.y * 0.42 + mid * 2.2 + broad * 5.0;
-    float bed = gHash(vec2(floor(bedY), 7.0)), bedEdge = abs(fract(bedY) - 0.5) * 2.0;
-    vec3 bedCol = mix(vec3(0.62, 0.64, 0.7), vec3(0.93, 0.87, 0.76), bed) * (0.82 + 0.3 * gNoise(vec2(wp.x + wp.z, wp.y) * 0.21 + bed * 9.0));
-    bedCol *= 1.0 - 0.42 * smoothstep(0.72, 0.98, bedEdge);
-    rockCol = mix(rockCol, bedCol * (0.86 + 0.2 * fine), cliffness * 0.85);
-    rockCol = mix(rockCol, rockCol * vec3(1.1, 0.98, 0.84), smoothstep(0.42, 0.7, gFbm3(wp.xz * 0.009 + 3.0)));
-    rockCol = mix(rockCol, vec3(0.52, 0.58, 0.72) * (0.75 + 0.4 * strata), smoothstep(700.0, 1900.0, wp.y) * 0.5);
+    float bedY = wp.y * 0.2 + dot(wp.xz, vec2(0.021, -0.013)) + gFbm(wp.xz * 0.013) * 5.0 + gNoise(wp.xz * 0.11) * 0.5;
+    rockCol *= 1.0 + (gNoise(vec2(bedY, 3.1)) - 0.5) * 0.26 * cliffness;
+    rockCol = mix(rockCol, rockCol * vec3(1.09, 1.0, 0.88), cliffness * smoothstep(0.45, 0.7, gNoise(vec2(bedY * 0.37, 9.0))) * 0.5);
     float scree = smoothstep(0.9, 0.78, ny + (fine - 0.5) * 0.1) * (1.0 - g.rock);
     col = mix(col, mix(uDirtDark, uRock, 0.55) * (0.85 + 0.3 * fine), scree * (0.25 + 0.75 * alpine));
     col = mix(col, rockCol, g.rock);
@@ -128,6 +125,39 @@ export const GROUND_GLSL = /* glsl */ `
     grassAmount = g.grassAmount;
     grass = g.grass;
     return g.color;
+  }
+`;
+
+/** Terrain fragment shader only: it needs screen-space derivatives, which the grass vertex shader has not. */
+const ROCK_GLSL = /* glsl */ `
+  // Fractured rock seen on one plane. Rock parts along joints into blocks of very unequal size,
+  // each face lying at its own slight angle; the joints themselves open here and close there.
+  // Returns the block's tone (-1..1), how far into an open joint the point is (0..1), and two
+  // numbers that tilt the block's face.
+  vec4 rockCells(vec2 p) {
+    // Two scales of warp: blocks swell and pinch, and their edges wander.
+    p += (vec2(gFbm3(p * 0.21), gFbm3(p * 0.21 + 17.0)) - 0.5) * 3.2 + (vec2(gNoise(p * 1.3), gNoise(p * 1.3 + 9.0)) - 0.5) * 0.35;
+    vec2 i = floor(p), f = fract(p);
+    float d1 = 9.0, d2 = 9.0; vec2 cell = vec2(0.0);
+    for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+      vec2 o = vec2(float(x), float(y));
+      vec2 c = o + vec2(gHash(i + o), gHash(i + o + 31.7)) * 0.9 + 0.05 - f;
+      float d = dot(c, c);
+      if (d < d1) { d2 = d1; d1 = d; cell = i + o; } else if (d < d2) d2 = d;
+    }
+    float edge = sqrt(d2) - sqrt(d1), aa = length(fwidth(p));
+    // A joint is tight along most of its length and gapes only in places.
+    float open = smoothstep(0.42, 0.7, gNoise(p * 0.8 + 3.0));
+    float width = mix(0.004, 0.03, open);
+    float joint = (1.0 - smoothstep(width, width + 0.012 + aa, edge)) * mix(0.3, 1.0, open) * clamp(0.04 / (aa + 0.001), 0.0, 1.0);
+    return vec4(gHash(cell + 7.3) * 2.0 - 1.0, joint, gHash(cell + 3.1) - 0.5, gHash(cell + 5.9) - 0.5);
+  }
+  // The same on a surface of any attitude. Blocks are longer than they are tall on a cliff,
+  // because beds lie flatter than joints stand.
+  vec4 rockFace(vec3 wp, vec3 n, float scale) {
+    vec3 w = pow(abs(n), vec3(3.0)); w /= w.x + w.y + w.z;
+    return rockCells(wp.zy * vec2(0.5, 1.0) * scale) * w.x + rockCells(wp.xz * 0.7 * scale + 80.0) * w.y
+      + rockCells(wp.xy * vec2(0.5, 1.0) * scale + 40.0) * w.z;
   }
 `;
 
@@ -257,6 +287,7 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
         uniform sampler2D uLand;
         uniform sampler2D uFarLand;
         ${GROUND_GLSL}
+        ${ROCK_GLSL}
         // Relief from a height value, without tangents: perturb along screen derivatives.
         vec3 bumped(vec3 n, vec3 viewPos, float h) {
           vec3 dx = dFdx(viewPos), dy = dFdy(viewPos);
@@ -286,10 +317,24 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
           vec3 d1 = texture2D(uDetail, vLand.xz * 0.15).rgb;
           vec3 d2 = texture2D(uDetail, vLand.xz * 0.031 + 0.37).rgb;
           vec3 d3 = texture2D(uDetail, vLand.xz * 0.0071 + 0.61).rgb;
-          vec3 face = abs(landN);
-          vec2 cliffUv = face.x > face.z ? vLand.zy : vLand.xy;
-          vec3 c1 = texture2D(uDetail, cliffUv * vec2(0.07, 0.11)).rgb;
-          vec3 c2 = texture2D(uDetail, cliffUv * vec2(0.017, 0.029) + 0.21).rgb;
+          // Rock: great blocks that hold at a distance, lesser ones within them near by, and a fine grain.
+          float rockTone = 0.0, rockJoint = 0.0, grain0 = 0.0;
+          if (ground.rock > 0.02) {
+            float rockNear = 1.0 - smoothstep(70.0, 300.0, landDist);
+            vec4 great = rockFace(vLand, landN, 0.06);
+            vec4 lesser = rockNear > 0.0 ? rockFace(vLand + 13.0, landN, 0.24) : vec4(0.0);
+            // Broad weathering, and the dark streaks where water runs down a face.
+            float steepK = smoothstep(0.75, 0.4, landN.y);
+            float weather = gFbm(vec2(vLand.x + vLand.z, vLand.y * 1.6) * 0.045) - 0.5;
+            float seep = smoothstep(0.52, 0.8, gNoise(vec2((vLand.x - vLand.z) * 0.22, vLand.y * 0.018))) * steepK;
+            float grain = gFbm3(vec2(vLand.x + vLand.z, vLand.y) * 1.7) - 0.5;
+            grain0 = grain * rockNear;
+            rockTone = great.x * 0.1 + weather * 0.3 - seep * 0.16 + (lesser.x * 0.07 + grain * 0.1) * rockNear;
+            rockJoint = great.y * 0.5 + lesser.y * 0.34 * rockNear;
+            // Each block's face catches the light at its own angle.
+            vec3 tilt = vec3(great.z, (great.w + great.z) * 0.5, great.w) * 0.5 + vec3(lesser.z, 0.0, lesser.w) * 0.36 * rockNear;
+            landN = normalize(landN + tilt * ground.rock * midK);
+          }
           float turf = (d1.r - 0.5) * 0.7 * nearK + (d2.r - 0.5) * 0.8 * mix(0.5, 1.0, nearK) + (d3.r - 0.5) * 0.7;
           float soft = 1.0 - max(max(ground.rock, ground.snow), max(ground.road, max(ground.cobble, ground.sand)));
           landCol *= 1.0 + turf * 0.4 * soft * midK;
@@ -297,8 +342,7 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
           float stones = (d1.g - 0.5) * nearK + (d2.g - 0.5) * 0.6;
           float hard = max(ground.road * (1.0 - ground.cobble), ground.sand);
           landCol *= 1.0 + stones * 0.55 * hard * midK;
-          float crack = mix(d2.b, c1.b, smoothstep(0.75, 0.5, landN.y)) * 0.6 + c2.b * 0.6 - 0.6;
-          landCol *= 1.0 + crack * 0.75 * ground.rock * midK;
+          landCol *= 1.0 + (rockTone - rockJoint * 0.42) * ground.rock * midK;
           // Paving: small staggered setts, each a slightly different stone, with dark joints.
           vec2 q = vLand.xz * vec2(3.4, 4.6); q.x += floor(q.y) * 0.5 + gHash(vec2(floor(q.y), 3.0)) * 0.4;
           vec2 f = fract(q) - 0.5;
@@ -306,8 +350,8 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
           float joint = smoothstep(0.42 - settAA, 0.48 + settAA, max(abs(f.x) * 0.98, abs(f.y))) * nearK * ground.cobble * (1.0 - smoothstep(0.25, 0.6, settAA));
           float settTone = gHash(floor(q));
           landCol = mix(landCol * (0.84 + 0.32 * settTone * nearK * ground.cobble + (1.0 - nearK * ground.cobble) * 0.16), landCol * 0.5, joint);
-          landRelief = (turf * 0.05 * soft + stones * 0.06 * hard + crack * 0.5 * ground.rock - joint * 0.05) * nearK
-            + crack * 1.6 * ground.rock * midK * (1.0 - nearK);
+          landRelief = (turf * 0.05 * soft + stones * 0.06 * hard - joint * 0.05) * nearK
+            + (grain0 * 0.1 - rockJoint * 0.3) * ground.rock * midK;
           landRough = mix(landRough, 0.82, ground.rock * 0.5 + ground.cobble * 0.4);
         }
         landRough = mix(landRough, 0.55, ground.snow);
