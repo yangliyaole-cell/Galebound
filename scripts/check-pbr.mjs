@@ -68,9 +68,10 @@ try {
   const terrain = await server.ssrLoadModule('/src/world/terrain.ts');
   const { toon } = await server.ssrLoadModule('/src/render/toon.ts');
   const { createPbrLighting } = await server.ssrLoadModule('/src/render/pbr/lighting.ts');
-  check('eight unique registered surfaces with finite nonzero relief', () => {
-    assert.equal(Object.keys(lib.PBR_MATERIALS).length, 9);
-    assert.equal(new Set(Object.values(lib.PBR_MATERIALS).map((entry) => entry.id)).size, 9);
+  check('twenty-one unique registered surfaces with finite nonzero relief', () => {
+    // Nine for the wider world, eleven for the abbey, the gorge and the viaduct, brick for the town.
+    assert.equal(Object.keys(lib.PBR_MATERIALS).length, 21);
+    assert.equal(new Set(Object.values(lib.PBR_MATERIALS).map((entry) => entry.id)).size, 21);
     for (const entry of Object.values(lib.PBR_MATERIALS)) assert.ok(entry.relief > 0 && entry.relief < .2);
   });
   check('low allocates no multilayer / PMREM / cascades / contact map; medium 2, high 3 cascades', () => {
@@ -212,7 +213,7 @@ try {
       const grass=createGrass(4,6,1,new THREE.Texture());
       for(const [index,layer] of grass.children.slice(0,2).entries()){
         const shader=compile(layer.material);
-        assert.equal(shader.uniforms.uPbrContact,materials.pbrUniforms.uPbrContact);
+        assert.ok(shader.uniforms.uPbrContact===materials.pbrUniforms.uPbrContact,'grass does not share the contact map uniform');
         assert.ok(shader.vertexShader.includes('groundRoadShoulder'));
         assert.ok(shader.vertexShader.includes('smoothstep(.78,.96,texture2D(uPbrContact'));
         balanced(shader.vertexShader);resolve(shader.vertexShader);

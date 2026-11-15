@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { shared } from '../render/uniforms';
 
-/** Scene-linear RGB/alpha caps. Both are below cinematic's 0.58 bloom threshold. */
+/** Scene-linear RGB/alpha caps. The nave is pale marble now, so a beam must be brighter than the
+ * wall behind it to read at all; its low alpha keeps what it adds to any pixel small. */
 export const ABBEY_OPTICS = {
-  shaft: { radiance: 0.32, alpha: 0.10 },
-  patch: { radiance: 0.38, alpha: 0.28 },
+  shaft: { radiance: 1.25, alpha: 0.13 },
+  patch: { radiance: 1.3, alpha: 0.24 },
 } as const;
 
 /** CPU envelope used to check the production uniforms and compositing bounds. */

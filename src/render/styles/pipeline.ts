@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { shared } from '../uniforms';
 import { seededRandom } from '../../world/noise';
 import type { StyleContext, StyleName, StylePipeline } from './index';
@@ -140,6 +141,16 @@ export function createPipeline(context: StyleContext): StylePipeline {
   look.material.depthTest = look.material.depthWrite = false;
   look.material.toneMapped = false;
   composer.addPass(new RenderPass(scene, camera));
+  // A soft, continuous glow over the brightest light (blended in place, so the scene's depth stays paired).
+  const glow = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.3, 0.55, 1.0);
+  glow.enabled = false;
+  // One NaN or infinite pixel (a degenerate normal, a grazing specular) would smear across the whole blur
+  // chain into a black block; the bright pass drops such texels and caps fireflies.
+  glow.materialHighPassFilter.fragmentShader = glow.materialHighPassFilter.fragmentShader.replace(
+    'vec4 texel = texture2D( tDiffuse, vUv );',
+    'vec4 texel = texture2D( tDiffuse, vUv );\n\t\t\tif (any(isnan(texel)) || any(isinf(texel))) texel = vec4(0.0);\n\t\t\ttexel.rgb = min(texel.rgb, vec3(24.0));');
+  glow.materialHighPassFilter.needsUpdate = true;
+  composer.addPass(glow);
   composer.addPass(look);
   const output = new OutputPass();
   output.needsSwap = true;
@@ -160,6 +171,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
     extraPasses: 2,
     resize,
     apply(name: StyleName): void {
+      glow.enabled = false;
       const preset = name === 'default' ? undefined : presets[name];
       scene.fog = baseline.fog;
       for (const material of heroMaterials) { material.envMap = null; material.color.copy(heroColors.get(material)!); }
@@ -212,6 +224,8 @@ export function createPipeline(context: StyleContext): StylePipeline {
       look.uniforms.uPaperQuiet.value.set(...(post.paperQuiet ?? [1, 0.04, 0.14]));
       look.uniforms.uPaper.value.set(post.paper ?? 0, post.warp ?? 0, post.bleed ?? 0, post.wash ?? 0);
       look.uniforms.uBloom.value.set(...(post.bloom ?? [0, 0, 0]));
+      glow.enabled = !!post.bloom && post.bloom[1] > 0 && quality.tier !== 'low' && context.heavy;
+      if (post.bloom) { glow.threshold = 1.0 + post.bloom[0] * 0.5; glow.strength = post.bloom[1] * 0.75; glow.radius = 0.55; }
       look.uniforms.uAtmosphere.value.set(...(post.atmosphere ?? [0, 0, 0]));
       look.uniforms.uSplitShadow.value.set(post.split?.[0] ?? 0xffffff);
       look.uniforms.uSplitLight.value.set(post.split?.[1] ?? 0xffffff);

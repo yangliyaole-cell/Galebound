@@ -1,5 +1,5 @@
 import { clamp, lerp, sfbm, sstep } from './gen/noise';
-import { CITY, CITY_SQUARES, CITY_STREETS, cityRadiusAt, squareDistance, type CitySquare, type Pt, type Road } from './layout';
+import { CITY, CITY_SQUARES, CITY_STREETS, SOUTH_GATE, cityRadiusAt, squareDistance, type CitySquare, type Pt, type Road } from './layout';
 
 /**
  * The shape of Hightown's hill, independent of the eroded landscape around it.
@@ -27,6 +27,62 @@ export function cityBase(x: number, z: number): number {
 /** Each square is paved dead level at the height of the hill under its centre. */
 export const squareLevel = new Map<CitySquare, number>();
 for (const q of CITY_SQUARES) squareLevel.set(q, Math.round(cityBase(q.x, q.z) * 4) / 4);
+// Where another street meets or crosses the avenue it does so on a level landing: a street is cut
+// level across, so it cannot cross a flight of steps. Intervals are metres along the avenue.
+const AVENUE = CITY_STREETS.find((r) => r.id === 'avenue');
+const avenueS: number[] = [0];
+if (AVENUE) for (let i = 1; i < AVENUE.pts.length; i++) avenueS.push(avenueS[i - 1] + Math.hypot(AVENUE.pts[i][0] - AVENUE.pts[i - 1][0], AVENUE.pts[i][1] - AVENUE.pts[i - 1][1]));
+const avenueLandings: [number, number][] = [];
+if (AVENUE) {
+  const along = (x: number, z: number): { s: number; d: number } => {
+    let best = { s: 0, d: Infinity };
+    for (let i = 0; i < AVENUE.pts.length - 1; i++) {
+      const a = AVENUE.pts[i], b = AVENUE.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1];
+      const t = clamp(((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1), 0, 1);
+      const d = Math.hypot(x - a[0] - t * dx, z - a[1] - t * dz);
+      if (d < best.d) best = { s: avenueS[i] + (avenueS[i + 1] - avenueS[i]) * t, d };
+    }
+    return best;
+  };
+  for (const other of CITY_STREETS) {
+    if (other === AVENUE) continue;
+    other.pts.forEach(([x, z], i) => {
+      const hit = along(x, z), reach = other.widths[i] / 2 + 2.5;
+      if (hit.d < AVENUE.widths[0] / 2 + 1.5 && !CITY_SQUARES.some((q) => squareDistance(q, x, z) < 2)) avenueLandings.push([hit.s - reach, hit.s + reach]);
+    });
+  }
+  avenueLandings.sort((a, b) => a[0] - b[0]);
+  for (let k = avenueLandings.length - 1; k > 0; k--) {
+    if (avenueLandings[k][0] <= avenueLandings[k - 1][1]) {
+      avenueLandings[k - 1][1] = Math.max(avenueLandings[k - 1][1], avenueLandings[k][1]);
+      avenueLandings.splice(k, 1);
+    }
+  }
+}
+/** Metres of avenue between s0 and s1 not taken by landings: the run the steps can use. */
+function avenueRun(s0: number, s1: number): number {
+  let run = s1 - s0;
+  for (const [a, b] of avenueLandings) run -= Math.max(0, Math.min(b, s1) - Math.max(a, s0));
+  return Math.max(run, 1e-3);
+}
+
+// The squares on the processional axis share its climb out evenly: the gate square sits just above
+// the gate, the forecourt keeps its height, and the market stands where an even grade puts it.
+{
+  const at = (id: string): CitySquare | undefined => CITY_SQUARES.find((q) => q.id === id);
+  const gate = at('gate'), market = at('market'), fore = at('forecourt');
+  if (gate && market && fore && AVENUE) {
+    // Arc length along the avenue of each square's near and far rims.
+    const rims = (q: CitySquare): [number, number] => {
+      const inside = AVENUE.pts.map((p, i) => (squareDistance(q, p[0], p[1]) < 1.2 ? avenueS[i] : NaN)).filter((v) => !Number.isNaN(v));
+      return [Math.min(...inside), Math.max(...inside)];
+    };
+    const g = Math.round((cityBase(SOUTH_GATE.x, SOUTH_GATE.z) + 2) * 4) / 4, f = squareLevel.get(fore)!;
+    const lower = avenueRun(rims(gate)[1], rims(market)[0]), upper = avenueRun(rims(market)[1], rims(fore)[0]);
+    squareLevel.set(gate, g);
+    squareLevel.set(market, Math.round((g + (f - g) * lower / (lower + upper)) * 4) / 4);
+  }
+}
 
 /** The hill with every square cut into it, blending over a few metres round each rim. */
 function withSquares(x: number, z: number, h: number): number {
@@ -71,7 +127,30 @@ for (const street of CITY_STREETS) {
       return sum / weight;
     });
   }
+  if (street.id === 'avenue') h = terraceAvenue(street, h, pins);
   streetProfiles.set(street, h);
+}
+
+/**
+ * The avenue climbs as a processional way: broad flights of steps at an even pitch,
+ * each ending on a short landing. Squares stay pinned at their own levels.
+ */
+function terraceAvenue(_road: Road, h: number[], pins: (number | undefined)[]): number[] {
+  const s = avenueS;
+  const anchors = h.map((_v, i) => (i === 0 || i === h.length - 1 || pins[i] !== undefined ? i : -1)).filter((i) => i >= 0);
+  const out = [...h];
+  for (let k = 0; k < anchors.length - 1; k++) {
+    const a = anchors[k], b = anchors[k + 1], rise = h[b] - h[a];
+    const run = avenueRun(s[a], s[b]);
+    if (s[b] - s[a] < 12 || Math.abs(rise) < 1) continue;
+    // Flights about every 18 m of free run; each ends on a short landing while the pitch allows.
+    const flights = Math.max(1, Math.round(run / 18)), stair = clamp(Math.abs(rise) / run / 0.62, 0.82, 1);
+    for (let i = a + 1; i < b; i++) {
+      const u = avenueRun(s[a], s[i]) / run * flights, n = Math.min(flights - 1, Math.floor(u)), f = u - n;
+      out[i] = h[a] + rise * (n + Math.min(1, f / stair)) / flights;
+    }
+  }
+  return out;
 }
 
 // Short street segments indexed on a 24 m grid.

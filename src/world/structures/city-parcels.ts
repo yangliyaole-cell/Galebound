@@ -1,10 +1,11 @@
 import { heightAt } from '../heightmap';
 import { CITY, CITY_SQUARES, CITY_STREETS, cityTerraceMetric, citySquareAt, insideCity, roadClearance, squareDistance } from '../layout';
 import { sfbm } from '../gen/noise';
+import { nearestStreet } from '../city-plan';
 import { seededRandom } from '../noise';
-import { SHUTTERS, SLATES, TOWN_ROOFS, TOWN_WALLS, type HouseSpec } from './house';
+import { ASHLARS, BRICKS, SHUTTERS, SLATES, TOWN_ROOFS, TOWN_WALLS, type HouseSpec } from './house';
 
-export const CITY_HOUSE_TARGET = 1600;
+export const CITY_HOUSE_TARGET = 2600;
 /** Why plots were refused, for tuning. */
 export const parcelRejects: Record<string, number> = {};
 const reject = (why: string): false => { parcelRejects[why] = (parcelRejects[why] ?? 0) + 1; return false; };
@@ -29,8 +30,8 @@ const FRONTAGE: Record<string, [number, number]> = {
   'castle-ring': [0.9, 0.9], 'lower-ring': [0.8, 0.8], 'wall-lane': [0.45, 0], 'wall-lane-west': [0.45, 0],
 };
 /** What a house fronts onto decides how likely it is to keep a shop or an arcade. */
-type Frontage = 'market' | 'square' | 'main' | 'street' | 'lane';
-const SHOP_CHANCE: Record<Frontage, number> = { market: 0.75, square: 0.4, main: 0.45, street: 0.12, lane: 0.04 };
+type Frontage = 'market' | 'square' | 'main' | 'street' | 'lane' | 'grand' | 'yard';
+const SHOP_CHANCE: Record<Frontage, number> = { market: 0.75, square: 0.4, main: 0.45, street: 0.12, lane: 0.04, grand: 0.35, yard: 0 };
 const AWNINGS = [0xc9482f, 0x3f6f9a, 0x4f8a5a, 0xe0b040, 0xa8456a, 0xd9773a];
 const GOODS = [
   [0xc8402f, 0xe08a2e, 0x6aa043, 0xd9b44a], [0xd9a35a, 0xc4883e, 0xe8c27a], [0x5a6fb0, 0xb04a5a, 0xe0c060, 0x4f8a6a],
@@ -41,19 +42,28 @@ const VINE_FLOWERS = [0xa58ad6, 0xe57a9a, 0xf4efe8, 0xb48ad8];
 /** Everything about a town house beyond its footprint, drawn from one seeded stream. */
 function dress(p: { x: number; z: number; w: number; d: number; rot: number; q: number; frontage: boolean; kind: Frontage }, rand = dressRand): HouseSpec {
   const pick = <T>(a: readonly T[]): T => a[Math.floor(rand() * a.length)];
-  const tower = p.kind !== 'lane' && p.w < 6.6 && rand() < 0.05;
-  const masonry = rand() < 0.45;
-  const timber = !masonry && rand() < 0.38;
-  const floors = tower ? 5 + Math.floor(rand() * 2) : p.q < 0.5 ? 3 + Math.floor(rand() * 2) : 2 + Math.floor(rand() * 2 + rand());
-  const ridgeAlongFront = p.frontage ? rand() < 0.75 : rand() < 0.55;
+  const grand = p.kind === 'grand';
+  // Back-lot buildings: workshops, warehouses, guild and courtyard halls, broad and low.
+  const yard = p.kind === 'yard';
+  const tower = !grand && !yard && p.kind !== 'lane' && p.w < 6.6 && rand() < 0.05;
+  // Avenue palazzi are dressed stone below and stand four or five storeys.
+  // Fronts: limewashed plaster (often timbered), rubble masonry, brick or dressed ashlar.
+  const front = rand(), facade: HouseSpec['facade'] = grand ? (front < 0.45 ? 'ashlar' : front < 0.6 ? 'brick' : undefined)
+    : yard ? (front < 0.3 ? 'brick' : front < 0.42 ? 'ashlar' : undefined)
+    : front < 0.15 ? 'brick' : front < 0.27 ? 'ashlar' : undefined;
+  const masonry = !facade && (grand ? rand() < 0.5 : rand() < 0.36);
+  const timber = !masonry && !facade && rand() < 0.4;
+  const floors = yard ? (p.w > 11 ? 2 + Math.floor(rand() * 2) : 2 + Math.floor(rand() * 1.6)) : grand ? 4 + Math.floor(rand() * 2) : tower ? 5 + Math.floor(rand() * 2) : p.q < 0.5 ? 3 + Math.floor(rand() * 2) : 2 + Math.floor(rand() * 2 + rand());
+  const ridgeAlongFront = yard ? p.w >= p.d : grand ? rand() < 0.9 : p.frontage ? rand() < 0.75 : rand() < 0.55;
   const shop = !tower && rand() < SHOP_CHANCE[p.kind] && p.w > 5.2;
-  const arcade = !shop && (p.kind === 'market' || p.kind === 'square') && p.w >= 6 && rand() < 0.55;
+  const arcade = !shop && (grand || p.kind === 'market' || p.kind === 'square') && p.w >= 6 && rand() < (grand ? 0.8 : 0.55);
   const vine = rand() < 0.32;
   return {
     x: p.x, z: p.z, w: p.w, d: p.d, rot: p.rot, floors,
-    roof: rand() < 0.08 ? pick(SLATES) : pick(TOWN_ROOFS), wall: pick(TOWN_WALLS),
+    roof: rand() < (facade === 'ashlar' ? 0.3 : 0.08) ? pick(SLATES) : pick(TOWN_ROOFS),
+    wall: facade === 'brick' ? pick(BRICKS) : facade === 'ashlar' ? pick(ASHLARS) : pick(TOWN_WALLS), facade,
     timber, shutters: pick(SHUTTERS), chimney: rand() < 0.75, ridgeAlongFront, simple: 2,
-    masonry, tower, jetty: timber && floors >= 3 && rand() < 0.6, hip: !tower && rand() < 0.22,
+    masonry, tower, jetty: timber && floors >= 3 && rand() < 0.6, hip: !tower && rand() < (yard && p.w > 11 ? 0.55 : 0.22),
     dormers: ridgeAlongFront && !tower && floors >= 2 && rand() < 0.3 ? 1 + Math.floor(rand() * 3) : 0,
     balcony: !tower && floors >= 2 && rand() < 0.2,
     shop: shop ? { awning: pick(AWNINGS), stripe: 0xf2ead8, sign: pick([0x6d4c33, 0x3f5f8a, 0x8a3a2a, 0x4a6a3a]), goods: pick(GOODS) } : undefined,
@@ -70,7 +80,7 @@ export function planCityParcels(keepOut: { x: number; z: number; r: number }[], 
   dressRand = seededRandom(5521);
   const cells = new Map<string, { x: number; z: number; r: number; w: number; d: number; rot: number }[]>();
   /** Tries one plot; returns whether it was built. `gap` is the clearance kept to every neighbour. */
-  const offer = (x: number, z: number, rot: number, w: number, d: number, gap: number, frontage: boolean, kind: Frontage = 'street'): boolean => {
+  const offer = (x: number, z: number, rot: number, w: number, d: number, gap: number, frontage: boolean, kind: Frontage = 'street', squarePad = 0.4): boolean => {
     if (plots.length >= CITY_HOUSE_TARGET) return reject('cap');
     const q = cityTerraceMetric(x, z);
     const r = Math.hypot(w, d) / 2 + gap;
@@ -87,7 +97,7 @@ export function planCityParcels(keepOut: { x: number; z: number; r: number }[], 
     const outline: number[][] = [];
     for (let i = 0; i <= 4; i++) for (const k of [-1, 1]) outline.push([(-0.5 + i / 4) * w, k * d / 2], [k * w / 2, (-0.5 + i / 4) * d]);
     if (outline.some(([u, v]) => roadClearance(x + u * c + v * s, z - u * s + v * c) < 0.3)) return reject('street');
-    if (outline.some(([u, v]) => citySquareAt(x + u * c + v * s, z - u * s + v * c, 0.4))) return reject('square');
+    if (outline.some(([u, v]) => citySquareAt(x + u * c + v * s, z - u * s + v * c, squarePad))) return reject('square');
     const heights = corners.map(([u, v]) => heightAt(x + u * c + v * s, z - u * s + v * c));
     if (Math.max(...heights) - Math.min(...heights) > 7.5) return reject('slope');
     const key = `${gx},${gz}`;
@@ -97,6 +107,25 @@ export function planCityParcels(keepOut: { x: number; z: number; r: number }[], 
     return true;
   };
   const house = (w: number): number => w;
+  // The grand avenue first: an unbroken wall of tall houses down both sides, from square to square.
+  const avenue = CITY_STREETS.find((r) => r.id === 'avenue');
+  if (avenue) for (const side of [-1, 1]) {
+    let travel = 0, next = 0.5;
+    for (let i = 0; i < avenue.pts.length - 1; i++) {
+      const a = avenue.pts[i], b = avenue.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dx, dz);
+      if (len < 1e-3) continue;
+      while (next < travel + len) {
+        const t = (next - travel) / len;
+        const w = 6.8 + rand() * 2.4, depth = 11 + rand() * 2;
+        const setback = avenue.widths[i] / 2 + 0.55 + depth / 2;
+        const x = a[0] + dx * t - dz / len * setback * side, z = a[1] + dz * t + dx / len * setback * side;
+        const facing = Math.atan2(dz / len * side, -dx / len * side);
+        // Fronts may stand right on a square's edge; they only keep out of the square itself.
+        next += offer(x, z, facing, w, depth, 0.03, true, 'grand', -0.6) ? w + 0.03 : 1.2;
+      }
+      travel += len;
+    }
+  }
   // Round every square first, fronts turned in to it.
   for (const q of CITY_SQUARES) {
     const depth = 8 + rand() * 2.5;
@@ -148,6 +177,25 @@ export function planCityParcels(keepOut: { x: number; z: number; r: number }[], 
         travel += len;
       }
     }
+  }
+  // Last, the open ground behind the rows: workshops, warehouses, guild halls and courtyard houses,
+  // each turned to its nearest street across a narrow alley. A few gardens remain.
+  const SIZES = [[15, 11], [12.5, 9.5], [10, 8.5], [8, 7], [6.5, 6]] as const;
+  const span = CITY.wall + 10;
+  for (let gz = CITY.z - span; gz <= CITY.z + span; gz += 6.5) for (let gx = CITY.x - span; gx <= CITY.x + span; gx += 6.5) {
+    const x = gx + (rand() - 0.5) * 3, z = gz + (rand() - 0.5) * 3;
+    if (!insideCity(x, z, 9) || Math.hypot(x - CITY.x, z - CITY.z) < CITY.foot + 8) continue;
+    if (sfbm(x / 55 - 7, z / 55 + 2, 2) > 0.5) continue;
+    const near = cells.get(`${Math.floor(x / 16)},${Math.floor(z / 16)}`);
+    if (near?.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 2.5)) continue;
+    const hit = nearestStreet(x, z);
+    // Away from any street, rows follow the hill's contours: fronts face up towards the castle.
+    let facing = Math.atan2(CITY.x - x, CITY.z - z) + (rand() - 0.5) * 0.08;
+    if (hit) {
+      const a = hit.road.pts[hit.i], b = hit.road.pts[Math.min(hit.i + 1, hit.road.pts.length - 1)];
+      facing = Math.atan2(a[0] + (b[0] - a[0]) * hit.t - x, a[1] + (b[1] - a[1]) * hit.t - z);
+    }
+    for (const [w, d] of SIZES) if (offer(x, z, facing, w, d, 1.1, false, 'yard')) break;
   }
   return plots;
 }

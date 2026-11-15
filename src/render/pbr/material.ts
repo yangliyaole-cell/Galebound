@@ -1,13 +1,17 @@
 import * as THREE from 'three';
 import { pbrTier } from './config';
 import { classifyNaturalStone } from './natural-stone';
-import { PBR_MATERIALS, pbrLibrary, type PbrKind } from './library';
+import { PBR_MATERIALS, pbrLibrary, type PbrEntry, type PbrKind } from './library';
+import { ABBEY_INDOORS_GLSL } from '../../world/abbey-space';
 
 export const pbrUniforms = {
   uPbrActive: { value: 0 },
   uPbrGround: { value: null as THREE.Texture | null },
   uPbrContact: { value: null as THREE.Texture | null },
   uPbrWorldSize: { value: 4096 },
+  /** Bounced daylight inside the abbey, which no real-time light provides. */
+  uAbbeyFill: { value: 0.4 },
+  uAbbeyFloor: { value: 0 },
 };
 const alternatives = new Map<THREE.Material, THREE.Material>();
 const originals = new Map<THREE.Material, THREE.Material>();
@@ -17,15 +21,20 @@ export function registerPbr(original: THREE.Material, material: THREE.Material):
 export function pbrAlternative(material: THREE.Material): THREE.Material | undefined { return alternatives.get(material); }
 export function pbrOriginal(material: THREE.Material): THREE.Material { return originals.get(material) ?? material; }
 
-export function applyPbr(material: THREE.MeshStandardMaterial, kind: PbrKind, unpaintedRock = false): void {
+/**
+ * @param interior lit throughout by the abbey's bounced daylight
+ * @param shell the same, but only where the surface lies inside the abbey's rooms
+ */
+export function applyPbr(material: THREE.MeshStandardMaterial, kind: PbrKind, unpaintedRock = false, interior = false, shell = false): void {
   const tier = pbrTier();
-  const entry = PBR_MATERIALS[kind];
+  const entry: PbrEntry = PBR_MATERIALS[kind];
+  const minRough = (entry.minRough ?? 0.42).toFixed(3);
   material.roughness = .9;
   material.metalness = 0;
   material.name = `pbr-${kind}-${tier}`;
   const compile = material.onBeforeCompile, key = material.customProgramCacheKey();
   const fn = `p${kind[0].toUpperCase()}${kind.slice(1)}`;
-  material.customProgramCacheKey = () => `${key}|pbr-v2-${kind}-${tier}-${unpaintedRock ? 1 : 0}`;
+  material.customProgramCacheKey = () => `${key}|pbr-v3-${kind}-${tier}-${unpaintedRock ? 1 : 0}-${interior ? 1 : shell ? 2 : 0}`;
   material.onBeforeCompile = (shader, renderer) => {
     compile.call(material, shader, renderer);
     Object.assign(shader.uniforms, pbrUniforms);
@@ -48,6 +57,9 @@ export function applyPbr(material: THREE.MeshStandardMaterial, kind: PbrKind, un
         ${(kind === 'masonry' || kind === 'stone') ? 'varying float vPbrNatural; varying vec3 vPbrNaturalNormal;' : ''}
         uniform sampler2D uPbrGround;
         uniform float uPbrWorldSize;
+        uniform float uAbbeyFill;
+        uniform float uAbbeyFloor;
+        ${shell ? ABBEY_INDOORS_GLSL : ''}
         ${pbrLibrary(tier)}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec3 pbrWeights=pWeights(normalize(vWorldN));
@@ -62,7 +74,12 @@ export function applyPbr(material: THREE.MeshStandardMaterial, kind: PbrKind, un
         float pbrGround=texture2D(uPbrGround,vWorldP.xz/uPbrWorldSize+.5).r;
         float pbrContact=(1.0-smoothstep(.06,1.25+(pFbm(vWorldP.xz*1.1+vWorldP.y*.3)-.5)*.8,vWorldP.y-pbrGround));
         float pbrDamp=pbrContact*smoothstep(.30,.66,pFbm(vWorldP.xz*1.3+vWorldP.y*.7));
-        ${kind === 'wood' || kind === 'roof' ? 'pbrDamp*=.35;' : ''}
+        ${kind === 'wood' || kind === 'roof' || kind === 'slate' ? 'pbrDamp*=.35;' : ''}
+        ${entry.clean || interior ? 'pbrDamp=0.0; pbrContact=0.0;' : ''}
+        ${shell ? 'float pbrIndoors=abbeyIndoors(vWorldP); pbrDamp*=1.0-pbrIndoors; pbrContact*=1.0-pbrIndoors;' : ''}
+        ${kind === 'ashlar' || kind === 'paving' ? 'pbrDamp*=.45;' : ''}
+        ${kind === 'strata' ? `float pbrWetTop=smoothstep(.2,.8,normalize(vWorldN).y);
+        pbrDamp=max(pbrDamp,pbrWetTop*smoothstep(.3,.6,pFbm(vWorldP.xz*.5+vWorldP.y*.2+7.0)));` : ''}
         ${kind === 'stone' || kind === 'masonry' ? `float pbrTop=smoothstep(.12,.78,normalize(vWorldN).y);
         float pbrShelter=pFbm(vWorldP.xz*.83+vWorldP.y*.31+27.0);
         pbrDamp=max(pbrDamp,pbrTop*smoothstep(.37,.65,pbrShelter)*.9);
@@ -74,8 +91,18 @@ export function applyPbr(material: THREE.MeshStandardMaterial, kind: PbrKind, un
         pbr.ao*=1.0-pbrContact*.14;
         pbr.roughness=mix(pbr.roughness,.98,pbrDamp);
         float pbrRelief=pbr.height*${kind === 'masonry' ? 'mix(.14,.11,vPbrNatural)' : entry.relief.toFixed(4)};
+        vec3 pbrFillAlbedo=diffuseColor.rgb;
         pbrRelief*=1.0-smoothstep(${tier === 'high' ? '100.0,380.0' : '55.0,180.0'},distance(cameraPosition,vWorldP));`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor=clamp(pbr.roughness,.42,1.0);')
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\nroughnessFactor=clamp(pbr.roughness,${minRough},1.0);`)
+      .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>\nmetalnessFactor=${(entry.metal ?? 0).toFixed(3)};`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        ${interior || shell ? `// Light that has bounced about the nave: warm from above, cooler from the floor.
+        vec3 pbrFillN=normalize(vWorldN);
+        vec3 pbrFill=mix(vec3(.74,.7,.7),vec3(1.0,.94,.82),pbrFillN.y*.5+.5);
+        // Brightest near the floor, where the windows throw their light; cooler and dimmer up in the vault.
+        float pbrLift=clamp((vWorldP.y-uAbbeyFloor)/30.0,0.0,1.0);
+        pbrFill*=mix(vec3(1.1,1.08,1.04),vec3(.72,.78,.9),pbrLift);
+        totalEmissiveRadiance+=pbrFillAlbedo*pbrFill*pbr.ao*uAbbeyFill${shell ? '*pbrIndoors' : ''};` : ''}`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${(kind === 'masonry' || kind === 'stone') ? 'normal=normalize(mix(normal,vPbrNaturalNormal,vPbrNatural));' : ''}\nnormal=pBumpNormal(normal,-vViewPosition,pbrRelief);`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
         reflectedLight.indirectDiffuse*=pbr.ao;

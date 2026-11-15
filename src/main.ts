@@ -33,6 +33,7 @@ import { createLife } from './world/life';
 import { createOrbs } from './world/orbs';
 import { buildCity } from './world/structures/city';
 import { buildAbbey } from './world/structures/abbey';
+import { buildViaduct } from './world/structures/viaduct';
 import { createAbbeyLighting } from './world/abbey-space';
 import { buildLandmarks } from './world/structures/landmarks';
 import { buildCrops, buildVillage } from './world/structures/village';
@@ -52,7 +53,11 @@ const num = (key: string, fallback: number): number => {
   const value = params.has(key) ? Number(params.get(key)) : fallback;
   return Number.isFinite(value) ? value : fallback;
 };
-const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+// A hidden tab is given no animation frames; loading carries on regardless.
+const nextFrame = (): Promise<void> => new Promise((resolve) => {
+  requestAnimationFrame(() => resolve());
+  setTimeout(resolve, 150);
+});
 /** Boot timings, in milliseconds per stage; logged once the world is ready. */
 const bootTimes: Record<string, number> = {};
 let bootMark = performance.now();
@@ -151,7 +156,7 @@ async function boot(): Promise<void> {
   lap('village and landmarks');
   const city = buildCity(detail);
   lap('city');
-  scene.add(city.object, createFlags(city.flags), buildAbbey());
+  scene.add(city.object, createFlags(city.flags), buildAbbey(), buildViaduct());
   scene.add(buildCrops(detail === 0 ? 0.4 : 1, toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.05, doubleSided: true })));
 
   hud.loading('正在种树…');
@@ -442,7 +447,7 @@ async function boot(): Promise<void> {
     });
   };
   let shotFrames = 0;
-  renderer.setAnimationLoop((ms: number) => {
+  const frame = (ms: number): void => {
     const time = ms / 1000;
     const dt = Math.min(Math.max(time - last, 0), 0.05);
     last = time;
@@ -493,7 +498,10 @@ async function boot(): Promise<void> {
       } else debugWindow.__galeShotError = shotState.scene?.issues.join('; ') || 'Screenshot world or assets are not ready';
     }
     if (!shot) resolution.tick(dt);
-  });
+  };
+  renderer.setAnimationLoop(frame);
+  // Lets a review tool draw a frame on demand when the page is not being given any.
+  handles.frame = (): void => frame(performance.now());
 }
 
 void boot().catch((error: unknown) => {

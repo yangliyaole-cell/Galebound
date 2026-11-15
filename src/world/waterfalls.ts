@@ -49,7 +49,7 @@ export function createWaterfalls(sunDir: THREE.Vector3, detail: number): THREE.G
       const t = (r / down) * time;
       const fall = 4.905 * t * t;
       // The curtain spreads a little as it falls.
-      const spread = 1 + 0.35 * (r / down);
+      const spread = 1.15 + 0.75 * Math.pow(r / down, 1.4);
       for (let c = 0; c <= across; c++) {
         const u = c / across - 0.5;
         const bow = Math.cos(u * Math.PI) * 0.8;
@@ -99,7 +99,9 @@ export function createWaterfalls(sunDir: THREE.Vector3, detail: number): THREE.G
         float streak = gNoise(vec2(column, fallen * 0.22 - uTime * 3.4 * pace));
         streak = streak * 0.65 + gNoise(vec2(u * 70.0, fallen * 0.6 - uTime * 7.0)) * 0.35;
         // The sheet is whole at the lip and tears into ragged ribbons lower down.
-        float edge = 1.0 - smoothstep(0.32 - t * 0.12, 0.5, abs(u) + (gNoise(vec2(fallen * 0.15 - uTime * 2.0, u * 4.0)) - 0.5) * 0.2);
+        // Ragged at the sides, more so the further it has fallen; whole strands part from the sheet.
+        float fray = (gNoise(vec2(fallen * 0.15 - uTime * 2.0, u * 4.0)) - 0.5) * (0.2 + 0.5 * t) + (gNoise(vec2(u * 9.0, 3.0)) - 0.5) * 0.3 * t;
+        float edge = 1.0 - smoothstep(0.3 - t * 0.16, 0.5, abs(u) + fray);
         float body = mix(0.85, smoothstep(0.28, 0.62, streak), smoothstep(0.05, 0.55, t));
         float alpha = clamp(body * edge, 0.0, 1.0) * mix(0.95, 0.75, t);
         vec3 lit = vec3(1.0, 0.98, 0.94) * (0.78 + 0.32 * streak);

@@ -9,6 +9,11 @@ export interface RiverPoint {
   x: number; z: number;
   /** Water surface height. Never rises downstream. */
   level: number;
+  /**
+   * The level the broad landscape is fitted to. It differs from `level` only in the Cloudfall
+   * gorge, a young slot too narrow for the coarse terrain: there it follows the old valley floor.
+   */
+  rim: number;
   /** Surface width. */
   width: number;
   /** Half-width of the flat valley floor beside the channel. */
@@ -30,11 +35,14 @@ type Control = [number, number, number, number, number, number, number];
 
 export interface Lake {
   name: string; x: number; z: number; rx: number; rz: number; level: number; depth: number; seed: number;
+  /** Too small for the coarse landscape: cut only into the detailed terrain. */
+  fine?: boolean;
 }
 export const LAKES: Lake[] = [
   { name: 'mirror', x: -600, z: -180, rx: 195, rz: 128, level: 60, depth: 9, seed: 0.6 },
   { name: 'tarn', x: -1790, z: -1615, rx: 120, rz: 74, level: 290, depth: 7, seed: 2.3 },
-  { name: 'plunge', x: -1338, z: -1136, rx: 34, rz: 27, level: 150, depth: 5, seed: 4.1 },
+  { name: 'plunge', x: -1389, z: -1193, rx: 30, rz: 25, level: 151.5, depth: 6, seed: 4.1, fine: true },
+  { name: 'basin', x: -1657, z: -1441, rx: 21, rz: 17, level: 243.2, depth: 4, seed: 1.1, fine: true },
 ];
 /** 1 at the shore, below 1 inside. The outline is a lumpy ellipse. */
 export function lakeShape(l: Lake, x: number, z: number): number {
@@ -48,16 +56,26 @@ export function lakeShape(l: Lake, x: number, z: number): number {
 const TRUNK: Control[] = [
   [-3700, -4300, 930, 5, 60, 0.75, 0],
   [-3300, -3700, 780, 5, 70, 0.75, 0],
-  [-2950, -3150, 650, 6, 80, 0.7, 0],
-  [-2600, -2600, 500, 7, 70, 0.7, 0],
-  [-2250, -2150, 372, 8, 60, 0.65, 0],
+  [-2950, -3150, 650, 6, 80, 0.7, 38],
+  [-2600, -2600, 500, 7, 70, 0.7, 46],
+  [-2250, -2150, 372, 8, 60, 0.65, 40],
   [-1990, -1830, 300, 9, 70, 0.55, 0],
   [-1880, -1690, 290, 10, 90, 0.5, 0],
   [-1700, -1530, 290, 10, 90, 0.5, 0],
-  [-1575, -1362, 279, 10, 60, 0.55, 10],
-  [-1445, -1262, 262, 11, 40, 0.6, 0],
-  [-1376, -1186, 251, 12, 26, 0.9, 0],
-  [-1350, -1152, 151, 12, 30, 1.3, 0],
+  [-1680, -1484, 287.5, 10, 50, 0.6, 0],
+  // Upper Cloudfall: off the lip of the hanging valley into the head of the gorge.
+  [-1668, -1458, 285.5, 11, 30, 0.9, 0],
+  [-1661, -1447, 243.5, 11, 18, 2.2, 0],
+  [-1655, -1438, 243.2, 11, 18, 2.2, 0],
+  // The gorge, cut back into the scarp by the fall's retreat.
+  [-1610, -1375, 241, 10, 14, 2.4, 0],
+  [-1560, -1310, 238.5, 10, 14, 2.4, 0],
+  [-1500, -1272, 236, 10, 14, 2.4, 0],
+  // Great Cloudfall: out of the gorge mouth into an amphitheatre it has quarried from the scarp.
+  [-1436, -1238, 233.5, 12, 14, 2.0, 0],
+  [-1421, -1224, 152.2, 12, 30, 1.4, 0],
+  [-1398, -1202, 151.5, 12, 30, 1.4, 0],
+  [-1366, -1170, 150.6, 12, 26, 1.3, 0],
   [-1325, -1118, 150, 12, 34, 1.2, 0],
   [-1236, -1010, 136, 11, 26, 1.1, 12],
   [-1190, -850, 118, 11, 30, 0.9, 18],
@@ -156,7 +174,7 @@ function trace(name: string, controls: Control[], spacing: number, seed: number)
       phase += step / Math.max(170, p[3] * 15) * Math.PI * 2 * (0.75 + 0.5 * snoise(s / 600 + seed, seed * 3.3));
     }
     const swing = p[6] * (0.6 + 0.5 * snoise(s / 380 + seed * 9, 4.2)) * Math.sin(phase) + p[6] * 0.5 * snoise(s / 260 + seed * 5, 9.4);
-    pts.push({ x: p[0] - tz * swing, z: p[1] + tx * swing, level: p[2], width: p[3], floor: p[4], wall: p[5], s, dx: tx, dz: tz, fall: false, prev: null, next: null });
+    pts.push({ x: p[0] - tz * swing, z: p[1] + tx * swing, level: p[2], rim: p[2], width: p[3], floor: p[4], wall: p[5], s, dx: tx, dz: tz, fall: false, prev: null, next: null });
   }
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1], b = pts[i];
@@ -178,6 +196,13 @@ export const RIVERS: River[] = [
   trace('wood-brook', WOOD_BROOK, 6, 4),
 ];
 export const GALE = RIVERS[0];
+// Through the gorge the coarse land keeps the hanging valley's old floor, falling gently to the scarp.
+{
+  // The amphitheatre of the great fall is as young as the gorge, so the old floor runs on to the scarp's edge.
+  const upper = GALE.pts.findIndex((p) => p.level < 285.6), lower = GALE.pts.findIndex((p) => p.level < 150.7);
+  const s0 = GALE.pts[upper].s, s1 = GALE.pts[lower - 1].s;
+  for (let i = upper; i < lower; i++) GALE.pts[i].rim = lerp(285.5, 251, clamp((GALE.pts[i].s - s0) / (s1 - s0), 0, 1));
+}
 
 // Spatial index of river points, so a query only looks at nearby water. Bins are
 // 64 m over the whole sixteen kilometres; `nearby` marks every bin within three

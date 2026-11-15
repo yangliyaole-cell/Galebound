@@ -169,9 +169,9 @@ function fountain(b: Builder, x: number, z: number, y: number, rand: () => numbe
  * between two landings, a balustrade either side, and a ramp underfoot.
  */
 const PALACE_GATE_R = PALACE.radius + 4;
-function grandStair(b: Builder, rFrom: number, yFrom: number): { x: number; z: number; r: number }[] {
-  const a = Math.PI, ux = Math.cos(a), uz = Math.sin(a);
-  const rTo = PALACE_GATE_R, yTo = CITY.top, width = 10;
+function grandStair(b: Builder, a: number, rFrom: number, yFrom: number): { x: number; z: number; r: number }[] {
+  const ux = Math.cos(a), uz = Math.sin(a);
+  const rTo = PALACE_GATE_R, yTo = CITY.top, width = 14;
   const run = rFrom - rTo, rise = yTo - yFrom;
   const theta = Math.atan2(-uz, ux);
   // Flights of 0.17 m steps, with two level landings on the way up.
@@ -210,10 +210,71 @@ function grandStair(b: Builder, rFrom: number, yFrom: number): { x: number; z: n
   }
   // Walk up it as a ramp.
   const xm = CITY.x + ux * (rFrom + rTo) / 2, zm = CITY.z + uz * (rFrom + rTo) / 2;
-  addBox(xm, zm, run / 2, width / 2, theta, (lx) => yFrom + rise * Math.min(1, Math.max(0, (run / 2 - lx * Math.sign(-ux)) / run)));
+  addBox(xm, zm, run / 2, width / 2, theta, (lx) => yFrom + rise * Math.min(1, Math.max(0, (run / 2 - lx) / run)));  // local x runs away from the castle along the stair
   const keep: { x: number; z: number; r: number }[] = [];
   for (let t = rTo; t <= rFrom + 4; t += 5) keep.push({ x: CITY.x + ux * t, z: CITY.z + uz * t, r: width / 2 + 3 });
   return keep;
+}
+
+/**
+ * The south gate: a deep gatehouse between two great drum towers, crowned with machicolations
+ * and battlements, banners hung either side of a tall arch and the town's arms above it.
+ */
+function grandGate(b: Builder, flags: FlagSpot[]): void {
+  const gx = SOUTH_GATE.x, gz = SOUTH_GATE.z, g = heightAt(gx, gz);
+  const len = Math.hypot(gx - CITY.x, gz - CITY.z), ox = (gx - CITY.x) / len, oz = (gz - CITY.z) / len;
+  const tx = -oz, tz = ox;
+  const at = (u: number, v: number): [number, number] => [gx + tx * u + ox * v, gz + tz * u + oz * v];
+  const yaw = Math.atan2(-tz, tx), W = 10, crown = 13, depth = 16, top = 25;
+  // Gate block: the arch runs right through it.
+  const [bx, bz] = at(0, 1.5);
+  const front = archedProfile(-7.5, 7.5, g - 3, () => g + top, [{ x: 0, w: W, crown: g + crown }]);
+  b.shape('stone', front, depth, place(bx, 0, bz, yaw), PALE);
+  for (const side of [-1, 1]) {
+    const [sx, sz] = at(side * (W / 2 + 1.25), 1.5);
+    addBox(sx, sz, 1.25, depth / 2, yaw, g + top);
+  }
+  addBox(bx, bz, 7.5, depth / 2, yaw, g + top, g + crown - 0.4);
+  // Machicolations: a corbelled gallery round the top, then crenellations.
+  for (const v of [-depth / 2 - 0.5, depth / 2 + 0.5]) {
+    const [mx, mz] = at(0, 1.5 + v);
+    b.box('stone', mx, g + top - 3, mz, 15.5, 3, 1.4, yaw, STONE, 0.1);
+    b.detail(() => { for (let u = -7; u <= 7; u += 1.4) { const [cx2, cz2] = at(u, 1.5 + v * 0.97); b.block(cx2, g + top - 4.6, cz2, 0.5, 1.6, 1.1, yaw, PALE, 0.05); } });
+    for (let u = -7; u <= 7; u += 2.2) { const [cx2, cz2] = at(u, 1.5 + v * 1.03); b.block(cx2, g + top, cz2, 1.2, 1.5, 0.7, yaw, PALE, 0.06); }
+  }
+  // The town's arms above the arch, and a portcullis half raised in it.
+  const [ax, az] = at(0, 1.5 + depth / 2 + 0.08);
+  b.box('stone', ax, g + crown + 1.8, az, 4.6, 5.8, 0.3, yaw, STONE, 0);
+  b.box('cloth', ax, g + crown + 2.3, az, 3.4, 4.6, 0.32, yaw, 0x2f4f8a, 0);
+  b.box('plain', ax, g + crown + 3.7, az, 1.4, 1.4, 0.36, yaw, 0xe6c058, 0);
+  for (let u = -4.5; u <= 4.5; u += 0.75) { const [px, pz] = at(u, 1.5 + depth / 2 - 1.2); b.box('wood', px, g + crown - 4.4, pz, 0.12, 4.4, 0.14, yaw, 0x3a3430, 0); }
+  for (let k = 0; k < 6; k++) { const [px, pz] = at(0, 1.5 + depth / 2 - 1.2); b.box('wood', px, g + crown - 4.2 + k * 0.7, pz, W - 0.4, 0.12, 0.14, yaw, 0x3a3430, 0); }
+  // Two great drum towers, pushed a little out in front of the wall.
+  for (const side of [-1, 1]) {
+    const [cx2, cz2] = at(side * 13, 3);
+    const r = 7.5, h = top + 9;
+    b.cyl('stone', cx2, g - 4, cz2, r, r * 1.08, h + 4, PALE, 32, 0.15);
+    b.cyl('stone', cx2, g + h - 2.4, cz2, r + 0.9, r, 2.4, STONE, 32, 0);
+    b.cone('roof', cx2, g + h + 1.2, cz2, r + 1.3, 15, SLATE, 32);
+    for (let k = 0; k < 22; k++) {
+      const a = (k / 22) * Math.PI * 2;
+      b.block(cx2 + Math.sin(a) * (r + 0.55), g + h, cz2 + Math.cos(a) * (r + 0.55), 1.0, 1.3, 0.6, a, PALE, 0.05);
+    }
+    b.detail(() => {
+      for (const t of [0.18, 0.5, 0.78]) b.cyl('stone', cx2, g + h * t, cz2, r + 0.2, r + 0.2, 0.4, STONE, 32, 0.15);
+      for (const hh of [8, 15, 22, 28]) for (const a of [0, 0.8, -0.8]) {
+        const ang = Math.atan2(ox, oz) + a;
+        b.box('plain', cx2 + Math.sin(ang) * (r + 0.05), g + hh, cz2 + Math.cos(ang) * (r + 0.05), 0.35, 2.2, 0.08, ang, 0x2a3440, 0);
+      }
+    });
+    addRound(cx2, cz2, r * 1.05, g + h + 1.2);
+    b.cyl('wood', cx2, g + h + 15.6, cz2, 0.1, 0.1, 5, 0x4a4038, 5, 0);
+    flags.push({ x: cx2, y: g + h + 20, z: cz2, color: side > 0 ? BANNER : 0x3d5a9a, size: 2.6 });
+    // Long banners hang down the tower faces toward the road.
+    const [hx, hz] = at(side * 13, 3 + r + 0.15);
+    b.box('cloth', hx, g + h - 13, hz, 2.2, 10, 0.06, yaw, side > 0 ? BANNER : 0x3d5a9a, 0);
+    b.box('cloth', hx, g + h - 6.2, hz, 1.2, 1.2, 0.07, yaw, 0xe6c058, 0);
+  }
 }
 
 export interface CityInfo {
@@ -237,7 +298,7 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
     x: cx, z: cz, radius: CITY.wall, polygon: cityWallPolygon, segments: WALL_SEGMENTS, phase: 0,
     height: 11, thickness: 3.8, towerRadius: 5,
     gates: [
-      { angle: SOUTH_GATE_ANGLE, width: 6.5, height: 7.6 },
+      { angle: SOUTH_GATE_ANGLE, width: 10, height: 13 },
       { angle: EAST_GATE_ANGLE, width: 5.6, height: 6.8 },
     ],
     roof: SLATE, color: STONE, stairs: [4, 13, 22, 31, 38],
@@ -257,6 +318,7 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
     orbAt(id, t.x, t.z, 1.3);
   }
 
+  grandGate(b, flags);
   lap('wall');
   const water = aqueduct(b);
   buildPalace(b, flags);
@@ -265,15 +327,17 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
 
   const market = CITY_SQUARES.find((q) => q.kind === 'market')!;
   fountain(b, market.x, market.z, squareLevel.get(market)!, rand);
-  // The cathedral closes the upper end of its square, its front turned to it.
+  // The cathedral closes the far end of its square, its front turned to it: from the avenue one
+  // looks down cathedral-street, across the square, to its west front.
   const square = CITY_SQUARES.find((q) => q.kind === 'cathedral')!;
-  const tx = Math.cos(square.rot), tz = -Math.sin(square.rot);
+  const tx = -Math.cos(square.rot), tz = Math.sin(square.rot);
   const cathedralAt = { x: square.x + tx * (square.rx + 13), z: square.z + tz * (square.rx + 13) };
   cathedral(b, cathedralAt.x, cathedralAt.z, Math.atan2(square.x - cathedralAt.x, square.z - cathedralAt.z), flags);
 
   const fore = CITY_SQUARES.find((q) => q.kind === 'forecourt')!;
   const foreR = Math.hypot(fore.x - cx, fore.z - cz) - fore.rz + 0.5;
-  const stairKeep = grandStair(b, foreR, squareLevel.get(fore)!);
+  const axis = Math.atan2(fore.z - cz, fore.x - cx), ax = Math.cos(axis), az = Math.sin(axis);
+  const stairKeep = grandStair(b, axis, foreR, squareLevel.get(fore)!);
   const keepOut = [
     ...stairKeep,
     { x: cathedralAt.x, z: cathedralAt.z, r: 22 },
@@ -299,7 +363,10 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
   });
   lap('houses');
   // The forecourt stays open where the grand stair leaves it for the castle gate.
-  buildCityStreets(b, parcels, (x, z) => x < cx && Math.abs(z - cz) < 6.5 && cx - x < foreR + 4);
+  buildCityStreets(b, parcels, (x, z) => {
+    const along = (x - cx) * ax + (z - cz) * az, across = Math.abs(-(x - cx) * az + (z - cz) * ax);
+    return along > 0 && along < foreR + 4 && across < 8;
+  });
   lap('streets');
 
   buildCityProps(b, parcels, rand);

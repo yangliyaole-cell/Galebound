@@ -25,6 +25,8 @@ export interface HouseSpec {
   simple?: number;
   /** Dressed stone walls instead of plaster. */
   masonry?: boolean;
+  /** Brick or dressed-ashlar walls instead of plaster or rubble masonry. */
+  facade?: 'brick' | 'ashlar';
   /** Hipped roof (four slopes) instead of two gables. */
   hip?: boolean;
   /** A tall house with a pyramid roof. */
@@ -68,9 +70,15 @@ const FLOOR = 2.7;
 
 export const WALLS = [0xf4ecda, 0xf8f1e4, 0xecdfc8, 0xf1e4d0, 0xe8dcc8, 0xf6ead2];
 /** Warmer washes and pale stone for the town. */
-export const TOWN_WALLS = [0xf4ecda, 0xf3e3c3, 0xeed9c8, 0xf6eedf, 0xe9e0cc, 0xf0dcb8, 0xe8e2d4, 0xf5e6cf];
+export const TOWN_WALLS = [0xf4ecda, 0xf3e3c3, 0xeed9c8, 0xf6eedf, 0xe9e0cc, 0xf0dcb8, 0xe8e2d4, 0xf5e6cf,
+  // Limewash in earth pigments: ochre, saffron, salmon, rose, sage, a cool grey-blue and a lilac grey.
+  0xeccb92, 0xf0d39c, 0xeab79c, 0xe8c3b8, 0xd5dcc2, 0xd2dade, 0xddd2da, 0xe6d3ae];
+/** Clay tints for brick fronts (the brick shader adds per-brick variation and pale mortar). */
+export const BRICKS = [0xc0694c, 0xb35d45, 0xc97c58, 0xa9553f, 0xcf8a66, 0xb8705a];
+/** Dressed stone: honey sandstone, grey limestone, a pinkish freestone. */
+export const ASHLARS = [0xe9d3a6, 0xdcd6ca, 0xe8cbb5, 0xd9c9a4, 0xe4ddd0];
 export const ROOFS = [0xc9623c, 0xd4734a, 0xba563a, 0xd07d4e, 0xc56a45, 0xb44f38];
-export const TOWN_ROOFS = [...ROOFS, 0xa94a32, 0xd98a5a, 0xc87a4a, 0xb85e3e];
+export const TOWN_ROOFS = [...ROOFS, 0xa94a32, 0xd98a5a, 0xc87a4a, 0xb85e3e, 0x8f4a33, 0xc98c55, 0x9a6a50, 0xb06048];
 export const SLATES = [0x6b7f98, 0x5f738c, 0x7688a0];
 export const SHUTTERS = [0x3f7f7a, 0x4a7a4a, 0x3d6a94, 0x8a4a3a, 0x6a5a8a, 0x2f6a5a];
 
@@ -90,7 +98,7 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
   const eave = floorY + wallH;
 
   b.box('stone', h.x, lo - 2, h.z, w + 0.3, floorY - lo + 2.02, d + 0.3, h.rot, STONE, 0.25);
-  const wallMat = h.masonry ? 'stone' : 'plaster';
+  const wallMat = h.facade ?? (h.masonry ? 'stone' : 'plaster');
   // A jettied house: ground floor flush, the storeys above pushed out over the street.
   const jut = h.jetty && h.floors > 1 ? 0.55 : 0;
   if (jut) {

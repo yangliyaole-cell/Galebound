@@ -94,24 +94,18 @@ export const fragmentShader = /* glsl */ `
       // Grass writes zero alpha while keeping its RGB; ink stays on solid silhouettes.
       lineMask = edge * texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).a;
     #elif STYLE == 2
-      vec3 bloom = vec3(0.0);
+      // Glow comes from a separate multi-level blur pass (pipeline.ts): sparse taps here
+      // used to stamp offset copies of every bright cloud and figure. No colour fringing either.
       float occlusion = 0.0;
       if (uHeavy > 0.5) {
         for (int i = 0; i < 8; i++) {
           float angle = float(i) * 2.399963;
           vec2 axis = vec2(cos(angle), sin(angle));
-          float radius = uBloom.z * (0.35 + float(i) * 0.093);
-          vec3 lightSample = colorAt(uv + axis * cssPixel * radius);
-          bloom += lightSample * smoothstep(uBloom.x, uBloom.x + 0.35, luma(lightSample));
           float dz = z - distanceAt(uv + axis * cssPixel * 6.0);
           occlusion += smoothstep(0.12, 0.6, dz) * (1.0 - smoothstep(1.0, 3.0, dz));
         }
         col *= 1.0 - occlusion * 0.025 * (1.0 - smoothstep(60.0, 160.0, z));
-        col += bloom * (uBloom.y / 8.0);
       }
-      vec2 radial = (uv - 0.5) * cssPixel * 0.9;
-      col.r = mix(col.r, colorAt(uv + radial).r, 0.24);
-      col.b = mix(col.b, colorAt(uv - radial).b, 0.24);
       vec4 viewP = uInverseProjection * vec4(uv * 2.0 - 1.0, rawDepth * 2.0 - 1.0, 1.0);
       vec3 worldP = (uCameraWorld * vec4(viewP.xyz / viewP.w, 1.0)).xyz;
       // Aerial perspective: thin blue air everywhere, plus mist that pools in the valleys.

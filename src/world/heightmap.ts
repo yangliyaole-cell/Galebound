@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { clamp, lerp, ridged, sfbm, smax, sstep } from './gen/noise';
 import { buildMacro, macroHeight, macroSlope } from './gen/macro';
 import { LAKES, channelDepth, lakeShape, nearestRiver, waterSurfaceAt } from './gen/hydro';
-import { ABBEY, CITY, CITY_MAX_RADIUS, CITY_STREETS, EAST_GATE_ANGLE, FIELDS, HALF, ISLAND, LAKE, ROADS, SIZE, SOUTH_GATE_ANGLE, START, cityRadiusAt, insideCity } from './layout';
+import { GORGE, PLUNGE, VIADUCT, ABBEY, CITY, CITY_MAX_RADIUS, CITY_STREETS, EAST_GATE_ANGLE, FIELDS, HALF, ISLAND, LAKE, ROADS, SIZE, SOUTH_GATE_ANGLE, START, cityRadiusAt, insideCity } from './layout';
 import { cityBase, cityGround } from './city-plan';
+import { shelfWeight } from './abbey-plan';
 
 export { clamp, lerp, sstep };
 
@@ -40,8 +41,21 @@ function detailHeight(x: number, z: number): number {
   }
 
   // The abbey's shelf on the scarp top.
-  const abbey = Math.hypot((x - ABBEY.x) / 51, (z - ABBEY.z) / 64);
-  if (abbey < 1.6) h = lerp(h, ABBEY.floor, 1 - sstep(0.82, 1.45, abbey));
+  if (Math.abs(x - ABBEY.x) < 160 && Math.abs(z - ABBEY.z) < 160) {
+    const shelf = shelfWeight(x - ABBEY.x, z - ABBEY.z);
+    if (shelf > 0) h = lerp(h, ABBEY.floor, shelf);
+  }
+
+  h = gorgeCut(x, z, h);
+  // Under the viaduct the ground stands clear of the deck, and its far end meets a level pad.
+  if (x < VIADUCT.ax + 12 && x > VIADUCT.bx - 14 && z > VIADUCT.az - 12 && z < VIADUCT.bz + 14) {
+    const dx = VIADUCT.bx - VIADUCT.ax, dz = VIADUCT.bz - VIADUCT.az;
+    const t = clamp(((x - VIADUCT.ax) * dx + (z - VIADUCT.az) * dz) / (dx * dx + dz * dz), 0, 0.985);
+    const d = Math.hypot(x - VIADUCT.ax - dx * t, z - VIADUCT.az - dz * t) - VIADUCT.width / 2;
+    if (d < 3) h = Math.min(h, lerp(ABBEY.floor - 1.6, h, sstep(0.4, 3, d)));
+    const pad = Math.hypot(x - VIADUCT.bx - dx / 172 * 5, z - VIADUCT.bz - dz / 172 * 5);
+    h = lerp(ABBEY.floor + 0.02, h, sstep(3.6, 11, pad));
+  }
 
   // River channels: a bed below the surface, a low bank, then the valley floor.
   const river = nearestRiver(x, z, 170);
@@ -75,6 +89,53 @@ function detailHeight(x: number, z: number): number {
   // A small wooded island in Mirror Lake carries the pavilion: a low dome with a shelving shore.
   const island = Math.hypot((x - ISLAND.x) / 1.15, z - ISLAND.z) + 3 * sfbm(x / 14, z / 14, 2);
   if (island < 40) h = Math.max(h, LAKE.level + 3.4 - 0.004 * island * island - 6 * sstep(20, 40, island));
+  return h;
+}
+
+/**
+ * The Cloudfall gorge and the amphitheatre of the great fall. A fall retreats upstream, leaving
+ * a slot with stepped walls: a talus foot, a cliff in the hard bed, a bench where a softer bed
+ * has weathered back, a second cliff, and a rounded brow. Gullies break the upper cliff; spurs
+ * and alcoves alternate along it. The land is only ever lowered to this profile.
+ */
+function gorgeCut(x: number, z: number, h: number): number {
+  if (x < -1800 || x > -1240 || z < -1580 || z > -1040) return h;
+  let best = Infinity, along = 0, level = 0, run = 0;
+  for (let i = 0; i < GORGE.length - 1; i++) {
+    const a = GORGE[i], b = GORGE[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dx, dz);
+    const t = clamp(((x - a[0]) * dx + (z - a[1]) * dz) / (len * len), 0, 1);
+    const d = Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t);
+    if (d < best) { best = d; along = run + t * len; level = lerp(a[2], b[2], t); }
+    run += len;
+  }
+  const warp = 8 * sfbm(x / 64 + 3.1, z / 64 - 8.2, 3) + 3.2 * sfbm(x / 17 + 9.4, z / 17 + 2.2, 2) + 0.8 * sfbm(x / 5 + 1.2, z / 5 - 6.7, 2);
+  const wall = (e: number, k: number, floor: number): number => {
+    // Bed thicknesses and the gullies in the upper cliff change along the gorge.
+    const n1 = sfbm(k / 70 + 4.4, 1.3, 2), n2 = sfbm(k / 46 + 9.7, 5.1, 2), gully = sstep(0.12, 0.5, sfbm(k / 21 + 2.2, 8.8, 2));
+    const talus = 7 + 2 * n1, lower = 16 + 4 * n2, bench = 3.4, upper = 18 - 4 * n2 + 3 * n1;
+    const p = talus * Math.pow(clamp(e / 9, 0, 1), 1.3)
+      + lower * sstep(9, 12 + 1.5 * gully, e)
+      + bench * clamp((e - 12) / 11, 0, 1)
+      + upper * sstep(23 - 3 * gully, 26.5 + 7 * gully, e)
+      + 0.5 * Math.max(0, e - 27);
+    return floor + 0.5 + p + (e < 9 ? 0.9 * sfbm(x / 3.4, z / 3.4, 2) * clamp(e / 3 + 0.3, 0, 1) : 0);
+  };
+  if (best < 130) {
+    const s = along / run;
+    // Wide under the upper fall, where its spray has undercut the head; narrowest in mid-gorge.
+    const floor = lerp(25, 14, sstep(0, 0.26, s)) + 4 * sstep(0.82, 1, s);
+    h = Math.min(h, wall(best + warp - floor, along, level));
+  }
+  // The great fall's amphitheatre, open to the vale on its lower side.
+  const r = Math.hypot(x - PLUNGE.x, z - PLUNGE.z);
+  if (r < 150) {
+    const a = Math.atan2(z - PLUNGE.z, x - PLUNGE.x);
+    const e = r + warp * 0.8 - 36;
+    const n2 = sfbm(a * 2.3 + 1.7, 3.3, 2), gully = sstep(0.1, 0.5, sfbm(a * 5.1 + 7, 1.1, 2));
+    const p = 7 * Math.pow(clamp(e / 11, 0, 1), 1.3) + (30 + 6 * n2) * sstep(11, 14.5 + 2 * gully, e) + 4 * clamp((e - 14) / 9, 0, 1)
+      + (30 - 6 * n2) * sstep(23 - 2 * gully, 27 + 6 * gully, e) + 1.5 * Math.max(0, e - 28);
+    h = Math.min(h, PLUNGE.level + 0.8 + p + (e < 11 ? 1.1 * sfbm(x / 3.6, z / 3.6, 2) * clamp(e / 4 + 0.3, 0, 1) : 0));
+  }
   return h;
 }
 

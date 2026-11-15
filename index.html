@@ -34,6 +34,17 @@
 
       #menu { top: calc(max(14px, env(safe-area-inset-top)) + 46px); left: max(14px, env(safe-area-inset-left)); display: flex; gap: 6px; pointer-events: auto; }
       #menu button { padding: 5px 11px; font-size: 12px; cursor: pointer; opacity: 0.85; }
+      #quality-picker { top: calc(max(14px, env(safe-area-inset-top)) + 80px); left: max(14px, env(safe-area-inset-left)); pointer-events: auto;
+        border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; min-width: 190px; transition: opacity 0.2s; }
+      #quality-picker .options { display: flex; flex-wrap: wrap; gap: 5px; }
+      #quality-picker .options button { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.08); cursor: pointer; }
+      #quality-picker .options button.current { border-color: rgba(255, 255, 255, 0.7); }
+      #quality-picker .options button.picked { background: rgba(255, 215, 122, 0.55); color: var(--ink); text-shadow: none; }
+      #quality-picker .note { opacity: 0.8; line-height: 1.5; }
+      #quality-picker .actions { display: flex; gap: 6px; justify-content: flex-end; }
+      #quality-picker .actions button { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.1); cursor: pointer; }
+      #quality-picker .actions #quality-apply { background: rgba(255, 215, 122, 0.7); color: var(--ink); text-shadow: none; }
+      #quality-picker .actions #quality-apply:disabled { opacity: 0.4; cursor: default; }
 
       #wind { top: max(12px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); width: 92px; text-align: center; transition: opacity 0.4s; }
       #wind svg { width: 84px; height: 84px; display: block; margin: 0 auto; overflow: visible; }
@@ -90,6 +101,11 @@
         <button id="quality" class="panel">画质</button>
         <button id="sound" class="panel">声音</button>
         <button id="cinema" class="panel">电影感</button>
+      </div>
+      <div id="quality-picker" class="panel hidden" role="dialog" aria-label="选择画质">
+        <div class="options" id="quality-options"></div>
+        <div class="note" id="quality-note"></div>
+        <div class="actions"><button id="quality-cancel">取消</button><button id="quality-apply" disabled>应用</button></div>
       </div>
       <div id="wind">
         <svg viewBox="0 0 84 84">

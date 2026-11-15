@@ -1,7 +1,7 @@
 {
   "tier": "high",
-  "collision": "a77c76c548c1fab04791f53bff43ca04db78ddc06b9847e194dea002e0b74516",
-  "colliders": 132246,
+  "collision": "fb4d478248e5e641998c77adb8d0ecb9bde3045a2b12bd7cb4e81c83a359f7ba",
+  "colliders": 131522,
   "views": [
     {
       "name": "spawn",
@@ -15,9 +15,9 @@
         140,
         -380
       ],
-      "calls": 111,
-      "triangles": 3910979,
-      "instances": 52334,
+      "calls": 112,
+      "triangles": 4300878,
+      "instances": 51744,
       "treeTiers": [
         0,
         0,
@@ -25,25 +25,25 @@
       ],
       "scatterTiers": [
         7,
-        114,
-        629
+        124,
+        511
       ],
       "detailCalls": 5,
       "detailTriangles": 55668,
       "scatter": {
         "tiers": [
-          8,
-          116,
-          1471
+          7,
+          126,
+          1395
         ],
         "trees": [
           0,
           0,
           0
         ],
-        "blended": 24,
-        "total": 20213,
-        "allocatedInstances": 85793
+        "blended": 29,
+        "total": 19774,
+        "allocatedInstances": 84062
       }
     },
     {
@@ -58,35 +58,35 @@
         160.9906005859375,
         1247
       ],
-      "calls": 47,
-      "triangles": 457144,
-      "instances": 781,
+      "calls": 49,
+      "triangles": 503508,
+      "instances": 678,
       "treeTiers": [
         0,
         0,
         0
       ],
       "scatterTiers": [
-        5,
-        115,
-        661
+        7,
+        122,
+        549
       ],
       "detailCalls": 4,
       "detailTriangles": 48864,
       "scatter": {
         "tiers": [
-          10,
-          117,
-          1472
+          7,
+          124,
+          1388
         ],
         "trees": [
           0,
           0,
           0
         ],
-        "blended": 27,
-        "total": 20213,
-        "allocatedInstances": 85793
+        "blended": 28,
+        "total": 19774,
+        "allocatedInstances": 84062
       }
     },
     {
@@ -101,78 +101,78 @@
         111.63665962219238,
         1025
       ],
-      "calls": 64,
-      "triangles": 227646,
-      "instances": 869,
+      "calls": 70,
+      "triangles": 365186,
+      "instances": 899,
       "treeTiers": [
         0,
         0,
         0
       ],
       "scatterTiers": [
-        14,
-        154,
-        594
+        20,
+        167,
+        593
       ],
       "detailCalls": 10,
       "detailTriangles": 50640,
       "scatter": {
         "tiers": [
-          17,
-          165,
-          1517
+          20,
+          172,
+          1557
         ],
         "trees": [
           0,
           0,
           0
         ],
-        "blended": 48,
-        "total": 20213,
-        "allocatedInstances": 85793
+        "blended": 54,
+        "total": 19774,
+        "allocatedInstances": 84062
       }
     },
     {
       "name": "city-wall",
       "eye": [
         572.5788616230898,
-        98.39761566534376,
+        96.66819464298904,
         -31.046232645853024
       ],
       "target": [
         560.5788616230898,
-        103.12881573126595,
+        103.01521011131301,
         -55.046232645853024
       ],
-      "calls": 60,
-      "triangles": 9200725,
-      "instances": 532,
+      "calls": 64,
+      "triangles": 10935212,
+      "instances": 377,
       "treeTiers": [
         0,
         0,
         0
       ],
       "scatterTiers": [
-        11,
-        78,
-        372
+        5,
+        76,
+        239
       ],
       "detailCalls": 10,
-      "detailTriangles": 6600144,
+      "detailTriangles": 7935990,
       "scatter": {
         "tiers": [
-          13,
-          91,
-          967
+          5,
+          84,
+          768
         ],
         "trees": [
           0,
           0,
           0
         ],
-        "blended": 33,
-        "total": 20213,
-        "allocatedInstances": 85793
+        "blended": 19,
+        "total": 19774,
+        "allocatedInstances": 84062
       }
     },
     {
@@ -187,9 +187,9 @@
         194,
         -380
       ],
-      "calls": 57,
-      "triangles": 9083153,
-      "instances": 593,
+      "calls": 60,
+      "triangles": 10909028,
+      "instances": 432,
       "treeTiers": [
         0,
         0,
@@ -197,25 +197,25 @@
       ],
       "scatterTiers": [
         0,
-        24,
-        545
+        9,
+        414
       ],
       "detailCalls": 9,
-      "detailTriangles": 6598864,
+      "detailTriangles": 7934390,
       "scatter": {
         "tiers": [
           0,
-          29,
-          1241
+          15,
+          1065
         ],
         "trees": [
           0,
           0,
           0
         ],
-        "blended": 12,
-        "total": 20213,
-        "allocatedInstances": 85793
+        "blended": 7,
+        "total": 19774,
+        "allocatedInstances": 84062
       }
     },
     {
@@ -230,9 +230,9 @@
         160,
         -380
       ],
-      "calls": 49,
-      "triangles": 9160857,
-      "instances": 310,
+      "calls": 51,
+      "triangles": 10898528,
+      "instances": 206,
       "treeTiers": [
         0,
         0,
@@ -241,15 +241,15 @@
       "scatterTiers": [
         0,
         0,
-        310
+        206
       ],
       "detailCalls": 9,
-      "detailTriangles": 6598864,
+      "detailTriangles": 7934390,
       "scatter": {
         "tiers": [
           0,
           0,
-          533
+          431
         ],
         "trees": [
           0,
@@ -257,8 +257,8 @@
           0
         ],
         "blended": 0,
-        "total": 20213,
-        "allocatedInstances": 85793
+        "total": 19774,
+        "allocatedInstances": 84062
       }
     }
   ]
