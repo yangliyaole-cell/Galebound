@@ -25,8 +25,8 @@ export interface HouseSpec {
   simple?: number;
   /** Dressed stone walls instead of plaster. */
   masonry?: boolean;
-  /** Brick or dressed-ashlar walls instead of plaster or rubble masonry. */
-  facade?: 'brick' | 'ashlar';
+  /** Brick, smooth limestone ashlar or rusticated sandstone instead of plaster or rubble masonry. */
+  facade?: 'brick' | 'ashlar' | 'townAshlar';
   /** Hipped roof (four slopes) instead of two gables. */
   hip?: boolean;
   /** A tall house with a pyramid roof. */
