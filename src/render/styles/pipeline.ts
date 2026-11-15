@@ -144,6 +144,12 @@ export function createPipeline(context: StyleContext): StylePipeline {
   // A soft, continuous glow over the brightest light (blended in place, so the scene's depth stays paired).
   const glow = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.3, 0.55, 1.0);
   glow.enabled = false;
+  // One NaN or infinite pixel (a degenerate normal, a grazing specular) would smear across the whole blur
+  // chain into a black block; the bright pass drops such texels and caps fireflies.
+  glow.materialHighPassFilter.fragmentShader = glow.materialHighPassFilter.fragmentShader.replace(
+    'vec4 texel = texture2D( tDiffuse, vUv );',
+    'vec4 texel = texture2D( tDiffuse, vUv );\n\t\t\tif (any(isnan(texel)) || any(isinf(texel))) texel = vec4(0.0);\n\t\t\ttexel.rgb = min(texel.rgb, vec3(24.0));');
+  glow.materialHighPassFilter.needsUpdate = true;
   composer.addPass(glow);
   composer.addPass(look);
   const output = new OutputPass();

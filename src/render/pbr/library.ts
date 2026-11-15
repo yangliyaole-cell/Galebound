@@ -11,6 +11,8 @@ export const PBR_MATERIALS = {
   moss: { id: 6, label: '苔藓', relief: 0.03 },
   cliff: { id: 7, label: '岩壁', relief: 0.16 },
   paving: { id: 8, label: '石板路', relief: 0.1 },
+  brick: { id: 9, label: '砖墙', relief: 0.07 },
+  ashlar: { id: 10, label: '方整石墙', relief: 0.06 },
 } as const;
 export type PbrKind = keyof typeof PBR_MATERIALS;
 
@@ -97,6 +99,48 @@ PbrSurface pPaving(vec2 p) {
   float far=smoothstep(.12,.45,footprint);
   s.albedo=mix(s.albedo,vec3(.93,.86,.74)*(.96+wear*.1),far);
   s.height=mix(s.height,.4,far);
+  return s;
+}
+// Fired brick in running bond. The vertex tint carries the clay colour, so the brick body stays
+// near neutral (each brick a little lighter, darker, warmer or cooler) and the lime mortar is
+// lifted against a red tint to read pale.
+PbrSurface pBrick(vec2 p) {
+  vec2 size=vec2(.29,.098);
+  vec2 q=p/size; float row=floor(q.y);
+  q.x+=fract(row*.5)+pHash(vec2(row,3.0))*.06;
+  vec2 id=floor(q), f=fract(q); float seed=pHash(id+7.13);
+  vec2 d=min(f,1.0-f)*size; float edge=min(d.x,d.y);
+  float aa=max(fwidth(edge),.0004);
+  float wear=pNoise(p*2.3+11.0);
+  float joint=.0075+wear*.005+pFiltered(p*30.0)*.003;
+  float body=smoothstep(joint-aa,joint+.007+aa,edge);
+  float grit=pFiltered(p*48.0), clinker=step(.93,seed);
+  vec3 tone=mix(vec3(.9,.97,1.05),vec3(1.08,.98,.9),pHash(id+1.7))*(.8+seed*.34)*(1.0-clinker*.38)*(.92+grit*.12);
+  PbrSurface brick=PbrSurface(tone,.46+grit*.08+seed*.06-wear*.05,.78+grit*.14,1.0);
+  PbrSurface mortar=PbrSurface(vec3(1.0,1.42,1.62)*(.8+wear*.1),.12+wear*.05,.95,.82);
+  PbrSurface s=pMix(mortar,brick,body);
+  // Courses finer than a couple of pixels settle to the wall's even tone.
+  float far=smoothstep(.2,.7,length(fwidth(q)));
+  s.albedo=mix(s.albedo,mix(mortar.albedo,vec3(.97),.86),far);
+  s.height=mix(s.height,.42,far);
+  return s;
+}
+// Dressed ashlar: big squared blocks in level courses with fine joints and soft arrises.
+PbrSurface pAshlar(vec2 p) {
+  float row=floor(p.y/.46);
+  float len=.72+pHash(vec2(row,9.0))*.5;
+  vec2 q=vec2(p.x/len+pHash(vec2(row,2.0)),p.y/.46);
+  vec2 id=floor(q), f=fract(q); float seed=pHash(id+3.1);
+  vec2 d=min(f,1.0-f)*vec2(len,.46); float edge=min(d.x,d.y);
+  float aa=max(fwidth(edge),.0004);
+  float body=smoothstep(.004-aa,.02+aa,edge);
+  PbrSurface stone=pStone(p*1.6+seed*23.0);
+  stone.albedo=mix(vec3(dot(stone.albedo,vec3(.333))),stone.albedo,.45)*vec3(1.12,1.08,1.02)*(.9+seed*.16);
+  stone.height=.36+stone.height*.22+smoothstep(0.0,.06,edge)*.12;
+  PbrSurface joint=PbrSurface(vec3(.74,.72,.68),.16,.95,.8);
+  PbrSurface s=pMix(joint,stone,body);
+  float far=smoothstep(.15,.6,length(fwidth(q)));
+  s.albedo=mix(s.albedo,vec3(1.0,.97,.92),far*.6);
   return s;
 }
 PbrSurface pPlaster(vec2 p) {

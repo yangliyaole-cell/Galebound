@@ -6,7 +6,7 @@ import { structureDetail, registerStructureDetail, structureDetailRange, detailC
 import { toon } from '../render/toon';
 import { plasterTexture, roofTexture, stoneTexture, woodTexture } from '../render/textures';
 
-export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'rock' | 'cloth' | 'paving';
+export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'rock' | 'cloth' | 'paving' | 'brick' | 'ashlar';
 
 const textureSets = new Map<number, Record<'stone' | 'plaster' | 'roof' | 'wood', THREE.Texture>>();
 const materialSets = new Map<string, Record<Mat, THREE.Material>>();
@@ -31,6 +31,9 @@ function getMaterials(detail = false): Record<Mat, THREE.Material> {
     cloth: toon(0xffffff, { vertexColors: true, doubleSided: true, ...range }),
     // Street setts: same stone pattern at a smaller scale.
     paving: toon(0xffffff, { pbr: 'paving', vertexColors: true, texture: textures.stone, textureSize: 1.1, ...range }),
+    // Town fronts: fired brick and dressed ashlar (the painted stone texture, finer, without PBR).
+    brick: toon(0xffffff, { pbr: 'brick', vertexColors: true, texture: textures.stone, textureSize: 0.9, relief: relief ? 0.03 : 0, ...range }),
+    ashlar: toon(0xffffff, { pbr: 'ashlar', vertexColors: true, texture: textures.plaster, textureSize: 3.4, relief: relief ? 0.03 : 0, ...range }),
   };
   materialSets.set(key, materials);
   return materials;

@@ -135,15 +135,27 @@ export function road(id: string, kind: Road['kind'], width: number, controls: Pt
  * Hightown's squares. Each is paved level at `level` metres below the castle crown
  * fraction given by the town's own slope (see city-plan.ts); `rot` turns its long side.
  */
-export interface CitySquare { id: string; kind: 'market' | 'forecourt' | 'cathedral' | 'well'; x: number; z: number; rx: number; rz: number; rot: number }
+export interface CitySquare { id: string; kind: 'market' | 'forecourt' | 'cathedral' | 'well' | 'gate'; x: number; z: number; rx: number; rz: number; rot: number }
 const square = (id: CitySquare['kind'] | string, kind: CitySquare['kind'], a: number, t: number, rx: number, rz: number): CitySquare => {
   const [x, z] = cityShelfPoint(a, t);
   // Long side along the contour.
   return { id, kind, x, z, rx, rz, rot: Math.PI / 2 - a };
 };
+/**
+ * The grand axis: from the south gate a straight avenue climbs due north to the castle,
+ * opening on to a gate square, the market and the castle forecourt in turn.
+ */
+export const AXIS_ANGLE = SOUTH_GATE_ANGLE;
+/** A square centred on the axis line between the south gate and the castle. */
+const onAxis = (id: string, kind: CitySquare['kind'], t: number, rx: number, rz: number): CitySquare => {
+  const gx = SOUTH_GATE.x - CITY.x, gz = SOUTH_GATE.z - CITY.z, len = Math.hypot(gx, gz);
+  const r = CITY.foot + (len - CITY.foot) * t;
+  return { id, kind, x: CITY.x + gx / len * r, z: CITY.z + gz / len * r, rx, rz, rot: Math.PI / 2 - Math.atan2(gz, gx) };
+};
 export const CITY_SQUARES: CitySquare[] = [
-  square('market', 'market', 1.70, 0.83, 30, 21),
-  square('forecourt', 'forecourt', Math.PI, 0.13, 24, 17),
+  onAxis('gate', 'gate', 0.9, 22, 11),
+  onAxis('market', 'market', 0.56, 34, 19),
+  onAxis('forecourt', 'forecourt', 0.1, 30, 15),
   square('cathedral', 'cathedral', 2.2, 0.42, 26, 18),
   square('well-east', 'well', 0.22, 0.52, 10, 9),
   square('well-north', 'well', -1.45, 0.31, 10, 8),
@@ -160,6 +172,22 @@ export function squareDistance(q: CitySquare, x: number, z: number): number {
 }
 export const citySquareAt = (x: number, z: number, pad = 0): CitySquare | undefined => CITY_SQUARES.find((q) => squareDistance(q, x, z) < pad);
 
+/** A point on the grand axis, by terrace metric. */
+export function onAxisPoint(t: number): Pt {
+  const gx = SOUTH_GATE.x - CITY.x, gz = SOUTH_GATE.z - CITY.z, len = Math.hypot(gx, gz);
+  const r = CITY.foot + (len - CITY.foot) * t;
+  return [CITY.x + gx / len * r, CITY.z + gz / len * r];
+}
+/** A straight street: the given points joined by straight runs, densely sampled, never smoothed into curves. */
+function axisStreet(id: string, width: number, controls: Pt[]): Road {
+  const pts: Pt[] = [];
+  for (let i = 0; i < controls.length - 1; i++) {
+    const [ax, az] = controls[i], [bx, bz] = controls[i + 1], n = Math.max(2, Math.ceil(Math.hypot(bx - ax, bz - az) / 4));
+    for (let k = 0; k < n; k++) pts.push([ax + (bx - ax) * k / n, az + (bz - az) * k / n]);
+  }
+  pts.push(controls[controls.length - 1]);
+  return { id, kind: 'cobble', width, pts, widths: pts.map(() => width) };
+}
 /** A town street: steadier width than a country road, optionally a flight of steps. */
 function street(id: string, width: number, controls: Pt[], stairs = false): Road {
   const pts = smooth(controls, 10);
@@ -177,15 +205,17 @@ const ring = (a0: number, a1: number, t: number, wobble: number, seed: number): 
 };
 const sq = (id: string): Pt => { const q = CITY_SQUARES.find((s) => s.id === id)!; return [q.x, q.z]; };
 export const CITY_STREETS: Road[] = [
-  // The high road: south gate, through the market, past the cathedral, up to the castle forecourt.
-  street('avenue', 7, [[SOUTH_GATE.x, SOUTH_GATE.z], cityShelfPoint(1.6, 0.93), sq('market'), ...arc([[1.86, 0.74], [2.0, 0.6]]), sq('cathedral'),
-    ...arc([[2.45, 0.3], [2.75, 0.22], [2.98, 0.14]]), sq('forecourt')]),
+  // The grand avenue: dead straight from the south gate through the gate square and the market
+  // to the castle forecourt, so the castle stands at the end of the view from the moment you enter.
+  axisStreet('avenue', 13, [[SOUTH_GATE.x, SOUTH_GATE.z], sq('gate'), sq('market'), sq('forecourt')]),
+  // The cathedral square opens off the avenue to the west.
+  street('cathedral-street', 6, [sq('cathedral'), ...arc([[1.95, 0.42]]), [onAxisPoint(0.42)[0], onAxisPoint(0.42)[1]]]),
   street('east-street', 5.6, [[EAST_GATE.x, EAST_GATE.z], cityShelfPoint(0.6, 0.9), ...arc([[0.48, 0.74], [0.3, 0.6]]), sq('well-east'), ...arc([[0.05, 0.42], [-0.15, 0.31]])]),
   // Contour streets, one per broad shelf of the hill.
   street('castle-ring', 5, ring(-2.86, 2.86, 0.09, 0.015, 1)),
   street('high-street', 6, [...ring(-2.9, 2.05, 0.31, 0.055, 2), sq('cathedral')]),
   street('middle-ring', 5.4, [sq('cathedral'), ...ring(2.35, 2.35 + Math.PI * 2 - 0.62, 0.53, 0.07, 3)]),
-  street('lower-ring', 5, [sq('market'), ...ring(1.86, 1.86 + Math.PI * 2 - 0.35, 0.76, 0.06, 4)]),
+  street('lower-ring', 5, [onAxisPoint(0.76), ...ring(1.86, 1.86 + Math.PI * 2 - 0.35, 0.76, 0.06, 4)]),
   street('wall-lane', 3.6, ring(-2.6, 1.2, 0.93, 0.012, 5)),
   street('wall-lane-west', 3.4, ring(2.0, 3.6, 0.93, 0.012, 6)),
   // Steep lanes between the shelves, mostly flights of steps; none lines up with the next.
@@ -196,7 +226,7 @@ export const CITY_STREETS: Road[] = [
   street('stair-e2', 3.6, arc([[0.62, 0.31], [0.7, 0.43], [0.76, 0.53]]), true),
   street('stair-e3', 3.2, arc([[-0.2, 0.53], [-0.24, 0.65], [-0.22, 0.76], [-0.26, 0.93]]), true),
   street('stair-s1', 3.4, [...arc([[1.2, 0.09], [1.17, 0.18]]), sq('well-south')], true),
-  street('stair-s2', 3.2, arc([[1.28, 0.31], [1.33, 0.42], [1.38, 0.53], [1.44, 0.65], [1.5, 0.76]]), true),
+  street('stair-s2', 3.2, arc([[1.22, 0.31], [1.24, 0.42], [1.25, 0.53], [1.27, 0.65], [1.3, 0.76]]), true),
   street('stair-w1', 3.4, arc([[2.0, 0.09], [2.06, 0.18], [2.1, 0.31]]), true),
   street('stair-w2', 3.2, arc([[2.85, 0.31], [2.9, 0.42], [2.94, 0.53]]), true),
   street('stair-w3', 3.4, arc([[2.6, 0.53], [2.55, 0.64], [2.5, 0.76], [2.46, 0.93]]), true),
@@ -220,7 +250,7 @@ export const ROADS: Road[] = [
   road('start-village', 'dirt', 3.9, [[2, 1242], [-16, 1180], [-52, 1090], [-66, 990], [-30, 880], [34, 770], [70, 650], [88, 540], [132, 440], [B.x, B.z + 46], [B.x, B.z + 23]]),
   road('river-bridge', 'cobble', 4.7, [[B.x, B.z + 23], [B.x, B.z - 23]], true),
   road('village-city', 'dirt', 4.3, approach([[B.x, B.z - 23], [B.x, B.z - 34], [176, 240], [172, 150], [226, 60], [322, -22], [402, -40], [470, 2],
-    [SOUTH_GATE.x - 40, SOUTH_GATE.z + 70], [SOUTH_GATE.x - 6, SOUTH_GATE.z + 26]], SOUTH_GATE)),
+    [SOUTH_GATE.x - 30, SOUTH_GATE.z + 88], [SOUTH_GATE.x, SOUTH_GATE.z + 52], [SOUTH_GATE.x, SOUTH_GATE.z + 24]], SOUTH_GATE)),
   road('mill-road', 'dirt', 3.2, [[88, 540], [214, 566], [372, 604], [536, 640], [694, 688], [836, 738], [926, 764]]),
   road('lake-road', 'dirt', 3.0, [[132, 440], [86, 396], [-8, 356], [-110, 318], [-196, 322], [WB0[0] + 14, WB0[1] + 10], WB0]),
   road('wood-brook-bridge', 'cobble', 3.2, [WB0, WB1], true),

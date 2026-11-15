@@ -5,7 +5,7 @@ import type { FlagSpot } from '../flags';
 import { heightAt } from '../heightmap';
 import { CITY } from '../layout';
 import { seededRandom } from '../noise';
-import { PALACE, PALACE_TOWERS } from './palace';
+import { PALACE, PALACE_RANGES, PALACE_TOWERS } from './palace';
 
 const PALE = 0xe8dfca;
 const STONE = 0xcfc5af;
@@ -120,8 +120,24 @@ export function embellishPalace(b: Builder, flags: FlagSpot[]): void {
     }
   }
 
+  // The other ranges: dormers down both roof slopes and tall chimney stacks on the ridge.
+  for (const r of PALACE_RANGES) {
+    if (r.id === 'hall') continue;
+    const alongX = r.along === 'x', cx = x + r.x, cz = z + r.z;
+    for (const side of [-1, 1]) for (let u = -r.len / 2 + 5; u < r.len / 2 - 4; u += 8.5) {
+      const off = side * r.depth * 0.22, roofY = y + r.h + r.rh * (1 - Math.abs(off) / (r.depth / 2)) - 1.1;
+      lucarne(b, alongX ? cx + u : cx + off, roofY, alongX ? cz + off : cz + u,
+        alongX ? (side > 0 ? 0 : Math.PI) : (side > 0 ? Math.PI / 2 : -Math.PI / 2), 1.15);
+    }
+    for (const u of r.len > 30 ? [-r.len * 0.3, r.len * 0.12, r.len * 0.38] : [r.len * 0.2]) {
+      const sx = alongX ? cx + u : cx - 1.2, sz = alongX ? cz - 1.2 : cz + u, top = y + r.h + r.rh + 2.4;
+      b.box('stone', sx, y + r.h, sz, 1.6, top - y - r.h, 1.1, alongX ? 0 : Math.PI / 2, STONE, 0.06);
+      b.box('stone', sx, top, sz, 1.9, 0.35, 1.4, alongX ? 0 : Math.PI / 2, PALE, 0);
+    }
+  }
+
   // Wings: a turret at each outer corner.
-  for (const [dx, dz, w, d, h] of [[-48, -2, 18, 41, 18], [48, -1, 18, 42, 22]]) {
+  for (const [dx, dz, w, d, h] of [[-47, 2.5, 16, 75, 18], [47, 2.5, 16, 75, 22]]) {
     for (const sz of [-1, 1]) {
       const sx = Math.sign(dx);
       bartizan(b, x + dx + sx * (w / 2 + 0.3), y + h - 3, z + dz + sz * (d / 2 + 0.3), 1.35, 4.5);
@@ -182,8 +198,8 @@ export function embellishPalace(b: Builder, flags: FlagSpot[]): void {
   }
 
   // Gatehouse: round flanking towers with pointed roofs, a portcullis and banners.
-  for (const dz of [-9, 9]) {
-    const tx = x - 81, tz = z + dz;
+  for (const dx of [-10.5, 10.5]) {
+    const tx = x + dx, tz = z + 81;
     b.cyl('stone', tx, y - 4, tz, 4.2, 4.6, 26, PALE, 20, 0.15);
     b.cyl('stone', tx, y + 21, tz, 4.8, 4.2, 1.2, STONE, 20, 0);
     b.cone('roof', tx, y + 22.2, tz, 5.1, 11, SLATE, 20);
@@ -193,24 +209,24 @@ export function embellishPalace(b: Builder, flags: FlagSpot[]): void {
         const a = (k / 16) * Math.PI * 2;
         b.block(tx + Math.sin(a) * 4.55, y + 20.2, tz + Math.cos(a) * 4.55, 0.7, 0.9, 0.5, a, STONE, 0.04);
       }
-      for (const h of [6, 12, 17]) b.box('plain', tx - 4.25, y + h, tz, 0.08, 1.8, 0.7, 0, 0x3a4652, 0);
+      for (const h of [6, 12, 17]) b.box('plain', tx, y + h, tz + 4.25, 0.7, 1.8, 0.08, 0, 0x3a4652, 0);
     });
     addRound(tx, tz, 4.6, y + 22);
     flags.push({ x: tx, y: y + 36.5, z: tz, color: 0x3d5a9a, size: 1.6 });
   }
   // Portcullis half raised in the gate arch, and long banners either side of it.
-  for (let k = -3; k <= 3; k++) b.box('wood', x - 81.3, y + 4.6, z + k * 0.75, 0.12, 2.6, 0.1, 0, 0x3a3430, 0);
-  for (let k = 0; k < 4; k++) b.box('wood', x - 81.3, y + 4.8 + k * 0.6, z, 0.12, 0.1, 5.2, 0, 0x3a3430, 0);
-  for (const dz of [-5.2, 5.2]) {
-    b.box('cloth', x - 85.6, y + 7, z + dz, 0.05, 6.5, 1.6, 0, 0x3d5a9a, 0);
-    b.box('cloth', x - 85.66, y + 10.5, z + dz, 0.05, 0.9, 0.7, 0, GOLD, 0);
+  for (let k = -4; k <= 4; k++) b.box('wood', x + k * 0.75, y + 6, z + 81.3, 0.1, 3, 0.12, 0, 0x3a3430, 0);
+  for (let k = 0; k < 5; k++) b.box('wood', x, y + 6.2 + k * 0.6, z + 81.3, 6.8, 0.1, 0.12, 0, 0x3a3430, 0);
+  for (const dx of [-6.6, 6.6]) {
+    b.box('cloth', x + dx, y + 8, z + 85.6, 1.8, 8.5, 0.05, 0, 0x3d5a9a, 0);
+    b.box('cloth', x + dx, y + 12.5, z + 85.66, 0.8, 1, 0.05, 0, GOLD, 0);
   }
 
   // Bare rock breaking out of the crag face below the castle in outcrops of two or three
   // big, half-buried blocks, leaving the stair to the gate clear.
   for (let k = 0; k < 44; k++) {
     const a = (k / 44) * Math.PI * 2 + rand() * 0.06;
-    if (Math.abs(Math.atan2(Math.sin(a - Math.PI), Math.cos(a - Math.PI))) < 0.2) continue;
+    if (Math.abs(Math.atan2(Math.sin(a - Math.PI / 2), Math.cos(a - Math.PI / 2))) < 0.22) continue;
     const n = 2 + Math.floor(rand() * 2);
     for (let j = 0; j < n; j++) {
       const r = CITY.plateau + 4 + rand() * 9, aj = a + (rand() - 0.5) * 0.06;

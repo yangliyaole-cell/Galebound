@@ -16,8 +16,70 @@ export const keepWindowRecesses: { x: number; y: number; z: number; normalX: num
 export const PALACE = { x: CITY.x, z: CITY.z, half: 12, terrace: 38, spire: 101, radius: 79 };
 export const PALACE_TOWERS = [
   [-53, -26, 43, 6], [-29, -47, 59, 6.5], [29, -47, 65, 7], [54, -24, 48, 6],
-  [-52, 22, 39, 5], [51, 25, 52, 5.5], [-27, 30, 63, 5.8], [27, 31, 47, 5.4],
+  [-52, 22, 39, 5], [51, 25, 52, 5.5], [-27, 40, 63, 5.8], [27, 40, 47, 5.4],
 ] as const;
+
+/**
+ * The castle's ranges, relative to the keep. `along` is the ridge direction; heights are walls to
+ * the eaves (h) and roof rise (rh). Shared with the court dressing (dormers, turrets).
+ */
+export interface PalaceRange { id: string; x: number; z: number; len: number; depth: number; h: number; rh: number; along: 'x' | 'z' }
+export const PALACE_RANGES: PalaceRange[] = [
+  { id: 'hall', x: 0, z: -45, len: 65, depth: 20, h: 24, rh: 11, along: 'x' },
+  { id: 'north-west', x: -41.25, z: -44, len: 17.5, depth: 18, h: 18, rh: 8, along: 'x' },
+  { id: 'north-east', x: 41.25, z: -44, len: 17.5, depth: 18, h: 20, rh: 8, along: 'x' },
+  { id: 'west-wing', x: -47, z: 2.5, len: 75, depth: 16, h: 18, rh: 8, along: 'z' },
+  { id: 'east-wing', x: 47, z: 2.5, len: 75, depth: 16, h: 22, rh: 9, along: 'z' },
+  { id: 'south-west', x: -38.5, z: 46, len: 23, depth: 12, h: 14, rh: 6, along: 'x' },
+  { id: 'south-east', x: 38.5, z: 46, len: 23, depth: 12, h: 14, rh: 6, along: 'x' },
+];
+
+/** A castle range: stone walls on a plinth, a slate roof along its length, rows of dressed windows. */
+function range(b: Builder, cx: number, y: number, cz: number, r: PalaceRange): void {
+  const alongX = r.along === 'x', { len, depth, h, rh } = r;
+  const w = alongX ? len : depth, d = alongX ? depth : len, rot = alongX ? 0 : Math.PI / 2;
+  b.box('stone', cx, y - 4, cz, w, h + 4, d, 0, PALE);
+  b.prism('stone', cx, y + h, cz, depth, len, rh, alongX ? Math.PI / 2 : 0, PALE);
+  b.roof(cx, y + h, cz, depth, len, rh, alongX ? Math.PI / 2 : 0, SLATE, 1);
+  addBox(cx, cz, w / 2, d / 2, 0, (lx, lz) => y + h + Math.max(0, 1 - Math.abs(alongX ? lz : lx) / (depth / 2)) * rh);
+  // Position on a long face: u along the range, side -1/1, offset out from the wall.
+  const at = (u: number, side: number, out: number): [number, number] => alongX
+    ? [cx + u, cz + side * (depth / 2 + out)] : [cx + side * (depth / 2 + out), cz + u];
+  const storeys = Math.max(2, Math.floor((h - 3) / 6.5));
+  for (const side of [-1, 1]) {
+    // Plinth, string courses and a cornice band along the whole face.
+    const [px, pz] = at(0, side, 0.12);
+    for (const [v, t] of [[-0.1, 0.5], [h - 0.6, 0.45]] as const) b.box('stone', px, y + v, pz, alongX ? len + 0.3 : 0.32, t, alongX ? 0.32 : len + 0.3, 0, STONE, 0);
+    for (let u = -len / 2 + 4; u < len / 2 - 2.5; u += 5) {
+      for (let k = 0; k < storeys; k++) {
+        const wy = y + 3.2 + k * 6.5, tall = k === storeys - 1 ? 2.6 : 3.4;
+        const [wx, wz] = at(u, side, 0.03);
+        b.box('plain', wx, wy, wz, 1.5, tall, 0.1, rot, 0x3d5468, 0);
+        b.detail(() => {
+          const [fx, fz] = at(u, side, 0.09);
+          for (const sign of [-1, 1]) {
+            const ox = alongX ? sign * 0.92 : 0, oz = alongX ? 0 : -sign * 0.92;
+            b.block(fx + ox, wy - 0.15, fz + oz, 0.32, tall + 0.3, 0.22, rot, STONE);
+          }
+          b.block(fx, wy + tall, fz, 2.3, 0.34, 0.3, rot, STONE);
+          b.block(fx, wy - 0.32, fz, 2.0, 0.2, 0.36, rot, STONE);
+          const [mx, mz] = at(u, side, 0.07);
+          b.box('stone', mx, wy, mz, alongX ? 0.12 : 0.1, tall, alongX ? 0.1 : 0.12, 0, PALE, 0);
+          detailCounters.palaceWindows++;
+        });
+      }
+      for (let k = 1; k < storeys; k++) {
+        const [sx, sz] = at(u + 2.5, side, 0.1);
+        b.box('stone', sx, y + k * 6.5 - 0.2, sz, alongX ? 5 : 0.28, 0.3, alongX ? 0.28 : 5, 0, STONE, 0);
+      }
+    }
+    // Shallow buttresses between bays, stepping in near the eaves.
+    for (let u = -len / 2 + 6.5; u < len / 2 - 3; u += 10) {
+      const [bx, bz] = at(u, side, 0.6);
+      b.box('stone', bx, y - 0.5, bz, alongX ? 1.3 : 1.2, h * 0.7, alongX ? 1.2 : 1.3, 0, STONE, 0.05);
+    }
+  }
+}
 
 /** Broad palace silhouette: eight subsidiary spires and a 101m central crown. */
 export function buildPalace(b: Builder, flags: FlagSpot[]): void {
@@ -26,7 +88,8 @@ export function buildPalace(b: Builder, flags: FlagSpot[]): void {
   const ring = wallRing(b, {
     x, z, radius: PALACE.radius, segments: 12, phase: Math.PI / 12,
     height: 8, thickness: 3.6, towerRadius: 3.6,
-    gates: [{ angle: Math.PI, width: 9, height: 7.2 }],
+    // The castle gate faces south, down the grand avenue.
+    gates: [{ angle: Math.PI / 2, width: 12, height: 9 }],
     roof: SLATE, color: STONE, stairs: [1, 4, 7],
   });
   // Main keep remains climbable; none of the subsidiary towers occupies its stair envelope.
@@ -122,49 +185,29 @@ export function buildPalace(b: Builder, flags: FlagSpot[]): void {
   spire(x, z, terrace, 35, 6.5, 28);
   for (const [dx, dz, h, r] of PALACE_TOWERS) spire(x + dx, z + dz, y, h, r, 16 + r);
 
-  // Great hall and two lower wings. Their stone foundations follow the summit shelf.
-  for (const [dx, dz, w, d, h, rh] of [[0, -45, 65, 20, 24, 12], [-48, -2, 18, 41, 18, 9], [48, -1, 18, 42, 22, 10]]) {
-    b.box('stone', x + dx, y - 4, z + dz, w, h + 4, d, 0, PALE);
-    b.prism('stone', x + dx, y + h, z + dz, w, d, rh, 0, PALE);
-    b.roof(x + dx, y + h, z + dz, w, d, rh, 0, SLATE, 1);
-    addBox(x + dx, z + dz, w / 2, d / 2, 0, (lx) => y + h + Math.max(0, 1 - Math.abs(lx) / (w / 2)) * rh);
-    b.detail(() => {
-      for (const sign of [-1, 1]) {
-        b.box('stone', x + dx, y - 0.1, z + dz + sign * d / 2, w + 0.22, 0.3, 0.27, 0, STONE);
-        b.box('stone', x + dx, y + h - 0.5, z + dz + sign * d / 2, w + 0.38, 0.35, 0.4, 0, STONE);
-      }
-      // Flush grand-hall door and its dressed stone surround, within its solid wall.
-      const fz = z + dz + d / 2 + 0.04;
-      b.box('wood', x + dx, y + 0.1, fz, 2.6, 4.3, 0.1, 0, 0x66503a);
-      for (const sign of [-1, 1]) b.block(x + dx + sign * 1.55, y, fz, 0.36, 4.7, 0.24, 0, STONE);
-      b.block(x + dx, y + 4.5, fz, 3.45, 0.38, 0.26, 0, STONE);
-    });
-    for (let u = -w / 2 + 5; u < w / 2 - 2; u += 7) {
-      b.box('plain', x + dx + u, y + 10, z + dz + d / 2 + 0.03, 1.8, 6.5, 0.12, 0, 0x39516b, 0);
-      b.detail(() => {
-        const fz = z + dz + d / 2 + 0.08;
-        for (const sign of [-1, 1]) b.block(x + dx + u + sign * 1.05, y + 9.8, fz, 0.22, 6.95, 0.24, 0, STONE);
-        for (const dy of [9.7, 16.5]) b.block(x + dx + u, y + dy, fz, 2.4, 0.22, 0.4, 0, STONE);
-        b.box('stone', x + dx + u, y + 10, fz + 0.04, 0.12, 6.5, 0.12, 0, PALE);
-        detailCounters.palaceWindows++;
-      });
-      b.box('stone', x + dx + u + 2.5, y, z + dz + d / 2 + 1, 1.4, h * 0.8, 2.4, 0, STONE);
-    }
-  }
+  // One continuous castle round the keep's court: the great hall to the north, linking blocks
+  // to two long wings, and lower south ranges either side of the loggia. Towers rise out of them.
+  for (const r of PALACE_RANGES) range(b, x + r.x, y, z + r.z, r);
   // Open arcade behind the forecourt: real openings, with overhead-only collision.
   const arcadeZ = z + 48;
   b.shape('stone', archedProfile(-27, 27, y - 1, () => y + 10,
     [-21, -10.5, 0, 10.5, 21].map((u) => ({ x: u, w: 7.5, crown: y + 8 }))), 3, place(x, 0, arcadeZ), PALE);
   for (let u = -26.25; u <= 27; u += 10.5) addBox(x + u, arcadeZ, 1.5, 1.5, 0, y + 10);
   addBox(x, arcadeZ, 27, 1.5, 0, y + 10, y + 7.5);
-  // An imposing western gatehouse keeps the courtyard route open.
-  for (const dz of [-9, 9]) {
-    b.box('stone', x - 76, y - 4, z + dz, 10, 24, 7, 0, PALE);
-    b.pyramid('roof', x - 76, y + 20, z + dz, 12, 9, 13, 0, SLATE);
-    addBox(x - 76, z + dz, 5, 3.5, 0, y + 20);
+  // A gallery storey over the loggia joins the two south ranges into one front.
+  b.box('stone', x, y + 10, arcadeZ, 54, 4, 3.4, 0, PALE);
+  b.prism('stone', x, y + 14, arcadeZ, 3.4, 54, 1.8, Math.PI / 2, PALE);
+  b.roof(x, y + 14, arcadeZ, 3.4, 54, 1.8, Math.PI / 2, SLATE, 0.4);
+  for (let u = -24; u <= 24; u += 4) b.box('plain', x + u, y + 11.2, arcadeZ + 1.73, 1.1, 1.8, 0.08, 0, 0x39516b, 0);
+  addBox(x, arcadeZ, 27, 1.7, 0, y + 15.8, y + 7.5);
+  // An imposing southern gatehouse at the head of the grand stair keeps the courtyard route open.
+  for (const dx of [-10.5, 10.5]) {
+    b.box('stone', x + dx, y - 4, z + 76, 8, 26, 10, 0, PALE);
+    b.pyramid('roof', x + dx, y + 22, z + 76, 10, 12, 13, 0, SLATE);
+    addBox(x + dx, z + 76, 4, 5, 0, y + 22);
   }
-  b.box('stone', x - 76, y + 9, z, 10, 9, 11, 0, PALE);
-  addBox(x - 76, z, 5, 5.5, 0, y + 18, y + 9);
+  b.box('stone', x, y + 11, z + 76, 13, 9, 10, 0, PALE);
+  addBox(x, z + 76, 6.5, 5, 0, y + 20, y + 11);
   orbAt('keep-terrace', x + 9, z - 9, 1.2);
   orbAt('keep-air', x + 19, z + 17, 22);
   orbAt('hall-roof', x, z - 45, 1.2);

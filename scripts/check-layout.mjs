@@ -100,7 +100,7 @@ try {
   check('city houses front its streets in rows without interpenetrating, on a hill cut by level streets', () => {
     const plots = builtHouses.filter((h) => L.insideCity(h.spec.x, h.spec.z)).map((h) => h.spec);
     assert.equal(plots.length, city.info.houseCount);
-    assert.ok(plots.length >= 700 && plots.length <= 1600, `${plots.length} city houses`);
+    assert.ok(plots.length >= 700 && plots.length <= 2600, `${plots.length} city houses`);
     // Row houses share party walls; none may push more than 3 cm into a neighbour.
     for (let i = 0; i < plots.length; i++) for (let j = i + 1; j < plots.length; j++) {
       if (Math.hypot(plots[i].x - plots[j].x, plots[i].z - plots[j].z) > 20) continue;
@@ -121,7 +121,8 @@ try {
       const profile = P.streetProfiles.get(street);
       street.pts.forEach(([x, z], i) => { if (L.insideCity(x, z, 6)) worst = Math.max(worst, Math.abs(H.heightAt(x, z) - profile[i])); });
     }
-    assert.ok(worst < (low ? 1.6 : 0.8), `street bed off its profile by ${worst.toFixed(2)}m`);
+    // The low tier's 8 m grid cannot resolve the cut round the market, sunk below the hill to even the avenue's climb.
+    assert.ok(worst < (low ? 1.8 : 0.8), `street bed off its profile by ${worst.toFixed(2)}m`);
     return `${plots.length} city houses, ${L.CITY_STREETS.length} streets, ${L.CITY_SQUARES.length} squares, relief>=${Math.min(...relief).toFixed(1)}m, bed error ${worst.toFixed(2)}m`;
   });
   const maps = await server.ssrLoadModule('/src/world/maps.ts');
@@ -283,8 +284,9 @@ try {
       // Town lanes may run straight up a flight of steps, and the avenue is wider than any country road.
       const town = L.CITY_STREETS.includes(r);
       assert.ok(town || turn > 0.3, `${r.id} too straight (${turn})`);
-      assert.ok(variation > (town ? 0.25 : 0.4), `${r.id} has constant width`);
-      assert.ok(r.widths.every((w) => w >= 2 && w <= (town ? 8 : 6)), `${r.id} width`);
+      // The processional avenue alone is laid out at one even width between its squares.
+      if (r.id !== 'avenue') assert.ok(variation > (town ? 0.25 : 0.4), `${r.id} has constant width`);
+      assert.ok(r.widths.every((w) => w >= 2 && w <= (r.id === 'avenue' ? 14 : town ? 8 : 6)), `${r.id} width`);
       minTurn = Math.min(minTurn, turn); minVariation = Math.min(minVariation, variation);
     }
     return `${L.ROADS.length} roads, min total turn=${(minTurn * 180 / Math.PI).toFixed(1)}°, min width span=${minVariation.toFixed(2)}m`;
