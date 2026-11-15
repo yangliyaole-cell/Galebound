@@ -6,15 +6,16 @@ import { structureDetail, registerStructureDetail, structureDetailRange, detailC
 import { toon } from '../render/toon';
 import { plasterTexture, roofTexture, stoneTexture, woodTexture } from '../render/textures';
 
-export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'rock' | 'cloth' | 'paving' | 'brick' | 'ashlar';
+export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'rock' | 'cloth' | 'paving'
+  | 'marble' | 'tile' | 'ashlar' | 'slate' | 'gilt' | 'bronze' | 'fresco' | 'oak' | 'velvet' | 'strata' | 'spanstone' | 'glow' | 'brick';
 
 const textureSets = new Map<number, Record<'stone' | 'plaster' | 'roof' | 'wood', THREE.Texture>>();
 const materialSets = new Map<string, Record<Mat, THREE.Material>>();
-function getMaterials(detail = false): Record<Mat, THREE.Material> {
+function getMaterials(detail = false, interior = false, shell = false): Record<Mat, THREE.Material> {
   const relief = structureDetail() > 0;
-  const key = `${structureDetail()}-${detail}`;
+  const key = `${structureDetail()}-${detail}-${interior}-${shell}`;
   if (materialSets.has(key)) return materialSets.get(key)!;
-  const range = detail ? { detailRange: structureDetailRange() } : {};
+  const range = { ...(detail ? { detailRange: structureDetailRange() } : {}), interior, shell };
   const resolution = structureDetail() > 1 ? 512 : 256;
   if (!textureSets.has(resolution)) textureSets.set(resolution, {
     stone: stoneTexture(resolution), plaster: plasterTexture(resolution), roof: roofTexture(resolution), wood: woodTexture(resolution),
@@ -31,12 +32,30 @@ function getMaterials(detail = false): Record<Mat, THREE.Material> {
     cloth: toon(0xffffff, { vertexColors: true, doubleSided: true, ...range }),
     // Street setts: same stone pattern at a smaller scale.
     paving: toon(0xffffff, { pbr: 'paving', vertexColors: true, texture: textures.stone, textureSize: 1.1, ...range }),
-    // Town fronts: fired brick and dressed ashlar (the painted stone texture, finer, without PBR).
+    // The abbey, gorge and viaduct palette. Outside the cinematic style these fall back to flat tints.
+    marble: toon(0xffffff, { pbr: 'marble', vertexColors: true, texture: textures.plaster, textureSize: 5, ...range }),
+    tile: toon(0xffffff, { pbr: 'tile', vertexColors: true, ...range }),
+    ashlar: toon(0xffffff, { pbr: 'ashlar', vertexColors: true, texture: textures.plaster, textureSize: 4, ...range }),
+    slate: toon(0xffffff, { pbr: 'slate', vertexColors: true, texture: textures.roof, textureSize: 2.2, ...range }),
+    gilt: toon(0xffffff, { pbr: 'gilt', vertexColors: true, ...range }),
+    bronze: toon(0xffffff, { pbr: 'bronze', vertexColors: true, ...range }),
+    fresco: toon(0xffffff, { pbr: 'fresco', vertexColors: true, doubleSided: true, ...range }),
+    oak: toon(0xffffff, { pbr: 'oak', vertexColors: true, texture: textures.wood, textureSize: 1.5, ...range }),
+    velvet: toon(0xffffff, { pbr: 'velvet', vertexColors: true, doubleSided: true, ...range }),
+    strata: toon(0xffffff, { pbr: 'strata', vertexColors: true, ...range }),
+    spanstone: toon(0xffffff, { pbr: 'spanstone', vertexColors: true, texture: textures.stone, textureSize: 3.4, ...range }),
+    // Flames, lamp glass and anything else that gives light: unlit, in scene-linear colour.
+    glow: glowMaterial(),
+    // Town fronts of fired brick; the painted stone texture, finer, stands in without PBR.
     brick: toon(0xffffff, { pbr: 'brick', vertexColors: true, texture: textures.stone, textureSize: 0.9, relief: relief ? 0.03 : 0, ...range }),
-    ashlar: toon(0xffffff, { pbr: 'ashlar', vertexColors: true, texture: textures.plaster, textureSize: 3.4, relief: relief ? 0.03 : 0, ...range }),
   };
   materialSets.set(key, materials);
   return materials;
+}
+
+let glow: THREE.MeshBasicMaterial | undefined;
+function glowMaterial(): THREE.MeshBasicMaterial {
+  return glow ??= new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, name: 'glow' });
 }
 
 const tmp = new THREE.Color();
@@ -85,6 +104,8 @@ export class Builder {
   /** Boxes go straight into flat arrays: no geometry objects, so no garbage. */
   private readonly soups = new Map<string, Map<Mat, Soup>>();
   private detailing = false;
+  /** An interior builder's materials also receive the abbey's bounced daylight. */
+  constructor(private readonly interior = false, private readonly shell = false) {}
 
   private soup(mat: Mat, cell: string): Soup {
     let byMat = this.soups.get(cell);
@@ -350,16 +371,17 @@ export class Builder {
     }
     this.soups.clear();
     const group = new THREE.Group();
-    const mats = getMaterials();
+    const mats = getMaterials(false, this.interior, this.shell);
     for (const [mat, list] of this.parts) {
       const mesh = new THREE.Mesh(mergeGeometries(list), mats[mat]);
-      mesh.castShadow = castShadow;
-      mesh.receiveShadow = true;
+      mesh.castShadow = castShadow && mat !== 'glow';
+      mesh.receiveShadow = mat !== 'glow';
       mesh.matrixAutoUpdate = false;
+      mesh.name = `structure-${mat}`;
       group.add(mesh);
     }
     this.parts.clear();
-    const detailMats = getMaterials(true);
+    const detailMats = getMaterials(true, this.interior, this.shell);
     for (const [cell, parts] of this.detailParts) for (const [mat, list] of parts) {
       const mesh = new THREE.Mesh(mergeGeometries(list), detailMats[mat]);
       mesh.name = `structure-detail-${cell}-${mat}`;

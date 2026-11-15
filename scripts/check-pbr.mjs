@@ -68,9 +68,10 @@ try {
   const terrain = await server.ssrLoadModule('/src/world/terrain.ts');
   const { toon } = await server.ssrLoadModule('/src/render/toon.ts');
   const { createPbrLighting } = await server.ssrLoadModule('/src/render/pbr/lighting.ts');
-  check('eight unique registered surfaces with finite nonzero relief', () => {
-    assert.equal(Object.keys(lib.PBR_MATERIALS).length, 11);
-    assert.equal(new Set(Object.values(lib.PBR_MATERIALS).map((entry) => entry.id)).size, 11);
+  check('twenty-one unique registered surfaces with finite nonzero relief', () => {
+    // Nine for the wider world, eleven for the abbey, the gorge and the viaduct, brick for the town.
+    assert.equal(Object.keys(lib.PBR_MATERIALS).length, 21);
+    assert.equal(new Set(Object.values(lib.PBR_MATERIALS).map((entry) => entry.id)).size, 21);
     for (const entry of Object.values(lib.PBR_MATERIALS)) assert.ok(entry.relief > 0 && entry.relief < .2);
   });
   check('low allocates no multilayer / PMREM / cascades / contact map; medium 2, high 3 cascades', () => {

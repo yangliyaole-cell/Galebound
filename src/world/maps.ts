@@ -7,6 +7,8 @@ import {
   BLOSSOM, CITY, FIELDS, FOREST, HALF, PLATEAU, PLAZAS, ROADS, SIZE, SOUTH_GATE, START, STONES, VILLAGE, WINDMILL,
   WATCHTOWER, LIGHTHOUSE, ABBEY, CITY_MAX_RADIUS, CITY_SQUARES, cityWallPolygon, cityEdgeDistance, fieldPolygon, inPolygon, roadClearance, squareDistance, type Field,
 } from './layout';
+import { precinctDistance } from './abbey-plan';
+import { viaductDistance } from './layout';
 
 let splatSize = 0;
 let splatData: Uint8ClampedArray = new Uint8ClampedArray(0);
@@ -179,7 +181,7 @@ export function forestDensity(x: number, z: number): number {
   // The gate approach is an open glacis: nothing grows across the view of the great gate.
   const gx = x - SOUTH_GATE.x, gz = z - SOUTH_GATE.z;
   if (gz > -8 && gz < 150) d *= sstep(0, 14, Math.abs(gx) - 18 - gz * 0.35);
-  d *= sstep(52, 95, dist(x, z, ABBEY));
+  d *= sstep(6, 34, precinctDistance(x - ABBEY.x, z - ABBEY.z)) * sstep(3, 12, viaductDistance(x, z));
   // Keep the first view of the city clear of random trees.
   if (z < START.z && z > START.z - 420 && Math.abs(x - START.x - (CITY.x - START.x) * (START.z - z) / (START.z - CITY.z)) < 34) d = 0;
   d *= 0.08 + 0.92 * sstep(VILLAGE.r * 0.55, VILLAGE.r, dist(x, z, VILLAGE));

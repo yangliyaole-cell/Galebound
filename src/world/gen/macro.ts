@@ -136,6 +136,7 @@ export function buildMacro(onProgress?: (fraction: number) => void): Macro {
       const run = pts[i + 1].s - pts[i].s;
       const steepest = lerp(0.03, 0.45, sstep(0.08, 0.55, rangeMask(pts[i].x, pts[i].z)));
       pts[i].level = clamp(landAt(pts[i].x, pts[i].z) - 4, pts[i + 1].level + 0.004 * run, pts[i + 1].level + steepest * run);
+      pts[i].rim = pts[i].level;
     }
     for (let k = 0; k < pts.length; k += 2) {
       const p = pts[k];
@@ -146,12 +147,12 @@ export function buildMacro(onProgress?: (fraction: number) => void): Macro {
         const d = Math.hypot(i * MACRO_CELL - MACRO_HALF - p.x, j * MACRO_CELL - MACRO_HALF - p.z);
         if (d > reach) continue;
         const c = j * n + i, out = d - p.floor;
-        const t = p.level + (out <= 0 ? 1.2 + 2.3 * (d / p.floor) ** 2 : 3.5 + p.wall * out * (1 + out / 600));
+        const t = p.rim + (out <= 0 ? 1.2 + 2.3 * (d / p.floor) ** 2 : 3.5 + p.wall * out * (1 + out / 600));
         if (t < ceiling[c]) ceiling[c] = t;
         if (d < nearest[c]) {
           nearest[c] = d;
           // Fades out with distance so far hills are left to the landform.
-          lower[c] = lerp(-70, p.level + 0.9 + 0.018 * d, sstep(820, 380, d));
+          lower[c] = lerp(-70, p.rim + 0.9 + 0.018 * d, sstep(820, 380, d));
         }
       }
     }
@@ -163,9 +164,10 @@ export function buildMacro(onProgress?: (fraction: number) => void): Macro {
   // River and lake cells are the base level that everything drains to.
   for (const river of RIVERS) for (const p of river.pts) {
     const c = Math.round((p.z + MACRO_HALF) / MACRO_CELL) * n + Math.round((p.x + MACRO_HALF) / MACRO_CELL);
-    fixed[c] = 1; height[c] = Math.min(height[c], p.level - 0.8);
+    fixed[c] = 1; height[c] = Math.min(height[c], p.rim - 0.8);
   }
   for (const l of LAKES) {
+    if (l.fine) continue;
     const reach = Math.max(l.rx, l.rz) * 2.6;
     for (let z = l.z - reach; z <= l.z + reach; z += MACRO_CELL) for (let x = l.x - reach; x <= l.x + reach; x += MACRO_CELL) {
       const i = Math.round((x + MACRO_HALF) / MACRO_CELL), j = Math.round((z + MACRO_HALF) / MACRO_CELL), c = j * n + i;

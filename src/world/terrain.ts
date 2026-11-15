@@ -91,6 +91,13 @@ export const GROUND_GLSL = /* glsl */ `
     // Bedding: bands that follow height, bent a little by the lie of the land.
     float strata = gNoise(vec2(wp.y * 0.3 + mid * 4.0 + broad * 9.0, 3.7));
     rockCol *= 0.8 + 0.34 * strata;
+    // On true cliffs the beds show: thick pale ones standing proud, thin dark ones weathered back.
+    float cliffness = smoothstep(0.62, 0.3, ny);
+    float bedY = wp.y * 0.42 + mid * 2.2 + broad * 5.0;
+    float bed = gHash(vec2(floor(bedY), 7.0)), bedEdge = abs(fract(bedY) - 0.5) * 2.0;
+    vec3 bedCol = mix(vec3(0.62, 0.64, 0.7), vec3(0.93, 0.87, 0.76), bed) * (0.82 + 0.3 * gNoise(vec2(wp.x + wp.z, wp.y) * 0.21 + bed * 9.0));
+    bedCol *= 1.0 - 0.42 * smoothstep(0.72, 0.98, bedEdge);
+    rockCol = mix(rockCol, bedCol * (0.86 + 0.2 * fine), cliffness * 0.85);
     rockCol = mix(rockCol, rockCol * vec3(1.1, 0.98, 0.84), smoothstep(0.42, 0.7, gFbm3(wp.xz * 0.009 + 3.0)));
     rockCol = mix(rockCol, vec3(0.52, 0.58, 0.72) * (0.75 + 0.4 * strata), smoothstep(700.0, 1900.0, wp.y) * 0.5);
     float scree = smoothstep(0.9, 0.78, ny + (fine - 0.5) * 0.1) * (1.0 - g.rock);
@@ -278,6 +285,11 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
         vec4 landMap = mix(texture2D(uFarLand, vLand.xz / ${(MACRO_HALF * 2).toFixed(1)} + 0.5), texture2D(uLand, worldUv(vLand.xz)), landInside);
         vec2 landXZ = landMap.rg * 2.0 - 1.0;
         vec3 landN = vec3(landXZ.x, sqrt(max(1e-4, 1.0 - dot(landXZ, landXZ))), landXZ.y);
+        // The baked normals are too coarse to hold a cliff a few metres thick; where the surface
+        // itself is much steeper than they say, believe the surface.
+        vec3 landFace = normalize(cross(dFdx(vLand), dFdy(vLand)));
+        landFace *= sign(landFace.y + 1e-5);
+        landN = normalize(mix(landN, landFace, smoothstep(0.1, 0.28, landN.y - landFace.y) * landInside));
         float landDist = length(cameraPosition - vLand);
         Ground ground = groundCover(vLand, landN.y);
         vec3 landCol = ground.color;
