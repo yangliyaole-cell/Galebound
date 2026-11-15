@@ -54,7 +54,9 @@ class Wood {
     const ring = sides + 1;
     for (let i = 0; i < path.length - 1; i++) for (let k = 0; k < sides; k++) {
       const a = base + i * ring + k, b = a + 1, c = a + ring, d = c + 1;
-      this.idx.push(a, c, b, b, c, d);
+      // Counter-clockwise seen from outside: with the (side, up, tangent) frame above, a,c,b faced inward
+      // and the front-face material drew only the far wall of every limb.
+      this.idx.push(a, b, c, b, d, c);
     }
   }
   build(): THREE.BufferGeometry {
