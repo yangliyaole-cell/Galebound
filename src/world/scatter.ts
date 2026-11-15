@@ -7,6 +7,7 @@ import { blossomTexture, leafTexture, needleTexture } from '../render/textures';
 import { addRound, surfaceTop } from './colliders';
 import { foliageMaterial, leafCards, type Part } from './foliage';
 import { heightAt, normalAt, sstep } from './heightmap';
+import { precinctDistance } from './abbey-plan';
 import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, insideCity, PLAZAS, FIELDS, fieldPolygon, cityRadiusAt, citySquareAt, CITY_MAX_RADIUS } from './layout';
 import { blossomDensity, fieldAt, forestDensity } from './maps';
 import { fbm, seededRandom } from './noise';
@@ -370,7 +371,9 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
   // Not on a road, a field, or anything that has been built.
   const fields = FIELDS.map(fieldPolygon);
   const clear = (x: number, z: number): boolean =>
-    Math.hypot(x - ABBEY.x, z - ABBEY.z) > 70 &&
+    precinctDistance(x - ABBEY.x, z - ABBEY.z) > 9 &&
+    // Nothing perches on the cliffs of the Cloudfall gorge.
+    !(x < -1280 && x > -1760 && z < -1090 && z > -1540 && Math.max(Math.abs(heightAt(x + 3, z) - heightAt(x - 3, z)), Math.abs(heightAt(x, z + 3) - heightAt(x, z - 3))) > 2.6) &&
     roadClearance(x, z) > 1.2 && !insideCity(x, z) &&
     !PLAZAS.some(([px, pz, r]) => Math.hypot(x - px, z - pz) < r + 2) &&
     !fieldAt(x, z) &&

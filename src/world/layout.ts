@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GALE, LAKES, coastZ, lakeShape, nearestRiver } from './gen/hydro';
 import { sfbm } from './gen/noise';
+import { PLAN } from './abbey-plan';
 
 /**
  * The map. North is -Z, east is +X. All distances in metres.
@@ -40,12 +41,24 @@ export const BRIDGES: BridgeSpec[] = [
   { ...BRIDGE, dirX: 0, dirZ: 1, arches: 3, name: 'village' },
   { x: -154, z: -205, length: 22, width: 3.4, dirX: -0.58, dirZ: -0.82, level: 65.3, arches: 1, name: 'north-beck' },
   { x: -256, z: 288, length: 20, width: 3.2, dirX: -0.81, dirZ: -0.59, level: 56.3, arches: 1, name: 'wood-brook' },
+  // Below Cloudfall, where the avenue to the abbey crosses the Gale.
+  { x: -1222, z: -960, length: 44, width: 5.4, dirX: 0.96, dirZ: -0.28, level: 126, arches: 3, name: 'gale-gorge' },
 ];
 export const VILLAGE = { x: 150, z: 345, r: 150 };
 /** On Mirror Lake's north-east shore: the deck stands in the water, its gangway runs south to the bank. */
 export const PIER = { x: -484, z: -100 };
 /** Where the Gale leaves its hanging valley: the lip of Cloudfall and the flow direction there. */
 export const SCARP = { x: -1376, z: -1186, ux: 0.6, uz: 0.8, rise: 140 };
+
+/**
+ * The Cloudfall gorge: its floor from the foot of the upper fall to the lip of the great
+ * fall, as [x, z, level]. The river's survey (gen/hydro.ts) runs down the same line.
+ */
+export const GORGE: [number, number, number][] = [
+  [-1659, -1444, 243.2], [-1610, -1375, 241], [-1560, -1310, 238.5], [-1500, -1272, 236], [-1436, -1238, 233.5],
+];
+/** The plunge pool under the great fall, in its amphitheatre in the scarp face. */
+export const PLUNGE = { x: -1389, z: -1193, level: 151.5 };
 
 export type Pt = [number, number];
 
@@ -101,6 +114,20 @@ export const EAST_GATE = cityGate(EAST_GATE_ANGLE);
 /** On a natural shelf of the scarp top, above Cloudfall, looking south-east over the vale.
  * Its road was routed by scripts/route-road.mjs and switches back up the scarp. */
 export const ABBEY = { x: -1535, z: -1477, floor: 283, halfWidth: 18, halfLength: 37, entranceZ: -1440, tower: 308 };
+
+/**
+ * The Pilgrims' Viaduct: from the gate in the west side of the abbey's forecourt (a) straight
+ * across the Cloudfall gorge to the western tableland (b). The Gale passes under mid-span.
+ */
+export const VIADUCT = (() => {
+  const ax = ABBEY.x + PLAN.forecourt.x0, az = ABBEY.z + 60, ux = -0.793, uz = 0.609, length = 172;
+  return { ax, az, bx: ax + ux * length, bz: az + uz * length, width: 6.6, bay: 15.02 };
+})();
+export function viaductDistance(x: number, z: number): number {
+  const dx = VIADUCT.bx - VIADUCT.ax, dz = VIADUCT.bz - VIADUCT.az;
+  const t = Math.max(0, Math.min(1, ((x - VIADUCT.ax) * dx + (z - VIADUCT.az) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(x - VIADUCT.ax - dx * t, z - VIADUCT.az - dz * t) - VIADUCT.width / 2;
+}
 
 export function smooth(points: Pt[], perSegment = 8): Pt[] {
   const curve = new THREE.SplineCurve(points.map(([x, z]) => new THREE.Vector2(x, z)));
@@ -211,7 +238,7 @@ const ends = (name: string): [Pt, Pt] => {
   const b = BRIDGES.find((q) => q.name === name)!, reach = b.length / 2 + 10;
   return [[b.x - b.dirX * reach, b.z - b.dirZ * reach], [b.x + b.dirX * reach, b.z + b.dirZ * reach]];
 };
-const [WB0, WB1] = ends('wood-brook'), [NB0, NB1] = ends('north-beck');
+const [WB0, WB1] = ends('wood-brook'), [NB0, NB1] = ends('north-beck'), [GB0, GB1] = ends('gale-gorge');
 /** A country road arriving at a city gate: no control point may stand inside the town or under its crag. */
 function approach(controls: Pt[], gate: { x: number; z: number }): Pt[] {
   return [...controls.filter(([x, z], i) => i >= controls.length - 2 || cityEdgeDistance(x, z) > 60), [gate.x, gate.z]];
@@ -231,7 +258,15 @@ export const ROADS: Road[] = [
     [EAST_GATE.x + 70 * Math.cos(EAST_GATE_ANGLE - 0.2), EAST_GATE.z + 70 * Math.sin(EAST_GATE_ANGLE - 0.2)], [EAST_GATE.x + 24 * Math.cos(EAST_GATE_ANGLE), EAST_GATE.z + 24 * Math.sin(EAST_GATE_ANGLE)]], EAST_GATE).reverse()),
   road('abbey-pilgrimage', 'dirt', 2.8, [[172, 150], [60, 96], [-40, 10], [-96, -110], [NB0[0] + 6, NB0[1] + 8.5], NB0]),
   road('abbey-pilgrimage-bridge', 'cobble', 3.4, [NB0, NB1], true),
-  road('abbey-pilgrimage-upper', 'dirt', 2.8, [NB1, [NB1[0] - 6, NB1[1] - 8.5], [-190, -250], [-330, -360], [-470, -440], [-620, -520], [-740, -640], [-820, -790], [-883, -940], [-891, -988], [-931, -1004], [-979, -1004], [-1027, -1004], [-1075, -1028], [-1107, -1052], [-1115, -1100], [-1107, -1148], [-1107, -1196], [-1139, -1228], [-1195, -1228], [-1243, -1228], [-1291, -1228], [-1339, -1204], [-1315, -1252], [-1283, -1284], [-1251, -1316], [-1219, -1348], [-1187, -1380], [-1163, -1412], [-1147, -1460], [-1147, -1500], [-1171, -1452], [-1211, -1420], [-1259, -1396], [-1227, -1428], [-1203, -1476], [-1203, -1524], [-1203, -1572], [-1227, -1524], [-1251, -1492], [-1291, -1468], [-1339, -1444], [-1387, -1420], [-1435, -1396], [-1483, -1372], [-1499, -1332], [-1523, -1356], [-1539, -1404], [-1535, -1440]]),
+  road('abbey-pilgrimage-upper', 'dirt', 2.8, [NB1, [NB1[0] - 6, NB1[1] - 8.5], [-190, -250], [-330, -360], [-470, -440], [-620, -520], [-740, -640], [-820, -790], [-883, -940], [-891, -988], [-931, -1004], [-979, -1004], [-1027, -1004], [-1075, -1028], [-1107, -1052], [-1115, -1100], [-1107, -1148], [-1107, -1196], [-1139, -1228], [-1195, -1228], [-1243, -1228], [-1291, -1228], [-1339, -1204], [-1315, -1252], [-1283, -1284], [-1251, -1316], [-1219, -1348], [-1187, -1380], [-1163, -1412], [-1136, -1456], [-1136, -1512], [-1136, -1560], [-1160, -1512], [-1184, -1480], [-1216, -1456], [-1264, -1432], [-1312, -1408], [-1360, -1384], [-1408, -1360], [-1424, -1352], [-1392, -1384], [-1360, -1416], [-1328, -1448], [-1296, -1480], [-1264, -1520], [-1256, -1536], [-1288, -1512], [-1336, -1488], [-1384, -1464], [-1432, -1440], [-1480, -1416], [-1502, -1408], [-1528, -1409], [-1535, -1440]]),
+  // The avenue: off the pilgrims' path below the falls, over the Gale, up the western scarp in long
+  // traverses (routed by scripts/route-road.mjs) and on to the viaduct.
+  road('abbey-avenue', 'cobble', 4.6, [[-1107, -1052], [-1128, -1044], [-1146, -1022], [-1170, -1006], [-1184, -982], GB1]),
+  road('abbey-avenue-bridge', 'cobble', 5, [GB1, GB0], true),
+  road('abbey-avenue-upper', 'cobble', 4.6, [GB0, [-1276, -966], [-1308, -1006], [-1292, -1054], [-1324, -1086], [-1372, -1094], [-1420, -1078], [-1468, -1054], [-1516, -1038], [-1564, -1014],
+    [-1556, -1030], [-1532, -1078], [-1508, -1126], [-1484, -1158], [-1516, -1142], [-1564, -1118], [-1612, -1094], [-1660, -1070], [-1716, -1062], [-1684, -1078], [-1652, -1110], [-1620, -1142],
+    [-1596, -1182], [-1564, -1222], [-1612, -1198], [-1652, -1174], [-1700, -1150], [-1748, -1142], [-1796, -1142], [-1748, -1166], [-1716, -1198], [-1692, -1230], [-1690, -1284], [-1700, -1302],
+    [VIADUCT.bx - 3, VIADUCT.bz + 2.4]]),
   road('field-path', 'dirt', 2.2, [[-8, 356], [-60, 430], [-76, 530], [-40, 640], [34, 770]]),
   ...CITY_STREETS,
 ];

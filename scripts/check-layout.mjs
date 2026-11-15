@@ -28,7 +28,7 @@ try {
   const C = await server.ssrLoadModule('/src/world/colliders.ts');
   const B = await server.ssrLoadModule('/src/world/build.ts');
   const { PALACE } = await server.ssrLoadModule('/src/world/structures/palace.ts');
-  const { buildAbbey, ABBEY_ENTRY } = await server.ssrLoadModule('/src/world/structures/abbey.ts');
+  const { buildAbbey, ABBEY_ENTRY, ABBEY_SHAFTS } = await server.ssrLoadModule('/src/world/structures/abbey.ts');
   const low = process.argv.includes('--low');
   const detail = low ? 0 : process.argv.includes('--high') ? 2 : 1;
   const tier = low ? 'low' : detail === 2 ? 'high' : 'medium';
@@ -39,6 +39,7 @@ try {
   const landmarks = (await server.ssrLoadModule('/src/world/structures/landmarks.ts')).buildLandmarks();
   const city = (await server.ssrLoadModule('/src/world/structures/city.ts')).buildCity(detail);
   const abbey = buildAbbey();
+  const viaduct = (await server.ssrLoadModule('/src/world/structures/viaduct.ts')).buildViaduct();
   const hydro = await server.ssrLoadModule('/src/world/gen/hydro.ts');
   // The surveyed water network replaced the old hand-placed alpine lakes.
   const mountain = {
@@ -180,6 +181,7 @@ try {
     assert.equal(sun.intensity, 3); assert.equal(ambient.intensity, 1.5); assert.ok(fog.color.equals(originalHaze));
   });
   const { ABBEY_OPTICS, abbeyOpticalEnvelope } = await server.ssrLoadModule('/src/world/abbey-light.ts');
+  const pbrMaterial = await server.ssrLoadModule('/src/render/pbr/material.ts');
   const { cinematic } = await server.ssrLoadModule('/src/render/styles/cinematic.ts');
   check('abbey optics cannot add HDR energy or wash out the opaque traveller', () => {
     const optics = [];
@@ -189,20 +191,22 @@ try {
       const mat = mesh.material, kind = mat.userData.abbeyOptics.kind, cap = ABBEY_OPTICS[kind];
       assert.equal(mat.blending, THREE.NormalBlending); assert.equal(mat.depthTest, true); assert.equal(mat.depthWrite, false);
       assert.equal(mat.uniforms.uLimits.value.x, cap.radiance); assert.equal(mat.uniforms.uLimits.value.y, cap.alpha);
-      assert.ok(cap.radiance < cinematic.post.bloom[0]);
+      // The nave is pale marble: a beam must outshine the wall behind it, but a thin one adds little.
+      assert.ok(cap.radiance * cap.alpha < 0.35 && cap.alpha <= 0.25);
       for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) {
         const sample = abbeyOpticalEnvelope(kind, i / 20, j / 20);
         assert.ok(sample.alpha >= 0 && sample.alpha <= cap.alpha && sample.radiance <= cap.radiance);
       }
       if (kind === 'shaft') {
         assert.ok(mat.fragmentShader.includes('smoothstep(1.,1.25,length(delta))'));
-        assert.equal(mesh.geometry.attributes.position.count, 10 * 2 * 4);
+        assert.equal(mesh.geometry.attributes.position.count, ABBEY_SHAFTS * 2 * 4);
       }
-      let surface = 0.10;
-      for (let i = 0; i < 52; i++) surface = cap.radiance * cap.alpha + surface * (1 - cap.alpha);
-      assert.ok(surface <= cap.radiance && surface < cinematic.post.bloom[0]);
+      // Two crossed sheets over sunlit marble stay short of white-out.
+      let surface = 0.62;
+      for (let i = 0; i < 2; i++) surface = cap.radiance * cap.alpha + surface * (1 - cap.alpha);
+      assert.ok(surface <= cap.radiance && surface < 1.0);
     }
-    return `10 shafts: RGB<=${ABBEY_OPTICS.shaft.radiance}, alpha<=${ABBEY_OPTICS.shaft.alpha}; patches: RGB<=${ABBEY_OPTICS.patch.radiance}, alpha<=${ABBEY_OPTICS.patch.alpha}`;
+    return `${ABBEY_SHAFTS} shafts: RGB<=${ABBEY_OPTICS.shaft.radiance}, alpha<=${ABBEY_OPTICS.shaft.alpha}; patches: RGB<=${ABBEY_OPTICS.patch.radiance}, alpha<=${ABBEY_OPTICS.patch.alpha}`;
   });
   check('cinematic style switches, screenshot frames and outdoors keep their own light/fog values', () => {
     const sun = new THREE.DirectionalLight(0xffffff, 3), hemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.5);
@@ -224,19 +228,16 @@ try {
     assert.equal(sun.intensity, cinematic.sun[1]); assert.equal(hemi.intensity, cinematic.hemisphere[2]);
     return `cinematic indoor sun=${(cinematic.sun[1] * ABBEY_LIGHTING.sun).toFixed(3)}, hemi=${(cinematic.hemisphere[2] * ABBEY_LIGHTING.ambient).toFixed(3)}; outdoor restored exactly`;
   });
-  check('abbey representative linear-luminance model drops glare without changing outdoor exposure', () => {
-    // A bounded illustrative mixture, not a rendered screenshot measurement.
-    // Weights: bare stone / one shaft / floor patch / two shafts plus patch.
-    const weights = [0.4, 0.25, 0.25, 0.1], oldBase = 0.16, tintY = 0.4;
-    const base = oldBase * (0.7 * (4.9 * ABBEY_LIGHTING.sun / 1.35) + 0.3 * (0.85 * ABBEY_LIGHTING.ambient / 0.675));
-    const oldShaft = tintY * 2.3 * (1 + 1.5 * 0.4) * 0.21, oldPatch = tintY * 1.8 * 0.70;
-    const mix = (dst, kind) => dst * (1 - ABBEY_OPTICS[kind].alpha) + tintY * ABBEY_OPTICS[kind].radiance * ABBEY_OPTICS[kind].alpha;
-    const oldValues = [oldBase, oldBase + oldShaft, oldBase + oldPatch, oldBase + oldPatch + 2 * oldShaft];
-    const newValues = [base, mix(base, 'shaft'), mix(base, 'patch'), mix(mix(mix(base, 'patch'), 'shaft'), 'shaft')];
-    const mean = (values) => values.reduce((sum, y, i) => sum + y * weights[i], 0);
-    const before = mean(oldValues), after = mean(newValues);
-    assert.ok(after < before * 0.4);
-    console.log(`  LUMA MODEL before=${before.toFixed(4)}, after=${after.toFixed(4)}, linear reduction=${((1 - after / before) * 100).toFixed(1)}% (illustrative, not GPU measurement)`);
+  check('abbey interior reads as sunlit white marble without white-out', () => {
+    // An illustrative model of the cinematic nave, not a rendered measurement: marble in open shade
+    // inside (sky admitted by the windows plus bounced daylight), and where a window's sun falls on it.
+    const { pbrUniforms } = pbrMaterial;
+    const albedo = 0.86, fill = pbrUniforms.uAbbeyFill.value;
+    const shade = albedo * (cinematic.hemisphere[2] * ABBEY_LIGHTING.ambient / Math.PI + fill);
+    const sunlit = shade + albedo * cinematic.sun[1] * ABBEY_LIGHTING.sun / Math.PI * 0.7;
+    assert.ok(shade > 0.3 && shade < 0.75, `marble in shade ${shade.toFixed(2)}`);
+    assert.ok(sunlit > shade * 1.4 && sunlit < 1.5, `marble in a sun patch ${sunlit.toFixed(2)}`);
+    return `marble in shade ${shade.toFixed(2)}, in a sun patch ${sunlit.toFixed(2)} (scene-linear, illustrative)`;
   });
   check('spawn grounded and outside solids', () => {
     assert.ok(Number.isFinite(sy) && sy > 20);
@@ -322,7 +323,7 @@ try {
     return `entrance (${ABBEY_ENTRY.x},${ABBEY_ENTRY.z}), south-facing, floor ${feet.toFixed(1)}m`;
   });
   check('both transepts connect to the nave through real openings', () => {
-    for (const side of [-1, 1]) for (let d = 0; d <= 26; d += 0.12) {
+    for (const side of [-1, 1]) for (let d = 0; d <= 24; d += 0.12) { // An altar stands against each end wall.
       const x = L.ABBEY.x + d * side, z = L.ABBEY.z - 7.4, p = { x, z };
       C.resolveWalls(p, 0.32, L.ABBEY.floor, L.ABBEY.floor + 1.7, 0.5);
       assert.ok(Math.hypot(p.x - x, p.z - z) < 0.05, `transept blocked at ${x},${z}`);
@@ -356,6 +357,34 @@ try {
       length += len;
     }
     return `${length.toFixed(0)}m via village stone bridge, max grade=${maxGrade.toFixed(2)}, min dry clearance=${minDry.toFixed(2)}m`;
+  });
+  check('the avenue, its bridge and the viaduct are a continuous dry walk to the abbey portal', () => {
+    const get = (id) => L.ROADS.find((r) => r.id === id).pts;
+    const V = L.VIADUCT, deck = L.ABBEY.floor + 0.05;
+    const route = [...get('abbey-avenue'), ...get('abbey-avenue-bridge'), ...get('abbey-avenue-upper'), [V.bx, V.bz], [V.ax, V.az],
+      [L.ABBEY.x - 10, L.ABBEY.z + 52], [L.ABBEY.x, L.ABBEY.z + 44], [L.ABBEY.x, L.ABBEY.entranceZ]];
+    let feet = C.supportHeight(...route[0], Infinity, 0), length = 0, maxGrade = 0, onDeck = 0, deepest = 0;
+    for (let i = 0; i < route.length - 1; i++) {
+      const a = route[i], b = route[i + 1], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 0.001) continue;
+      const steps = Math.ceil(len / 0.15);
+      for (let j = 1; j <= steps; j++) {
+        const x = a[0] + (b[0] - a[0]) * j / steps, z = a[1] + (b[1] - a[1]) * j / steps;
+        const next = C.supportHeight(x, z, feet, 0.5), p = { x, z };
+        C.resolveWalls(p, 0.32, next, next + 1.7, 0.5);
+        assert.ok(Math.hypot(p.x - x, p.z - z) < 0.03, `avenue blocked at ${x.toFixed(1)},${z.toFixed(1)}`);
+        const grade = Math.abs(next - feet) / (len / steps);
+        assert.ok(grade < 1.25, `avenue grade ${grade.toFixed(2)} at ${x.toFixed(1)},${z.toFixed(1)}`);
+        assert.ok(next - mountain.waterLevelAt(x, z) > 0.25 || next > H.heightAt(x, z) + 1, `wet avenue at ${x.toFixed(0)},${z.toFixed(0)}`);
+        if (Math.abs(next - deck) < 0.02 && next > H.heightAt(x, z) + 1.5) { onDeck += len / steps; deepest = Math.max(deepest, next - H.heightAt(x, z)); }
+        maxGrade = Math.max(maxGrade, grade); feet = next;
+      }
+      length += len;
+    }
+    assert.ok(onDeck > 110, `only ${onDeck.toFixed(0)} m of the viaduct stands clear of the ground`);
+    assert.ok(deepest > 30, `the gorge under the viaduct is only ${deepest.toFixed(0)} m deep`);
+    void viaduct;
+    return `${length.toFixed(0)}m, ${onDeck.toFixed(0)}m on the viaduct up to ${deepest.toFixed(0)}m above the gorge, max grade=${maxGrade.toFixed(2)}`;
   });
   check('abbey exterior photo stances are dry and reach the south portal', () => {
     const descriptions = [];

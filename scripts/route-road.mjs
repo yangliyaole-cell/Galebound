@@ -11,6 +11,7 @@ const s = await createServer({ server: { middlewareMode: true, hmr: false, ws: f
 try {
   const M = await s.ssrLoadModule('/src/world/gen/macro.ts');
   const Hy = await s.ssrLoadModule('/src/world/gen/hydro.ts');
+  const L = await s.ssrLoadModule('/src/world/layout.ts');
   M.buildMacro();
   const pad = 500;
   const minX = Math.min(x0, x1) - pad, minZ = Math.min(z0, z1) - pad;
@@ -21,6 +22,13 @@ try {
     height[j * w + i] = M.macroHeight(x, z);
     const r = Hy.nearestRiver(x, z, 60);
     if (r.found && r.distance < r.width / 2 + 6) wet[j * w + i] = 1;
+    // The coarse land does not hold the Cloudfall gorge or its amphitheatre: keep roads off their rims.
+    if (Math.hypot(x - L.PLUNGE.x, z - L.PLUNGE.z) < 96) wet[j * w + i] = 1;
+    for (let k = 0; k < L.GORGE.length - 1; k++) {
+      const [ax, az] = L.GORGE[k], [bx, bz] = L.GORGE[k + 1], dx = bx - ax, dz = bz - az;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+      if (Math.hypot(x - ax - dx * t, z - az - dz * t) < 72) wet[j * w + i] = 1;
+    }
   }
   const at = (x, z) => Math.round((z - minZ) / cell) * w + Math.round((x - minX) / cell);
   const start = at(x0, z0), goal = at(x1, z1);

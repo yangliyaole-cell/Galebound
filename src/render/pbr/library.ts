@@ -11,7 +11,21 @@ export const PBR_MATERIALS = {
   moss: { id: 6, label: '苔藓', relief: 0.03 },
   cliff: { id: 7, label: '岩壁', relief: 0.16 },
   paving: { id: 8, label: '石板路', relief: 0.1 },
+  // The abbey, the gorge and the viaduct have their own palette. `clean` surfaces are kept
+  // free of moss and damp; `minRough` lets polished stone and metal take a sheen.
+  marble: { id: 9, label: '白大理石', relief: 0.012, clean: true, minRough: 0.26 },
+  tile: { id: 10, label: '抛光地砖', relief: 0.01, clean: true, minRough: 0.14 },
+  ashlar: { id: 11, label: '琢石', relief: 0.07 },
+  slate: { id: 12, label: '蓝板岩瓦', relief: 0.06 },
+  gilt: { id: 13, label: '鎏金', relief: 0.02, clean: true, minRough: 0.2, metal: 0.45 },
+  bronze: { id: 14, label: '青铜', relief: 0.02, clean: true, minRough: 0.3, metal: 0.5 },
+  fresco: { id: 15, label: '星空彩绘', relief: 0.01, clean: true },
+  oak: { id: 16, label: '橡木', relief: 0.03, clean: true, minRough: 0.3 },
+  velvet: { id: 17, label: '织物', relief: 0.015, clean: true },
+  strata: { id: 18, label: '层状崖岩', relief: 0.19 },
+  spanstone: { id: 19, label: '桥石', relief: 0.09 },
 } as const;
+export interface PbrEntry { id: number; label: string; relief: number; clean?: boolean; minRough?: number; metal?: number }
 export type PbrKind = keyof typeof PBR_MATERIALS;
 
 /** Fragment only: analytic antialiasing removes frequencies smaller than a pixel. */
@@ -143,6 +157,154 @@ PbrSurface pCliff(vec2 p) {
   float fault=1.0-smoothstep(.018,.075,abs(pFbm(p*vec2(1.7,.38))-.5));
   s.albedo*=vec3(.90,.95,1.02)*(.87+layers*.17-fault*.1);
   s.height+=layers*.12-fault*.22; s.ao*=1.0-fault*.29; return s;
+}
+// ---- Cloudfall Abbey ------------------------------------------------------
+// How much of a pixel a joint of half-width j covers at distance e from its centre line.
+// A joint thinner than a pixel fades out instead of smearing its colour over the stone.
+float pJoint(float e,float j,float aa) { return (1.0-smoothstep(j,j+aa,e))*clamp(j/(aa*.6+.0001),0.0,1.0); }
+// White marble in large dressed blocks: hairline joints, grey and honey veins, a soft polish.
+PbrSurface pMarble(vec2 p) {
+  vec2 q=p/vec2(2.3,1.15); float row=floor(q.y); q.x+=mod(row,2.0)*.5+pHash(vec2(row,3.0))*.14;
+  vec2 id=floor(q), f=fract(q); float seed=pHash(id+7.0);
+  vec2 edge=min(f,1.0-f)*vec2(2.3,1.15);
+  float aa=max(fwidth(p.x),fwidth(p.y))+.0015;
+  float body=1.0-pJoint(min(edge.x,edge.y),.005,aa);
+  vec2 w=p+seed*37.0;
+  float warp=pFbm(w*.55), cloud=pFbm(w*1.7+11.0);
+  float vein=1.0-smoothstep(.0,.07+fwidth(w.x)*3.0,abs(sin((w.x*.9+w.y*.35+warp*5.5)*3.14159)));
+  float broad=1.0-smoothstep(.0,.38,abs(sin((w.x*.3-w.y*.7+warp*3.0)*3.14159)));
+  vec3 base=mix(vec3(.9,.9,.9),vec3(1.03,1.01,.97),cloud)*(.97+seed*.06);
+  vec3 veinTone=mix(vec3(.66,.69,.76),vec3(.86,.76,.58),pNoise(w*.4));
+  vec3 albedo=mix(base,base*veinTone,vein*.55*smoothstep(.3,.6,cloud)+broad*.14);
+  albedo*=mix(.86,1.0,body);
+  return PbrSurface(albedo,.5*body+cloud*.04,mix(.62,.3+cloud*.12,body),mix(.86,1.0,body));
+}
+// Polished floor: pale and blue-grey squares, a gold lozenge where four meet.
+PbrSurface pTile(vec2 p) {
+  vec2 q=p/1.25; vec2 id=floor(q), f=fract(q);
+  float check=mod(id.x+id.y,2.0), seed=pHash(id+3.0);
+  vec2 e=min(f,1.0-f)*1.25; float aa=max(fwidth(p.x),fwidth(p.y))+.0015;
+  float body=1.0-pJoint(min(e.x,e.y),.004,aa);
+  float warp=pFbm(p*.8+seed*19.0);
+  float vein=1.0-smoothstep(0.,.09+fwidth(p.x)*3.0,abs(sin((p.x*.8+p.y*.5+warp*5.0+seed*9.0)*3.14159)));
+  vec3 albedo=mix(vec3(1.0,.99,.96),vec3(.6,.7,.86),check)*(.95+seed*.08);
+  albedo=mix(albedo,albedo*mix(vec3(.74,.76,.82),vec3(1.3,1.25,1.2),check),vein*.4);
+  float lozenge=abs(f.x-.5)+abs(f.y-.5);
+  float gold=smoothstep(.9-aa,.9+aa,lozenge);
+  albedo=mix(albedo,vec3(1.0,.74,.3),gold);
+  albedo*=mix(.6,1.0,body);
+  return PbrSurface(albedo,.5*body,mix(.6,.16+warp*.08+gold*.12,body),mix(.85,1.0,body));
+}
+// Dressed limestone: courses of uneven length, tooled faces, rain streaks.
+PbrSurface pAshlar(vec2 p) {
+  float course=.48, row=floor(p.y/course);
+  float len=mix(.72,1.3,pHash(vec2(row,11.0)));
+  float x=p.x/len+pHash(vec2(row,5.0)), col=floor(x);
+  vec2 f=vec2(fract(x)*len,fract(p.y/course)*course);
+  float seed=pHash(vec2(col,row));
+  vec2 e=min(f,vec2(len,course)-f); float aa=max(fwidth(p.x),fwidth(p.y))+.0015;
+  float body=1.0-pJoint(min(e.x,e.y),.011,aa);
+  float tool=pFiltered(vec2(p.x*36.0+seed*9.0,p.y*6.0))*.5+pFbm(p*5.0)*.5;
+  float streak=pFbm(vec2(p.x*.9,p.y*.2)+seed*3.0);
+  vec3 albedo=mix(vec3(.84,.8,.72),vec3(1.04,1.0,.92),seed)*(.9+tool*.15)*(1.0-smoothstep(.55,.8,streak)*.17);
+  albedo=mix(vec3(.58,.55,.49),albedo,body);
+  float far=smoothstep(.06,.3,max(fwidth(p.x),fwidth(p.y)));
+  albedo=mix(albedo,vec3(.94,.9,.82)*(1.0-smoothstep(.55,.8,streak)*.12),far);
+  return PbrSurface(albedo,mix(.1,.42+tool*.12+seed*.1,body)*(1.0-far),.84+tool*.1,mix(.8,1.0,body));
+}
+// Slates in overlapping courses, each cleft a little differently.
+PbrSurface pSlate(vec2 p) {
+  vec2 q=p*vec2(3.4,2.9); float row=floor(q.y); q.x+=mod(row,2.0)*.5+pHash(vec2(row,2.0))*.12;
+  vec2 id=floor(q), f=fract(q); float seed=pHash(id);
+  float aa=max(fwidth(q.x),.003);
+  float gap=smoothstep(.012-aa,.05+aa,min(f.x,1.0-f.x));
+  float lap=smoothstep(.0,.15+fwidth(q.y),f.y);
+  float cleave=pFbm(vec2(p.x*9.0+seed*7.0,p.y*28.0));
+  float far=smoothstep(.25,.9,max(fwidth(q.x),fwidth(q.y)));
+  vec3 albedo=mix(vec3(.74,.8,.9),vec3(1.06,1.08,1.1),seed)*(.86+cleave*.2)*mix((.68+.32*lap)*(.8+.2*gap),.9,far);
+  return PbrSurface(albedo,(.2+f.y*.34*gap+cleave*.05)*(1.0-far),.46+cleave*.26,mix((.74+.26*lap)*(.85+.15*gap),.92,far));
+}
+// Gold leaf over gesso, faintly beaten.
+PbrSurface pGilt(vec2 p) {
+  float hammer=pFbm(p*13.0), fine=pFiltered(p*90.0);
+  return PbrSurface(mix(vec3(.92,.86,.74),vec3(1.08,1.04,.96),hammer),.4+hammer*.2,.24+fine*.1+hammer*.1,1.0);
+}
+PbrSurface pBronze(vec2 p) {
+  float tone=pFbm(p*6.0), fine=pFiltered(p*70.0);
+  float verdigris=smoothstep(.6,.8,pFbm(p*2.3+9.0));
+  vec3 albedo=mix(vec3(.84,.82,.78),vec3(1.1,1.04,.96),tone);
+  albedo=mix(albedo,vec3(.6,1.25,1.3),verdigris*.3);
+  return PbrSurface(albedo,.4+tone*.2,.36+fine*.14+verdigris*.3,1.0-verdigris*.1);
+}
+// Painted vault cells: a limewash of deep blue sown with gold stars.
+PbrSurface pFresco(vec2 p) {
+  float wash=pFbm(p*1.3), brush=pFbm(vec2(p.x*7.0,p.y*2.0));
+  vec3 blue=mix(vec3(.82,.86,.9),vec3(1.12,1.1,1.06),wash)*(.92+brush*.16);
+  vec2 q=p/1.2; vec2 id=floor(q), f=fract(q)-.5;
+  float seed=pHash(id+13.0);
+  f-=(vec2(pHash(id+1.0),pHash(id+2.0))-.5)*.5;
+  float r=length(f), a=atan(f.y,f.x);
+  float size=mix(.06,.14,seed);
+  float star=r-size*(.38+.62*pow(abs(cos(a*4.0)),5.0));
+  float aa=fwidth(r)+.003;
+  float gold=(1.0-smoothstep(-aa,aa,star))*step(.28,seed)*(1.0-smoothstep(.2,.6,aa*8.0));
+  return PbrSurface(mix(blue,vec3(4.4,2.3,.62),gold),.4+brush*.05+gold*.1,mix(.9,.42,gold),1.0);
+}
+// Old oak, waxed.
+PbrSurface pOak(vec2 p) {
+  PbrSurface s=pWood(p*vec2(1.25,1.0));
+  s.albedo=mix(s.albedo,vec3(dot(s.albedo,vec3(.33))),.2)*vec3(1.02,.96,.9);
+  s.roughness=s.roughness*.55+.14; return s;
+}
+// Wool and velvet: a fine weave and a nap that catches the light unevenly.
+PbrSurface pVelvet(vec2 p) {
+  float weave=pFiltered(vec2(p.x*150.0,p.y*38.0))*.5+pFiltered(vec2(p.x*38.0,p.y*150.0))*.5;
+  float nap=pFbm(p*2.4);
+  return PbrSurface(vec3(.88+nap*.2)*(.93+weave*.1),.4+weave*.12,.96,.95+.05*weave);
+}
+// ---- Cloudfall gorge and the viaduct --------------------------------------
+// Bedded cliff rock: thick and thin beds, joints that step from bed to bed, ledges between.
+PbrSurface pStrata(vec2 p) {
+  float bend=pFbm(p*vec2(.05,.11))*2.6+pNoise(p*vec2(.21,.0)+3.0)*.5;
+  float y=p.y*.55+bend;
+  float bed=floor(y), fy=fract(y);
+  float thick=pHash(vec2(bed,4.0));
+  // Vertical joints, shifted in every bed.
+  float jx=p.x*(.22+thick*.3)+pHash(vec2(bed,9.0))*7.0+pNoise(vec2(p.y*.35,bed))*.35;
+  float block=floor(jx), fx=fract(jx);
+  float seed=pHash(vec2(block,bed));
+  float aa=max(fwidth(y),fwidth(jx))+.002;
+  float bedJoint=1.0-smoothstep(.02,.06+aa,min(fy,1.0-fy));
+  float crack=(1.0-smoothstep(.012,.04+aa,min(fx,1.0-fx)))*step(.25,thick);
+  PbrSurface s=pStone(p*.6+seed*23.0);
+  float ledge=smoothstep(.72,.98,fy)*(1.0-bedJoint);
+  vec3 tone=mix(vec3(.74,.78,.86),vec3(1.12,1.04,.9),thick)*(.82+seed*.3);
+  s.albedo*=tone*(1.0-bedJoint*.4-crack*.34);
+  s.height=s.height*.5+.25+seed*.2+ledge*.16-bedJoint*.34-crack*.3;
+  s.ao*=1.0-bedJoint*.34-crack*.25;
+  float far=smoothstep(.4,1.4,aa*3.0);
+  s.albedo=mix(s.albedo,tone*.86,far*.6); s.height=mix(s.height,.4,far);
+  return s;
+}
+// Weathered bridge masonry: big squared blocks, lichen-stained, joints washed out.
+PbrSurface pSpanstone(vec2 p) {
+  float course=.62, row=floor(p.y/course);
+  float len=mix(.9,1.7,pHash(vec2(row,21.0)));
+  float x=p.x/len+pHash(vec2(row,15.0)), col=floor(x);
+  vec2 f=vec2(fract(x)*len,fract(p.y/course)*course);
+  float seed=pHash(vec2(col,row)+41.0);
+  vec2 e=min(f,vec2(len,course)-f); float aa=max(fwidth(p.x),fwidth(p.y))+.002;
+  float worn=pNoise(p*2.1+seed*9.0);
+  float body=1.0-pJoint(min(e.x,e.y),.02+worn*.02,aa);
+  PbrSurface s=pStone(p*.9+seed*17.0);
+  float lichen=smoothstep(.56,.74,pFbm(p*1.6+seed*5.0));
+  float run=smoothstep(.5,.8,pFbm(vec2(p.x*1.4,p.y*.16)));
+  s.albedo*=mix(vec3(.8,.79,.76),vec3(1.1,1.04,.93),seed)*(1.0-run*.2);
+  s.albedo=mix(s.albedo,s.albedo*vec3(1.05,1.1,.72),lichen*.4);
+  PbrSurface mortar=PbrSurface(vec3(.5,.48,.43),.05,.97,.74);
+  s.height=.3+s.height*.4+seed*.16;
+  float far=smoothstep(.12,.5,max(fwidth(p.x),fwidth(p.y)));
+  return pMix(mortar,s,body);
 }
 vec3 pWeights(vec3 n) { vec3 w=pow(abs(n),vec3(6.0)); return w/max(dot(w,vec3(1.0)),.0001); }
 // All three axes retain their world phase. No per-triangle or UV seams.

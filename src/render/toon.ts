@@ -32,6 +32,10 @@ export interface ToonOptions {
   plain?: boolean;
   /** Sky-coloured light on edges facing away from the camera, 0..1. Needs `plain`. */
   rim?: number;
+  /** Lit by the abbey's bounced daylight as well as the sun (PBR path only). */
+  interior?: boolean;
+  /** The abbey's outer shell: lit by that daylight only where a surface is indoors. */
+  shell?: boolean;
 }
 
 /** Plain cel-shaded material, e.g. for characters. */
@@ -59,7 +63,7 @@ export function toon(color: number, options: ToonOptions = {}): THREE.MeshToonMa
   if (options.pbr && pbrTier() !== 'low') {
     const standard = new THREE.MeshStandardMaterial({ color, vertexColors: options.vertexColors ?? false, side: mat.side });
     patch(standard, { ...options, texture: undefined, relief: 0 });
-    applyPbr(standard, options.pbr);
+    applyPbr(standard, options.pbr, false, options.interior ?? false, options.shell ?? false);
     registerPbr(mat, standard);
   }
   return mat;
