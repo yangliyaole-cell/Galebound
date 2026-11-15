@@ -7,7 +7,7 @@ import { toon } from '../render/toon';
 import { plasterTexture, roofTexture, stoneTexture, woodTexture } from '../render/textures';
 
 export type Mat = 'stone' | 'plaster' | 'roof' | 'wood' | 'plain' | 'rock' | 'cloth' | 'paving'
-  | 'marble' | 'tile' | 'ashlar' | 'slate' | 'gilt' | 'bronze' | 'fresco' | 'oak' | 'velvet' | 'strata' | 'spanstone' | 'glow' | 'brick';
+  | 'marble' | 'tile' | 'ashlar' | 'slate' | 'gilt' | 'bronze' | 'fresco' | 'oak' | 'velvet' | 'strata' | 'spanstone' | 'glow' | 'brick' | 'townAshlar';
 
 const textureSets = new Map<number, Record<'stone' | 'plaster' | 'roof' | 'wood', THREE.Texture>>();
 const materialSets = new Map<string, Record<Mat, THREE.Material>>();
@@ -47,6 +47,7 @@ function getMaterials(detail = false, interior = false, shell = false): Record<M
     // Flames, lamp glass and anything else that gives light: unlit, in scene-linear colour.
     glow: glowMaterial(),
     // Town fronts of fired brick; the painted stone texture, finer, stands in without PBR.
+    townAshlar: toon(0xffffff, { pbr: 'townAshlar', vertexColors: true, texture: textures.plaster, textureSize: 3.4, relief: relief ? 0.03 : 0, ...range }),
     brick: toon(0xffffff, { pbr: 'brick', vertexColors: true, texture: textures.stone, textureSize: 0.9, relief: relief ? 0.03 : 0, ...range }),
   };
   materialSets.set(key, materials);

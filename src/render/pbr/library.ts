@@ -26,6 +26,7 @@ export const PBR_MATERIALS = {
   spanstone: { id: 19, label: '桥石', relief: 0.09 },
   // Town fronts of fired brick (the city's houses).
   brick: { id: 20, label: '砖墙', relief: 0.07 },
+  townAshlar: { id: 21, label: '粗琢砂岩', relief: 0.12 },
 } as const;
 export interface PbrEntry { id: number; label: string; relief: number; clean?: boolean; minRough?: number; metal?: number }
 export type PbrKind = keyof typeof PBR_MATERIALS;
@@ -118,6 +119,36 @@ PbrSurface pPaving(vec2 p) {
 // Fired brick in running bond. The vertex tint carries the clay colour, so the brick body stays
 // near neutral (each brick a little lighter, darker, warmer or cooler) and the lime mortar is
 // lifted against a red tint to read pale.
+// The town's own stone: rusticated sandstone. Big cushioned blocks, each a little different in
+// colour (honey, rose, grey buff), set back from deep chamfered joints that draw strong shadow
+// lines, with pitched faces and a few lichen patches. The abbey keeps the smooth tooled limestone.
+PbrSurface pTownAshlar(vec2 p) {
+  float course=.56, row=floor(p.y/course);
+  float len=mix(.9,1.5,pHash(vec2(row,7.0)));
+  float x=p.x/len+pHash(vec2(row,13.0)), col=floor(x);
+  vec2 f=vec2(fract(x)*len,fract(p.y/course)*course);
+  float seed=pHash(vec2(col,row)+.37), shade=pHash(vec2(col,row)+5.1);
+  vec2 e=min(f,vec2(len,course)-f); float edge=min(e.x,e.y);
+  float aa=max(fwidth(edge),.0006);
+  float joint=smoothstep(.006-aa,.014+aa,edge);
+  float chamfer=smoothstep(.014-aa,.07+aa,edge);
+  vec2 sh=(f/vec2(len,course)-.5)*2.0;
+  float boss=sqrt(max(0.0,1.0-dot(sh*sh,vec2(.45,.7))));
+  float pitch=pFbm(p*6.5+seed*19.0);
+  vec3 hue=seed<.34?vec3(1.14,.98,.76):seed<.68?vec3(1.12,.86,.8):vec3(.9,.92,.94);
+  vec3 albedo=hue*(.74+shade*.38)*(.88+pitch*.24);
+  float lichen=smoothstep(.58,.76,pFbm(p*2.1+seed*7.0));
+  albedo=mix(albedo,albedo*vec3(.82,.9,.74),lichen*.55);
+  // The chamfer is cut back into shade; the joint itself is dark sandy mortar.
+  albedo*=mix(.72,1.0,chamfer);
+  albedo=mix(vec3(.52,.48,.42),albedo,joint);
+  float height=mix(.02,.28+chamfer*.18+boss*.26+pitch*.14,joint);
+  // Once a block is only a few pixels tall, settle to the wall's mean tone.
+  float far=smoothstep(.06,.3,max(fwidth(p.x),fwidth(p.y))/course*4.0);
+  albedo=mix(albedo,vec3(1.0,.93,.84)*.93,far);
+  height=mix(height,.4,far);
+  return PbrSurface(albedo,height,.84+pitch*.1,mix(.72,1.0,chamfer));
+}
 PbrSurface pBrick(vec2 p) {
   vec2 size=vec2(.29,.098);
   vec2 q=p/size; float row=floor(q.y);

@@ -48,9 +48,13 @@ function dress(p: { x: number; z: number; w: number; d: number; rot: number; q: 
   const tower = !grand && !yard && p.kind !== 'lane' && p.w < 6.6 && rand() < 0.05;
   // Avenue palazzi are dressed stone below and stand four or five storeys.
   // Fronts: limewashed plaster (often timbered), rubble masonry, brick or dressed ashlar.
-  const front = rand(), facade: HouseSpec['facade'] = grand ? (front < 0.45 ? 'ashlar' : front < 0.6 ? 'brick' : undefined)
+  const front = rand();
+  let facade: HouseSpec['facade'] = grand ? (front < 0.45 ? 'ashlar' : front < 0.6 ? 'brick' : undefined)
     : yard ? (front < 0.3 ? 'brick' : front < 0.42 ? 'ashlar' : undefined)
     : front < 0.15 ? 'brick' : front < 0.27 ? 'ashlar' : undefined;
+  // Dressed stone comes in two kinds, smooth limestone and rusticated sandstone, chosen by place
+  // (not by the seeded stream, so every plot keeps its other choices).
+  if (facade === 'ashlar' && Math.floor(p.x * 0.37 + p.z * 0.23) % 2 === 0) facade = 'townAshlar';
   const masonry = !facade && (grand ? rand() < 0.5 : rand() < 0.36);
   const timber = !masonry && !facade && rand() < 0.4;
   const floors = yard ? (p.w > 11 ? 2 + Math.floor(rand() * 2) : 2 + Math.floor(rand() * 1.6)) : grand ? 4 + Math.floor(rand() * 2) : tower ? 5 + Math.floor(rand() * 2) : p.q < 0.5 ? 3 + Math.floor(rand() * 2) : 2 + Math.floor(rand() * 2 + rand());
@@ -60,8 +64,8 @@ function dress(p: { x: number; z: number; w: number; d: number; rot: number; q: 
   const vine = rand() < 0.32;
   return {
     x: p.x, z: p.z, w: p.w, d: p.d, rot: p.rot, floors,
-    roof: rand() < (facade === 'ashlar' ? 0.3 : 0.08) ? pick(SLATES) : pick(TOWN_ROOFS),
-    wall: facade === 'brick' ? pick(BRICKS) : facade === 'ashlar' ? pick(ASHLARS) : pick(TOWN_WALLS), facade,
+    roof: rand() < (facade === 'ashlar' || facade === 'townAshlar' ? 0.3 : 0.08) ? pick(SLATES) : pick(TOWN_ROOFS),
+    wall: facade === 'brick' ? pick(BRICKS) : facade === 'ashlar' || facade === 'townAshlar' ? pick(ASHLARS) : pick(TOWN_WALLS), facade,
     timber, shutters: pick(SHUTTERS), chimney: rand() < 0.75, ridgeAlongFront, simple: 2,
     masonry, tower, jetty: timber && floors >= 3 && rand() < 0.6, hip: !tower && rand() < (yard && p.w > 11 ? 0.55 : 0.22),
     dormers: ridgeAlongFront && !tower && floors >= 2 && rand() < 0.3 ? 1 + Math.floor(rand() * 3) : 0,
