@@ -497,14 +497,13 @@ const FLOWERS: Record<'rose' | 'briar' | 'hydrangea' | 'broom' | 'daisy' | 'petu
       }
     }
   },
-  /** Little pea flowers crowded along green switches. */
+  /** Little pea flowers in loose clusters among the green. */
   broom: (ctx, s, rand) => {
-    for (let t = 0; t < 14; t++) {
-      const [x0, y0] = spot(s, rand, 0.25), heading = rand() * Math.PI * 2, len = s * (0.15 + rand() * 0.12);
-      for (let k = 0; k < 13; k++) {
-        const u = k / 10, x = x0 + Math.cos(heading) * len * u, y = y0 + Math.sin(heading) * len * u;
-        const side = k % 2 ? 1 : -1, a = heading + side * 1.2;
-        blob(ctx, x + Math.cos(a) * s * 0.014, y + Math.sin(a) * s * 0.014, s * 0.024, s * 0.016, a, 210 + rand() * 45);
+    for (let t = 0; t < 9; t++) {
+      const [cx, cy] = spot(s, rand, 0.3), spread = s * (0.05 + rand() * 0.05);
+      for (let k = 0; k < 22; k++) {
+        const a = rand() * Math.PI * 2, d = spread * Math.sqrt(rand());
+        blob(ctx, cx + Math.cos(a) * d * 1.3, cy + Math.sin(a) * d, s * (0.014 + rand() * 0.008), s * (0.01 + rand() * 0.005), rand() * 3, 200 + rand() * 55);
       }
     }
   },
