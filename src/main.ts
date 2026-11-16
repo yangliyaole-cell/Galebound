@@ -15,6 +15,7 @@ import { createCrowd } from './world/crowd';
 import { START, ZONES } from './world/layout';
 import { buildBiome, buildFields, buildSplat } from './world/maps';
 import { buildLandMaps } from './world/landmaps';
+import { buildGeology } from './world/geology';
 import { cinematic } from './render/styles/cinematic';
 import { createTerrain, groundUniforms } from './world/terrain';
 import { createWater } from './world/water';
@@ -112,6 +113,7 @@ async function boot(): Promise<void> {
   const landMaps = buildLandMaps(new THREE.Vector3(...cinematic.direction));
   lap('land maps');
   groundUniforms.uBiome.value = buildBiome();
+  groundUniforms.uGeology.value = buildGeology();
   groundUniforms.uDetail.value = groundDetailTexture();
 
   const sunDir = new THREE.Vector3(0.42, 0.72, 0.55).normalize();
