@@ -1,7 +1,7 @@
 {
   "tier": "low",
-  "collision": "4bde890382a6ea9beb8cb06a1c6ffc30a316f819b17ac07f772a60886c34798c",
-  "colliders": 131345,
+  "collision": "4e9190bbc62f901b89b64080ec0fdb5af2c8c1783a5ef3fdf5871862acfba42d",
+  "colliders": 131251,
   "views": [
     {
       "name": "spawn",
@@ -42,8 +42,8 @@
           0
         ],
         "blended": 0,
-        "total": 19471,
-        "allocatedInstances": 19471
+        "total": 19446,
+        "allocatedInstances": 19446
       }
     },
     {
@@ -85,8 +85,8 @@
           0
         ],
         "blended": 0,
-        "total": 19471,
-        "allocatedInstances": 19471
+        "total": 19446,
+        "allocatedInstances": 19446
       }
     },
     {
@@ -128,15 +128,15 @@
           0
         ],
         "blended": 0,
-        "total": 19471,
-        "allocatedInstances": 19471
+        "total": 19446,
+        "allocatedInstances": 19446
       }
     },
     {
       "name": "city-wall",
       "eye": [
         572.5788616230898,
-        97.64119024330998,
+        97.80018397122068,
         -31.046232645853024
       ],
       "target": [
@@ -145,8 +145,8 @@
         -55.046232645853024
       ],
       "calls": 37,
-      "triangles": 1343703,
-      "instances": 196,
+      "triangles": 1343723,
+      "instances": 197,
       "treeTiers": [
         0,
         0,
@@ -155,7 +155,7 @@
       "scatterTiers": [
         0,
         0,
-        196
+        197
       ],
       "detailCalls": 0,
       "detailTriangles": 0,
@@ -163,7 +163,7 @@
         "tiers": [
           0,
           0,
-          207
+          208
         ],
         "trees": [
           0,
@@ -171,8 +171,8 @@
           0
         ],
         "blended": 0,
-        "total": 19471,
-        "allocatedInstances": 19471
+        "total": 19446,
+        "allocatedInstances": 19446
       }
     },
     {
@@ -214,8 +214,8 @@
           0
         ],
         "blended": 0,
-        "total": 19471,
-        "allocatedInstances": 19471
+        "total": 19446,
+        "allocatedInstances": 19446
       }
     },
     {
@@ -257,8 +257,8 @@
           0
         ],
         "blended": 0,
-        "total": 19471,
-        "allocatedInstances": 19471
+        "total": 19446,
+        "allocatedInstances": 19446
       }
     }
   ]
