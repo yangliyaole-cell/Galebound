@@ -4,6 +4,7 @@ import { addBox, addRound } from '../colliders';
 import { GLASS } from '../abbey-glass';
 import { PLAN } from '../abbey-plan';
 import { plant } from '../flora/garden';
+import { lawn } from '../lawns';
 import { TINT, gableRoof, type Ctx, type Win } from './abbey';
 import { EQ, balustrade, candlestick, flowerUrn, lantern, lathe, pier, pinnacle, starShape, statue, tracery, wall } from './gothic';
 
@@ -26,7 +27,11 @@ function cloister(c: Ctx): void {
   const [mx, mz] = c.W((C.x0 + C.x1) / 2, (C.z0 + C.z1) / 2);
   // Walks paved in stone, the garth in turf with gravel paths in a cross.
   ext.box('paving', mx, y - 0.3, mz, C.x1 - C.x0, 0.34, C.z1 - C.z0, 0, 0xe8dcc4, 0);
-  ext.box('plain', mx, y - 0.2, mz, gx1 - gx0 - 0.8, 0.3, gz1 - gz0 - 0.8, 0, 0x8fbf5e, 0);
+  ext.box('plain', mx, y - 0.2, mz, gx1 - gx0 - 0.8, 0.3, gz1 - gz0 - 0.8, 0, 0x4f6f34, 0);
+  // Turf between the paths, the beds and the fountain.
+  lawn(mx, mz, gx1 - gx0 - 0.8, gz1 - gz0 - 0.8, y + 0.1, 0, { keep: (x, z) =>
+    Math.abs(x - mx) > 1.2 && Math.abs(z - mz) > 1.2 && Math.hypot(x - mx, z - mz) > 3.0 &&
+    !(Math.abs(Math.abs(x - mx) - 7.1) < 3.8 && Math.abs(Math.abs(z - mz) - 7.1) < 3.8) });
   ext.box('paving', mx, y - 0.18, mz, gx1 - gx0 - 0.8, 0.3, 2.2, 0, 0xe2d6bc, 0);
   ext.box('paving', mx, y - 0.18, mz, 2.2, 0.3, gz1 - gz0 - 0.8, 0, 0xe2d6bc, 0);
   addBox(mx, mz, (C.x1 - C.x0) / 2, (C.z1 - C.z0) / 2, 0, floor);

@@ -180,6 +180,32 @@ try {
     p.set(L.START.x, 38, L.START.z); for (let i = 0; i < 240; i++) lighting.update(1 / 60, p);
     assert.equal(sun.intensity, 3); assert.equal(ambient.intensity, 1.5); assert.ok(fog.color.equals(originalHaze));
   });
+  check('the eye adapts to the dark inside the abbey gradually, and never changes the lights', () => {
+    const sun = new THREE.DirectionalLight(0xfff0cf, 3), ambient = new THREE.HemisphereLight(0xcfe6ff, 0x7fa04a, 1.5);
+    const renderer = { toneMappingExposure: 1 }, lighting = createAbbeyLighting(sun, ambient, null, { renderer, adapts: () => true });
+    const inside = new THREE.Vector3(L.ABBEY.x, L.ABBEY.floor + 1.6, L.ABBEY.z), outside = new THREE.Vector3(L.ABBEY.x, L.ABBEY.floor + 1.6, L.ABBEY.entranceZ + 25);
+    // Looking in from outside, nothing is brightened: the interior reads dark.
+    lighting.update(1 / 60, outside); assert.equal(renderer.toneMappingExposure, 1); lighting.restore();
+    lighting.update(1 / 60, inside);
+    const first = renderer.toneMappingExposure; lighting.restore();
+    assert.ok(first > 1 && first < 1.02, `abrupt adaptation: ${first}`);
+    let half = 0;
+    for (let t = 1 / 60; t < 8; t += 1 / 60) {
+      lighting.update(1 / 60, inside);
+      if (!half && renderer.toneMappingExposure > 1 + (ABBEY_LIGHTING.exposure - 1) / 2) half = t;
+      lighting.restore();
+    }
+    assert.ok(half > 0.8 && half < 3, `half adapted after ${half.toFixed(2)}s`);
+    lighting.update(1 / 60, inside);
+    assert.ok(Math.abs(renderer.toneMappingExposure - ABBEY_LIGHTING.exposure) < 0.01);
+    lighting.restore(); assert.equal(renderer.toneMappingExposure, 1);
+    // Coming out into the day the eye closes down much faster.
+    let back = 0;
+    for (let t = 1 / 60; t < 4 && !back; t += 1 / 60) { lighting.update(1 / 60, outside); if (renderer.toneMappingExposure < 1.05) back = t; lighting.restore(); }
+    assert.ok(back > 0 && back < half, `readapted to daylight after ${back.toFixed(2)}s`);
+    assert.equal(sun.intensity, 3); assert.equal(ambient.intensity, 1.5);
+    return `half adapted after ${half.toFixed(1)} s going in, back to daylight in ${back.toFixed(1)} s`;
+  });
   const { ABBEY_OPTICS, abbeyOpticalEnvelope } = await server.ssrLoadModule('/src/world/abbey-light.ts');
   const pbrMaterial = await server.ssrLoadModule('/src/render/pbr/material.ts');
   const { cinematic } = await server.ssrLoadModule('/src/render/styles/cinematic.ts');

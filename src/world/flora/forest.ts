@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { CLOUD_GLSL, NOISE_GLSL } from '../../render/glsl';
 import { shared } from '../../render/uniforms';
+import { pbrUniforms } from '../../render/pbr/material';
+import { ABBEY_INDOORS_GLSL, ABBEY_LIGHTING } from '../abbey-space';
 import { seededRandom } from '../noise';
 import { bloomTexture, makeShrub, makeTree, SHRUB_KINDS, sprayTextures, type BloomPaint, type FloraKind, type ShrubKind, type TreeKind, type TreeModel } from './tree-models';
 
@@ -69,6 +71,8 @@ const FOLIAGE_LIGHT_GLSL = /* glsl */ `
   uniform vec3 uSunColor;
   uniform vec3 uSkyColor;
   uniform vec3 uGroundColor;
+  // Share of the sky's light that reaches the plant: less inside the abbey.
+  float foliageAmbient = 1.0;
   vec3 foliageLight(vec3 albedo, vec3 n, vec3 view, float open, float shadow) {
     float facing = dot(n, uSunDir);
     float wrap = clamp((facing + 0.3) / 1.3, 0.0, 1.0);
@@ -77,14 +81,14 @@ const FOLIAGE_LIGHT_GLSL = /* glsl */ `
     // Sunlit foliage turns yellow-green; shade keeps the cool of the sky.
     vec3 hue = albedo * mix(vec3(0.8, 0.96, 1.1), vec3(1.26, 1.16, 0.66), wrap);
     vec3 sun = uSunColor * (wrap * mix(0.22, 1.0, open) + through * 0.45) * shadow;
-    vec3 fill = mix(uGroundColor, uSkyColor, n.y * 0.5 + 0.5) * mix(0.2, 1.0, open * open);
+    vec3 fill = mix(uGroundColor, uSkyColor, n.y * 0.5 + 0.5) * mix(0.2, 1.0, open * open) * foliageAmbient;
     return hue * (sun + fill) * 0.3183 + albedo * vec3(0.95, 1.0, 0.35) * uSunColor * through * 0.08 * shadow;
   }
   // Petals keep their own colour in the sun, and stay brighter in the shade than leaves do.
   vec3 petalLight(vec3 albedo, vec3 n, float open, float shadow) {
     float wrap = clamp((dot(n, uSunDir) + 0.45) / 1.45, 0.0, 1.0);
     vec3 sun = uSunColor * wrap * mix(0.35, 1.0, open) * shadow;
-    vec3 fill = mix(uGroundColor, uSkyColor, n.y * 0.5 + 0.5) * mix(0.35, 1.0, open);
+    vec3 fill = mix(uGroundColor, uSkyColor, n.y * 0.5 + 0.5) * mix(0.35, 1.0, open) * foliageAmbient;
     return albedo * (sun + fill) * 0.3183;
   }
 `;
@@ -148,7 +152,8 @@ export class Forest {
       #include <common>
       attribute vec2 aCorner;
       attribute vec3 aCard;
-      ${capture ? '' : 'attribute vec3 aBloomTint; uniform vec3 uPalette[4]; uniform float uMixed; varying vec3 vBloomColor;'}
+      ${capture ? '' : `attribute vec3 aBloomTint; uniform vec3 uPalette[4]; uniform float uMixed; varying vec3 vBloomColor;
+      #include <shadowmap_pars_vertex>`}
       uniform float uBloomShare;
       uniform float uTime;
       uniform vec2 uWindDir;
@@ -187,6 +192,12 @@ export class Forest {
         vUv = aCorner * 0.5 + 0.5;
         if (uBloomShare > 0.0) vUv.x = (vUv.x + vBloom) * 0.5;
         vN = normalize(mat3(world) * normal);
+        ${capture ? '' : `
+        // Where the sun's shadow falls: the spray's own corner, lifted a little out of the crown
+        // so that it does not shadow itself.
+        vec4 worldPosition = vec4((inverse(viewMatrix) * mvPosition).xyz + vN * aCard.x * scale * 0.6, 1.0);
+        vec3 transformedNormal = mat3(viewMatrix) * vN;
+        #include <shadowmap_vertex>`}
         #ifdef USE_INSTANCING_COLOR
           vTint = instanceColor;
         #else
@@ -199,9 +210,20 @@ export class Forest {
         ${capture ? '' : 'if (vCover <= 0.0) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);'}
       }`;
     const leafMaterial = (kind: FloraKind, range: [number, number, number, number]): THREE.ShaderMaterial => new THREE.ShaderMaterial({
-      uniforms: { ...light, ...wind, ...bloomUniforms(kind), uLeaf: { value: sprayFor(kind) }, uRange: { value: new THREE.Vector4(...range) } },
+      // The scene's lights are bound only for the sun's shadow map; the light itself comes from the uniforms below.
+      uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.lights), ...light, ...wind, ...bloomUniforms(kind), uLeaf: { value: sprayFor(kind) }, uRange: { value: new THREE.Vector4(...range) },
+        uAbbeyFloor: pbrUniforms.uAbbeyFloor, uPbrActive: pbrUniforms.uPbrActive },
       vertexShader: cardVertex(false),
+      lights: true,
       fragmentShader: /* glsl */ `
+        #include <common>
+        #include <packing>
+        #include <lights_pars_begin>
+        #include <shadowmap_pars_fragment>
+        #include <shadowmask_pars_fragment>
+        uniform float uAbbeyFloor;
+        uniform float uPbrActive;
+        ${ABBEY_INDOORS_GLSL}
         uniform sampler2D uLeaf;
         varying vec2 vUv;
         varying vec3 vN;
@@ -221,7 +243,10 @@ export class Forest {
           vec3 albedo = vTint * (0.5 + 0.85 * t.r) * (0.82 + 0.36 * vSeed);
           vec3 n = normalize(vN + (vec3(vSeed, fract(vSeed * 7.3), fract(vSeed * 13.7)) - 0.5) * 0.7);
           float open = (1.0 - vDepth * 0.9) * (0.55 + 0.45 * smoothstep(-0.5, 0.6, n.y));
-          float shade = cloudShadow(vWorld.xz);
+          float shade = cloudShadow(vWorld.xz) * getShadowMask();
+          // Only the cinematic style lets the eye adapt to the dark inside; there the abbey's plants are lit as dimly as its walls
+          // (the walls' share of the sky, and about as much again bounced off the stone).
+          foliageAmbient = mix(1.0, ${(ABBEY_LIGHTING.indoor * 2.6).toFixed(3)}, abbeyIndoors(vWorld) * uPbrActive);
           vec3 col = foliageLight(albedo, n, normalize(cameraPosition - vWorld), open, shade);
           // Petals are painted with no green: that is how they are told from leaves.
           float petal = vBloom * clamp(1.0 - t.g / max(t.r, 0.02), 0.0, 1.0);
@@ -489,6 +514,7 @@ export class Forest {
         }
         if (woodMesh) woodMesh.receiveShadow = true;
         leafMesh.customDepthMaterial = depth;
+        leafMesh.receiveShadow = true;
         streams.push({ key, trees, cells, wood: woodMesh, leaves: leafMesh, bloom, cap, reach, at: new THREE.Vector3(Infinity, 0, 0) });
       });
     }

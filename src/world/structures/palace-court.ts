@@ -6,6 +6,7 @@ import { heightAt } from '../heightmap';
 import { CITY } from '../layout';
 import { seededRandom } from '../noise';
 import { plant } from '../flora/garden';
+import { lawn } from '../lawns';
 import { PALACE, PALACE_TOWERS } from './palace';
 
 const PALE = 0xe8dfca;
@@ -158,6 +159,8 @@ export function embellishPalace(b: Builder, flags: FlagSpot[]): void {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
       const px = gx + sx * gw / 4 + sx * 0.6, pz = gz + sz * gd / 4 + sz * 0.6;
       b.box('plain', px, y - 0.05, pz, gw / 2 - 3.2, 0.14, gd / 2 - 3.2, 0, LAWN, 0);
+      // A kept lawn, mown in stripes.
+      lawn(px, pz, gw / 2 - 3.2, gd / 2 - 3.2, y + 0.09, 0, { stripes: true });
       for (const [ex, ez, ew, ed] of [[0, -(gd / 4 - 1.4), gw / 2 - 2.6, 0.6], [0, gd / 4 - 1.4, gw / 2 - 2.6, 0.6], [-(gw / 4 - 1.4), 0, 0.6, gd / 2 - 2.6], [gw / 4 - 1.4, 0, 0.6, gd / 2 - 2.6]]) {
         // Clipped box, planted as a run of short lengths so that it stays dense all along.
         const along = ew > ed, length = Math.max(ew, ed), pieces = Math.max(1, Math.round(length / 1.25));
