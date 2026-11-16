@@ -3,6 +3,7 @@ import { place, type Builder } from '../build';
 import { addBox, addRound } from '../colliders';
 import { GLASS } from '../abbey-glass';
 import { PLAN } from '../abbey-plan';
+import { plant } from '../flora/garden';
 import { TINT, gableRoof, type Ctx, type Win } from './abbey';
 import { EQ, balustrade, candlestick, flowerUrn, lantern, lathe, pier, pinnacle, starShape, statue, tracery, wall } from './gothic';
 
@@ -85,15 +86,15 @@ function cloister(c: Ctx): void {
     const bx = mx + sx * 7.1, bz = mz + sz * 7.1;
     ext.box('ashlar', bx, y, bz, 7.4, 0.3, 7.4, 0, TINT.trim, 0);
     ext.box('plain', bx, y + 0.06, bz, 6.9, 0.3, 6.9, 0, 0x6a5238, 0);
+    // Flowers in clumps round a clipped yew; each clump's place and size come from the draws the old bed made.
     for (let k = 0; k < 60; k++) {
-      const px = bx + (c.rand() - 0.5) * 6.4, pz = bz + (c.rand() - 0.5) * 6.4, r = Math.hypot(px - bx, pz - bz);
-      const kind = k % 4;
-      ext.add('plain', new THREE.IcosahedronGeometry(0.2 + c.rand() * 0.18, 0).scale(1, 0.8, 1), kind === 0 ? 0x5f8f3e : [0xffffff, 0x8c7fe0, 0xfff1c9][kind - 1],
-        place(px, y + 0.5 + (r < 1.6 ? 0.25 : 0) + c.rand() * 0.18, pz, c.rand() * 3), 0);
-      if (kind === 2) ext.cone('plain', px, y + 0.4, pz, 0.09, 0.7 + c.rand() * 0.4, 0x7469d6, 5);
+      const jx = c.rand() - 0.5, jz = c.rand() - 0.5, size = c.rand(); c.rand(); c.rand();
+      if (k % 4 === 2) c.rand();
+      if (k >= 9 || k === 4) continue;
+      const lx = (k % 3 - 1) * 2.3, lz = (Math.floor(k / 3) - 1) * 2.3;
+      plant('bed', bx + lx + jx * 0.3, y + 0.34, bz + lz + jz * 0.3, 1.3 + size * 0.25);
     }
-    ext.cone('plain', bx, y + 0.3, bz, 0.95, 3.4, 0x2f5a35, 10);
-    ext.cyl('plain', bx, y + 0.3, bz, 1.0, 1.05, 0.5, 0x356339, 10, 0);
+    plant('yew', bx, y + 0.34, bz, 1.0);
     addBox(bx, bz, 3.7, 3.7, 0, y + 0.36);
     addRound(bx, bz, 0.9, y + 3);
   }
@@ -335,10 +336,14 @@ function forecourt(c: Ctx): void {
     ext.box('ashlar', bx, y, bz, 7.6, 0.42, 10.6, 0, TINT.trim, 0);
     ext.box('plain', bx, y + 0.1, bz, 7.0, 0.4, 10, 0, 0x6a5238, 0);
     addBox(bx, bz, 3.8, 5.3, 0, y + 0.5);
+    // A parterre of flower clumps round the figure's pedestal.
     for (let k = 0; k < 80; k++) {
-      const px = bx + (c.rand() - 0.5) * 6.4, pz = bz + (c.rand() - 0.5) * 9.4, kind = k % 4;
-      ext.add('plain', new THREE.IcosahedronGeometry(0.22 + c.rand() * 0.2, 0).scale(1, 0.8, 1), kind === 0 ? 0x5f8f3e : [0xffffff, 0x8c7fe0, 0xfff1c9][kind - 1], place(px, y + 0.62 + c.rand() * 0.2, pz, c.rand() * 3), 0);
-      if (kind === 2) ext.cone('plain', px, y + 0.5, pz, 0.1, 0.8 + c.rand() * 0.4, 0x7469d6, 5);
+      const jx = c.rand() - 0.5, jz = c.rand() - 0.5, size = c.rand(); c.rand(); c.rand();
+      if (k % 4 === 2) c.rand();
+      if (k >= 12) continue;
+      const i = k % 3, j = Math.floor(k / 3), lx = (i - 1) * 2.15, lz = (j - 1.5) * 2.4;
+      if (i === 1 && (j === 1 || j === 2)) continue;
+      plant('bed', bx + lx + jx * 0.3, y + 0.48, bz + lz + jz * 0.3, 1.3 + size * 0.2);
     }
     ext.box('ashlar', bx, y + 0.4, bz, 1.5, 1.6, 1.5, 0, TINT.trim, 0.08);
     statue(ext, bx, y + 2.0, bz, 3.0, 0, TINT.trim);

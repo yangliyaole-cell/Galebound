@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Builder, archedProfile, place } from '../build';
 import { addBox } from '../colliders';
 import { detailCounters } from '../structure-detail';
+import { plant } from '../flora/garden';
+import type { ShrubKind } from '../flora/tree-models';
 import { heightAt } from '../heightmap';
 
 export interface HouseSpec {
@@ -136,6 +138,11 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
     else b.box(mat, x, floorY + v, z, bw, bh, bd, h.rot + (face * Math.PI) / 2, color, 0);
   };
   const faceWidth = (face: number): number => (face % 2 === 0 ? w : d);
+  /** A plant on a wall, facing out of it. */
+  const plantOn: PlantFn = (kind, face, u, v, out, scale, stretch) => {
+    const [x, z] = facePoint(face, u, v, out);
+    plant(kind, x, floorY + v, z, scale, h.rot + face * Math.PI / 2, stretch);
+  };
 
   if (h.timber) {
     for (let face = 0; face < 4; face++) {
@@ -166,7 +173,7 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
   if (h.arcade) arcadeFront(b, at, h, floorY);
   // The balcony stands in front of a first-floor window, which becomes a glazed door.
   const balconyU = h.balcony && h.floors > 1 ? (doorU > 0 ? -1 : 1) * Math.min(w / 2 - 1.5, 0.9) : NaN;
-  if (!Number.isNaN(balconyU)) balcony(onFace, balconyU, h, rand);
+  if (!Number.isNaN(balconyU)) balcony(onFace, plantOn, balconyU, h, rand);
   if (!h.liveDoor) onFace(0, 'wood', doorU, 0, 1.05, 2.05, 0.12, 0x6d4c33, 0.02);
   onFace(0, 'wood', doorU, 2.05, 1.5, 0.2, 0.2, BEAM, 0.03);
   for (const side of [1, -1]) onFace(0, 'wood', doorU + 0.66 * side, 0, 0.18, 2.05, 0.2, BEAM, 0.03);
@@ -188,9 +195,9 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
     if (rand() < 0.3) {
       // A window box with flowers.
       onFace(face, 'wood', u, v - 0.42, 0.95, 0.2, 0.26, 0x7a5a3c, 0.14);
-      onFace(face, 'plain', u, v - 0.24, 0.85, 0.18, 0.22, 0x4f9a45, 0.15);
-      onFace(face, 'plain', u - 0.2, v - 0.1, 0.16, 0.1, 0.16, [0xe35b6a, 0xf2c94c, 0xf08fb0][Math.floor(rand() * 3)], 0.16);
-      onFace(face, 'plain', u + 0.22, v - 0.12, 0.14, 0.1, 0.14, 0xf4f0e4, 0.16);
+      onFace(face, 'plain', u, v - 0.25, 0.86, 0.03, 0.22, 0x5a4632, 0.15);
+      plantOn('spill', face, u, v - 0.24, 0.15, 0.78, [1, 0.8, 0.3]);
+      rand();
     }
   };
   for (let face = 0; face < 4; face++) {
@@ -242,7 +249,7 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
           onFace(face, 'wood', u, v, 0.045, 1.05, 0.16, 0xe9e2d2, 0.055, true);
           onFace(face, 'wood', u, v + 0.5, 0.8, 0.045, 0.16, 0xe9e2d2, 0.055, true);
           onFace(face, 'stone', u, v - 0.14, 1.15, 0.12, 0.36, STONE, 0.09);
-          if (h.flowers && face === 0 && rand() < 0.45) windowBox(onFace, face, u, v, rand);
+          if (h.flowers && face === 0 && rand() < 0.45) windowBox(onFace, plantOn, face, u, v, rand);
         }
       }
       // Volumetric corner strips use the procedural block normal relief for joints.
@@ -254,7 +261,7 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
       for (const v of [0.35, 1.45]) onFace(0, 'plain', doorU, v, 0.96, 0.045, 0.035, 0x46443b, 0.105);
       onFace(0, 'plain', doorU + 0.3, 0.93, 0.08, 0.16, 0.06, 0xc2a168, 0.13);
     }
-    if (h.vines != null) vines(b, facePoint, h, wallH, floorY, rand);
+    if (h.vines != null) vines(plantOn, h, wallH, rand);
     // Eave rafters are within the original roof's 0.5m overhang.
     const roofWorld = place(rx, eave, rz, roofRot);
     if (!h.tower) for (const side of [-1, 1]) for (let i = 0; i <= Math.floor(length / 1.4); i++) {
@@ -286,6 +293,7 @@ export function addHouse(b: Builder, h: HouseSpec, rand: () => number): BuiltHou
 
 type FaceFn = (face: number, mat: 'wood' | 'plain' | 'stone' | 'cloth', u: number, v: number, bw: number, bh: number, bd: number, color: number, out?: number, flat?: boolean) => void;
 type PointFn = (face: number, u: number, v: number, out: number) => [number, number];
+type PlantFn = (kind: ShrubKind, face: number, u: number, v: number, out: number, scale: number, stretch?: [number, number, number]) => void;
 
 /** Four slopes rising to a short ridge (or a point), eaves overhanging all round. */
 function hipRoof(b: Builder, x: number, y: number, z: number, span: number, length: number, h: number, rot: number, color: number): void {
@@ -357,7 +365,7 @@ function arcadeFront(b: Builder, at: (lx: number, lz: number) => [number, number
 }
 
 /** Timber balcony on the first floor with a rail and pots of flowers. */
-function balcony(onFace: FaceFn, u: number, h: HouseSpec, rand: () => number): void {
+function balcony(onFace: FaceFn, plantOn: PlantFn, u: number, h: HouseSpec, rand: () => number): void {
   const v = FLOOR;
   onFace(0, 'plain', u, v + 0.1, 0.95, 2.0, 0.08, GLASS, 0.01);
   onFace(0, 'wood', u, v + 0.1, 0.07, 2.0, 0.12, 0xe9e2d2, 0.015);
@@ -368,18 +376,19 @@ function balcony(onFace: FaceFn, u: number, h: HouseSpec, rand: () => number): v
   for (let k = 0; k < 3; k++) {
     const pu = u - 0.9 + k * 0.9;
     onFace(0, 'plain', pu, v + 0.02, 0.28, 0.24, 0.28, 0xb5653d, 0.82);
-    onFace(0, 'plain', pu, v + 0.26, 0.34, 0.26, 0.34, rand() < 0.5 ? 0x4f8a3d : 0x5d9a48, 0.82);
-    onFace(0, 'plain', pu, v + 0.44, 0.2, 0.12, 0.2, [0xe35b6a, 0xf2c94c, 0xf08fb0, 0xb48ad8, 0xffffff][Math.floor(rand() * 5)], 0.82);
+    rand(); rand();
+    plantOn('spill', 0, pu, v + 0.25, 0.82, 0.34);
   }
   void h;
 }
 
 /** Window box of flowers under a sill. */
-function windowBox(onFace: FaceFn, face: number, u: number, v: number, rand: () => number): void {
+function windowBox(onFace: FaceFn, plantOn: PlantFn, face: number, u: number, v: number, rand: () => number): void {
   onFace(face, 'wood', u, v - 0.42, 0.95, 0.2, 0.26, 0x7a5a3c, 0.14);
-  onFace(face, 'plain', u, v - 0.24, 0.88, 0.2, 0.24, 0x4f9a45, 0.15);
-  const palette = [0xe35b6a, 0xf2c94c, 0xf08fb0, 0xb48ad8, 0xfff6ea];
-  for (let k = 0; k < 4; k++) onFace(face, 'plain', u - 0.33 + k * 0.22, v - 0.08 + rand() * 0.05, 0.15, 0.11, 0.15, palette[Math.floor(rand() * palette.length)], 0.16 + rand() * 0.06);
+  onFace(face, 'plain', u, v - 0.25, 0.88, 0.03, 0.24, 0x5a4632, 0.15);
+  plantOn('spill', face, u, v - 0.24, 0.15, 0.8, [1, 0.8, 0.3]);
+  // The draws the four flowers made, so the next house is built as before.
+  for (let k = 0; k < 12; k++) rand();
 }
 
 /** Gabled windows in the front slope of the roof. */
@@ -404,23 +413,21 @@ function dormers(b: Builder, at: (lx: number, lz: number) => [number, number], h
   }
 }
 
-/** Climbing plants: leafy clumps up a wall, sometimes in flower (wisteria, roses). */
-function vines(b: Builder, point: PointFn, h: HouseSpec, wallH: number, floorY: number, rand: () => number): void {
+/** A climbing plant up a wall: ivy, or a climber in flower (wisteria, roses). */
+function vines(plantOn: PlantFn, h: HouseSpec, wallH: number, rand: () => number): void {
   const face = rand() < 0.6 ? 0 : rand() < 0.5 ? 1 : 3;
   const fw = face % 2 === 0 ? h.w : h.d;
   const u0 = (rand() < 0.5 ? -1 : 1) * (fw / 2 - 0.6 - rand() * 0.6);
   const top = wallH * (0.55 + rand() * 0.4);
-  const leaf = [0x4a7a34, 0x5b8a3c, 0x3f6e30, 0x6a9a44];
-  const geo = new THREE.IcosahedronGeometry(1, 0);
+  // The draws the old clumps made, so the rest of the street is laid out as before.
   for (let k = 0; k < 26; k++) {
     const v = Math.pow(rand(), 0.8) * top;
-    // Spreads wider as it climbs, and trails along under the eaves.
-    const spread = 0.3 + v / top * 1.6;
-    const u = u0 + (rand() - 0.5) * spread * 2;
-    if (Math.abs(u) > fw / 2 - 0.1) continue;
-    const r = 0.22 + rand() * 0.24;
-    const [x, z] = point(face, u, v, r * 0.45);
-    const flower = h.vines && rand() < 0.4;
-    b.add('plain', geo.clone().scale(r, r * 0.9, r * 0.6), flower ? h.vines! : leaf[k % leaf.length], place(x, floorY + v, z, h.rot + face * Math.PI / 2), 0.2);
+    if (Math.abs(u0 + (rand() - 0.5) * (0.3 + v / top * 1.6) * 2) > fw / 2 - 0.1) continue;
+    rand();
+    if (h.vines) rand();
   }
+  // It fans out as it climbs, but never past the corner of the wall.
+  const scale = top / 2.6, room = fw / 2 - 0.15, widen = Math.min(1.5, room * 2 / (1.8 * 1.15 * scale));
+  const half = 0.9 * 1.15 * scale * widen, root = Math.sign(u0) * Math.min(Math.abs(u0), Math.max(0, room - half));
+  plantOn(h.vines ? 'climber' : 'ivy', face, root, 0, 0.02, scale, [widen, 1, 0.8]);
 }

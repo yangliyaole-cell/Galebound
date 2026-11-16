@@ -1,19 +1,6 @@
 {
   "tier": "low",
   "species": {
-    "bush": {
-      "placed": 12491,
-      "triangles": [
-        0,
-        0,
-        20
-      ],
-      "cards": [
-        0,
-        0,
-        0
-      ]
-    },
     "rock": {
       "placed": 6955,
       "triangles": [

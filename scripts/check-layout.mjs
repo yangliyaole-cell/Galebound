@@ -600,6 +600,21 @@ try {
     }
     return notes.join('; ');
   });
+  check('every shrub and flower is made of leaf sprays alone, with no solid core', () => {
+    const notes = [];
+    for (const kind of trees.SHRUB_KINDS) for (const detailLevel of [0, 1, 2]) {
+      const model = trees.makeShrub(kind, 3, detailLevel);
+      for (const g of [model.leaves, model.leavesMid]) {
+        assert.ok(g.attributes.position.count > 0, `${kind}/${detailLevel}: no sprays`);
+        assert.ok(g.attributes.position.array.every(Number.isFinite), `${kind}/${detailLevel}: non-finite spray`);
+      }
+      assert.ok(model.leaves.attributes.position.count > model.leavesMid.attributes.position.count, `${kind}/${detailLevel}: middle tier is not lighter`);
+      // Only the clipped yew shows a stem; nothing else carries any solid geometry.
+      assert.equal(model.wood.attributes.position.count > 0, kind === 'yew', `${kind}: unexpected solid geometry`);
+      if (detailLevel === 2) notes.push(`${kind} ${(model.leaves.index.count / 6) | 0}`);
+    }
+    return notes.join(', ') + ' sprays';
+  });
 
   check('natural rubble, bevelled masonry and open window reveals are real geometry', () => {
     const before = collisionDigest(C.inspectColliders());
@@ -761,7 +776,8 @@ try {
       if (shader.fragmentShader.includes('float reliefH')) relief++;
       if (shader.fragmentShader.includes('float detailCoverage')) detail++;
     }
-    assert.ok(lod>=2);
+    // Loose rocks are the last thing in the regional LOD batches; shrubs grow with the trees.
+    assert.ok(lod>=1);
     if (!low) { assert.ok(relief>=3 && detail>=3); }
     else assert.equal(relief,0);
     const caster = scatter.object.children.find(m=>m.castShadow);

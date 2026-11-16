@@ -12,7 +12,8 @@ import { CITY, FOREST, HALF, SIZE, START, VILLAGE, ROADS, ABBEY, roadClearance, 
 import { blossomDensity, fieldAt, forestDensity } from './maps';
 import { fbm, seededRandom } from './noise';
 import { Forest } from './flora/forest';
-import type { TreeKind } from './flora/tree-models';
+import type { ShrubKind, TreeKind } from './flora/tree-models';
+import { takePlantings } from './flora/garden';
 
 /** Trees are grown and drawn by the forest; this size factor converts the old planting scales. */
 const TREE_SIZE: Record<TreeKind, number> = { oak: 0.8, great: 0.62, blossom: 0.9, cypress: 0.72, pine: 0.75 };
@@ -28,7 +29,7 @@ function finish(geo: THREE.BufferGeometry, colors: number[], leaf: number): THRE
   return g;
 }
 
-/** A cluster of lumpy spheres: the crown of a tree, or a bush. */
+/** A cluster of lumpy spheres: the crown of a tree. */
 function puff(parts: Part[], detail: number, seed: number, lumpiness = 0.2, shade = 1, shrink = 1): THREE.BufferGeometry {
   let minY = Infinity;
   let maxY = -Infinity;
@@ -201,7 +202,6 @@ function makeSpecies(detail: number): Record<string, Species> {
     cone(1.75, 2.8, 1.5, sides, 0.72 * shade), cone(1.42, 2.6, 3.0, sides, 0.82 * shade),
     cone(1.08, 2.4, 4.4, sides, 0.92 * shade), cone(0.7, 2.6, 5.7, sides, 1.0 * shade),
   ];
-  const bushParts: Part[] = [[0, 0.5, 0, 0.75], [0.6, 0.4, 0.2, 0.55], [-0.5, 0.42, -0.3, 0.6]];
   const greens = [0x4f9f3c, 0x5fae40, 0x488f3a, 0x6db648, 0x3f8a3c];
   const result: Record<string, Species> = {
     oak: {
@@ -242,14 +242,6 @@ function makeSpecies(detail: number): Record<string, Species> {
       trunkHeight: 6, trunkRadius: 0.4, sway: true, shadow: true,
       tints: [0x2c6a4c, 0x327456, 0x275f46, 0x3a7c58],
     },
-    bush: {
-      hi: new THREE.BufferGeometry(),
-      cards: null,
-      look: 'leaf',
-      lo: puff([[0, 0.5, 0, 0.9]], 0, 3, 0.2),
-      trunkHeight: 0, trunkRadius: 0, sway: true, shadow: false,
-      tints: [0x488f3a, 0x5fae40, 0x3f8a3c, 0x6aa84a],
-    },
     rock: {
       hi: rockGeometry(1, 2),
       cards: null,
@@ -262,12 +254,12 @@ function makeSpecies(detail: number): Record<string, Species> {
   if (!detail) return result;
   // Independent small leaves close up; sparse larger clusters finish the mid crown.
   // This RNG never participates in world placement or collision generation.
-  const crowns: Record<string, Part[]> = { oak: oakParts, great: greatParts, blossom: oakParts, cypress: cypressParts, pine: pineParts, bush: bushParts };
+  const crowns: Record<string, Part[]> = { oak: oakParts, great: greatParts, blossom: oakParts, cypress: cypressParts, pine: pineParts };
   const wood: Record<string, THREE.BufferGeometry[]> = {
     oak: [trunk(0.2, 0.42, 3.4, 10, 0.25), ...boughs],
     great: [trunk(0.26, 0.5, 3.6, 12, 0.3), ...boughs],
     blossom: [trunk(0.18, 0.36, 3.2, 8, -0.3), ...boughs],
-    cypress: [trunk(0.14, 0.2, 2, 6)], pine: [trunk(0.12, 0.3, 3, 7)], bush: [],
+    cypress: [trunk(0.14, 0.2, 2, 6)], pine: [trunk(0.12, 0.3, 3, 7)],
   };
   for (const [name, parts] of Object.entries(crowns)) {
     const s = result[name];
@@ -370,6 +362,16 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
 
   const rand = seededRandom(9);
   const pick = seededRandom(10);
+  /**
+   * A shrub, made all of leaves and grown with the trees. Its kind is drawn from the
+   * same sequence that once picked its tint; the last kind takes whatever is left.
+   */
+  const shrub = (kinds: [ShrubKind, number][], x: number, z: number, scale: number, squash = 1): void => {
+    if (Math.abs(x) >= HALF || Math.abs(z) >= HALF) return;
+    let r = pick(), kind = kinds[kinds.length - 1][0];
+    for (const [k, share] of kinds) { if (r < share) { kind = k; break; } r -= share; }
+    forest.plant(kind, x, heightAt(x, z) - 0.06 * scale, z, scale, undefined, [1, squash, 1]);
+  };
   const normal = new THREE.Vector3();
   // Not on a road, a field, or anything that has been built.
   const fields = FIELDS.map(fieldPolygon);
@@ -441,7 +443,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
         if (roll > garden * 0.55 || !free(x, z)) continue;
         if (kind < 0.22) place('cypress', x, z, 0.7 + size * 0.6);
         else if (kind < 0.34) place('blossom', x, z, 0.55 + size * 0.4);
-        else if (kind < 0.62) place('bush', x, z, 1 + size * 1.8, 0.9, 0.1);
+        else if (kind < 0.62) shrub([['rose', 0.3], ['hydrangea', 0.25], ['shrub', 1]], x, z, 0.85 + size * 1.1, 0.95);
         else place('oak', x, z, 0.5 + size * 0.45);
       }
     }
@@ -461,7 +463,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
         const z = a[1] + (c[1] - a[1]) * d / len + nz * outward * (2.2 + rand() * 1.6);
         const size = rand();
         if (heightAt(x, z) < waterLevelAt(x, z) + 1 || !clear(x, z)) continue;
-        if (size < 0.42) place('bush', x, z, 1 + size * 2.2, 0.9, 0.1);
+        if (size < 0.42) shrub([['briar', 0.32], ['shrub', 1]], x, z, 0.9 + size * 1.6, 0.9);
         else place(size > 0.93 ? 'cypress' : 'oak', x, z, 0.55 + size * 0.55);
       }
     }
@@ -492,7 +494,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
       const ny = normalAt(x, z, normal).y;
       const density = forestDensity(x, z);
       if (h > 2.2 && h < 110 && ny > 0.8 && roll < 0.06 + density * 0.2) {
-        place('bush', x, z, 0.8 + size * 1.3, 0.8 + squash * 0.4, 0.1);
+        shrub([['broom', h > 70 ? 0.42 : 0.06], ['briar', 0.16], ['shrub', 1]], x, z, 0.75 + size * 1.0, 0.8 + squash * 0.4);
         continue;
       }
       // Boulders gather where they come to rest: at the foot of steep ground, on shores and in high country.
@@ -544,7 +546,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
         m.name = `${name}-lod${tier}-${ri}-${rj}${part ? '-leaves' : ''}`;
         m.userData.treeTier = tier;
         m.userData.species = name;
-        m.userData.tree = name !== 'rock' && name !== 'bush';
+        m.userData.tree = name !== 'rock';
         m.userData.leafCards = part === 1;
         m.count = 0;
         m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -568,7 +570,7 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
         colors.push(new THREE.Color(inst.tint).offsetHSL((spin() - 0.5) * 0.035, 0, (spin() - 0.5) * 0.07));
       }
       stats.total += list.length;
-      batches.push({ list, matrices, colors, tiers, prop: name === 'bush' || name === 'rock', tree: name !== 'bush' && name !== 'rock' });
+      batches.push({ list, matrices, colors, tiers, prop: name === 'rock', tree: name !== 'rock' });
     }
   }
   group.userData.species = Object.fromEntries(names.map(name => {
@@ -576,6 +578,8 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
     const tris = (g: THREE.BufferGeometry | null | undefined): number => g ? (g.index?.count ?? g.attributes.position?.count ?? 0) / 3 : 0;
     return [name, { placed: lists.get(name)!.reduce((n, list) => n + list.length, 0), triangles: low ? [0, 0, tris(s.lo)] : [tris(s.hi) + tris(s.cards), tris(s.mid ?? s.hi) + tris(s.midCards), tris(s.lo)], cards: low ? [0, 0, 0] : [tris(s.cards) / 2, tris(s.midCards) / 2, 0] }];
   }));
+  // Beds, urns, window boxes, hedges and climbers left by the builders.
+  for (const p of takePlantings()) forest.plant(p.kind, p.x, p.y, p.z, p.scale, p.turn, p.stretch);
   // Headless checks have no renderer: trees are still planted and collide, but are not drawn.
   if (stage) group.add(forest.build(stage.renderer, stage.sun, stage.hemisphere, sunDir, low ? 0 : quality.tier === 'high' ? 2 : 1));
   const previous = new THREE.Vector3(Infinity, Infinity, Infinity);

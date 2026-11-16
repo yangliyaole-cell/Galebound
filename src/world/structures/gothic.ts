@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Builder, place, type Mat } from '../build';
 import { addBox } from '../colliders';
+import { plant } from '../flora/garden';
 
 /**
  * The stonemason's kit for Cloudfall Abbey: pointed arches, moulded orders,
@@ -358,26 +359,12 @@ export function flowerUrn(b: Builder, x: number, y: number, z: number, s: number
   const uy = y + pedestal;
   lathe(b, 'marble', x, uy, z, [[0.3 * s, 0], [0.32 * s, 0.06 * s], [0.14 * s, 0.14 * s], [0.12 * s, 0.24 * s], [0.4 * s, 0.42 * s], [0.52 * s, 0.7 * s], [0.5 * s, 0.86 * s], [0.6 * s, 0.94 * s], [0.56 * s, 0.98 * s]], stone, 14);
   const top = uy + 0.92 * s;
-  const greens = [0x5f8f3e, 0x77a84a, 0x4c7a36], blooms = [0xffffff, 0xfff6e0, 0xf3f0ff, 0x8c7fe0, 0xfaf3ff, 0xffffff];
-  for (let k = 0; k < 26; k++) {
-    const a = rand() * Math.PI * 2, d = Math.sqrt(rand()) * 0.62 * s, h = (0.1 + 0.55 * (1 - d / (0.62 * s)) + rand() * 0.2) * s;
-    const g = new THREE.IcosahedronGeometry((0.13 + rand() * 0.1) * s, 0).scale(1, 0.75, 1);
-    b.add('velvet', g, k < 9 ? greens[k % 3] : blooms[k % blooms.length], place(x + Math.cos(a) * d, top + h, z + Math.sin(a) * d, rand() * 3), 0);
-  }
-  // Spires of lavender-blue rising out of the white.
-  for (let k = 0; k < 5; k++) {
-    const a = rand() * Math.PI * 2, d = rand() * 0.3 * s;
-    b.cone('velvet', x + Math.cos(a) * d, top + 0.5 * s, z + Math.sin(a) * d, 0.07 * s, (0.5 + rand() * 0.35) * s, 0x7469d6, 5);
-  }
-  // Trailing sprays over the rim.
-  for (let k = 0; k < 7; k++) {
-    const a = k / 7 * Math.PI * 2 + rand(), len = (0.4 + rand() * 0.5) * s;
-    for (let i = 0; i < 5; i++) {
-      const t = i / 4, d = (0.55 + t * 0.16) * s;
-      b.add('velvet', new THREE.IcosahedronGeometry(0.075 * s * (1 - t * 0.4), 0).scale(1.3, 0.5, 1), i % 3 === 2 ? 0xffffff : greens[i % 3],
-        place(x + Math.cos(a) * d, top - t * len, z + Math.sin(a) * d, a), 0);
-    }
-  }
+  // A soil top, a mound of white and lavender, and flowers spilling over the lip.
+  b.cyl('plain', x, top - 0.06 * s, z, 0.55 * s, 0.55 * s, 0.04, 0x4a3a2a, 14, 0);
+  plant('bed', x, top - 0.04 * s, z, 0.62 * s, undefined, [1, 1.7, 1]);
+  plant('spill', x, top - 0.04 * s, z, 1.02 * s);
+  // The draws the old posy made, so whatever is built after it stays where it was.
+  for (let k = 0; k < 26 * 5 + 5 * 3 + 7 * 2; k++) rand();
   return top;
 }
 
