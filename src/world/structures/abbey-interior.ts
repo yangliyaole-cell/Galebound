@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { place } from '../build';
 import { addBox, addRound } from '../colliders';
 import { PLAN } from '../abbey-plan';
+import { plant } from '../flora/garden';
 import { TINT, type Ctx } from './abbey';
 import { archHeight, balustrade, banner, candlestick, flowerUrn, lantern, lathe, orders, pew, pier, pinnacle, ribVault, standingArch, starShape, statue } from './gothic';
 
@@ -75,17 +76,10 @@ function vaults(c: Ctx): void {
 function triforium(c: Ctx): void {
   const { inside, y } = c, P = PLAN;
   const garland = (x: number, gy: number, z: number, side: number): void => {
-    for (let k = 0; k < 16; k++) {
-      const drop = c.rand() * 1.5, lz = z + (c.rand() - 0.5) * 3.2;
-      const bloom = k % 3 !== 0;
-      inside.add('velvet', new THREE.IcosahedronGeometry(bloom ? 0.2 + c.rand() * 0.1 : 0.16, 0).scale(1, 0.8, 1), bloom ? (k % 5 === 0 ? 0xfff1c9 : 0xffffff) : 0x5f8f3e,
-        place(x - side * (0.12 + c.rand() * 0.25), gy - drop, lz, c.rand() * 3), 0);
-    }
-    for (let k = 0; k < 4; k++) {
-      const lz = z + (k - 1.5) * 0.8;
-      for (let i = 0; i < 7; i++) inside.add('velvet', new THREE.IcosahedronGeometry(0.11, 0).scale(1.2, 0.5, 1), i % 2 ? 0x77a84a : 0x4c7a36,
-        place(x - side * 0.2, gy - 0.5 - i * 0.34, lz + Math.sin(i * 1.3 + k) * 0.14, i), 0);
-    }
+    // Flowers heaped on the rail and trailing down over the arcade.
+    for (const dz of [-1.5, -0.5, 0.5, 1.5]) plant('spill', x - side * 0.1, gy - 0.12, z + dz, 1.0, undefined, [1, 1.7, 1.1]);
+    // The draws the old garland made, so the nave beyond it is furnished as before.
+    for (let k = 0; k < 16; k++) { c.rand(); c.rand(); if (k % 3 !== 0) c.rand(); c.rand(); c.rand(); }
   };
   for (const side of [-1, 1]) for (const [z0, z1] of ARCADE_BAYS) {
     const m = (z0 + z1) / 2;

@@ -4,6 +4,7 @@ import { addBox, addRound } from '../colliders';
 import { CITY_SQUARES, CITY_STREETS, squareDistance, type CitySquare } from '../layout';
 import { nearestStreet, squareLevel, streetProfiles } from '../city-plan';
 import type { HouseSpec } from './house';
+import { plant } from '../flora/garden';
 
 const IRON = 0x2e2a28;
 const LIMESTONE = 0xeee4d0;
@@ -94,16 +95,14 @@ function bench(b: Builder, x: number, y: number, z: number, rot: number): void {
   addBox(x, z, 0.95, 0.27, rot, y + 0.5);
 }
 
-/** Round stone planter with a clipped shrub and flowers spilling over its rim. */
+/** Round stone planter with a flowering shrub and flowers spilling over its rim. */
 function planter(b: Builder, x: number, y: number, z: number, rand: () => number): void {
   b.cyl('stone', x, y, z, 0.62, 0.48, 0.62, LIMESTONE, 12, 0.15);
-  b.add('plain', new THREE.IcosahedronGeometry(0.55, 1).scale(1, 1.25, 1), 0x4f7f3a, place(x, y + 1.15, z), 0.3);
-  b.detail(() => {
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2 + rand();
-      b.add('plain', new THREE.IcosahedronGeometry(0.13, 0), pick(FLOWERS, rand), place(x + Math.cos(a) * 0.55, y + 0.62, z + Math.sin(a) * 0.55), 0.1);
-    }
-  });
+  b.cyl('plain', x, y + 0.6, z, 0.56, 0.56, 0.04, 0x5a4632, 12, 0);
+  plant('hydrangea', x, y + 0.5, z, 0.62);
+  plant('spill', x, y + 0.6, z, 1.0);
+  // The same draws as the flowers that stood here once, so the rest of the city is laid out as before.
+  b.detail(() => { for (let k = 0; k < 8; k++) { rand(); pick(FLOWERS, rand); } });
   addRound(x, z, 0.62, y + 0.62);
 }
 

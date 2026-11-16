@@ -152,7 +152,14 @@ try {
       ground.registerGroundPbr(legacy, terrain.GROUND_GLSL, terrain.groundUniforms);
       const shader = compile(materials.pbrAlternative(legacy));
       balanced(shader.fragmentShader); balanced(shader.vertexShader); resolve(shader.fragmentShader); resolve(shader.vertexShader);
-      assert.ok(!/\b(?:dFdx|dFdy|fwidth)\b/.test(terrain.GROUND_GLSL));
+      // Rock relief needs screen derivatives, but it is compiled only into the terrain (TERRAIN_ROCK), never the grass.
+      const withoutRock = (text) => { const kept = []; let depth = 0;
+        for (const line of text.split('\n')) { const t = line.trim();
+          if (depth) { if (/^#if/.test(t)) depth++; else if (/^#endif/.test(t)) depth--; continue; }
+          if (t === '#ifdef TERRAIN_ROCK') { depth = 1; continue; }
+          kept.push(line); }
+        return kept.join('\n'); };
+      assert.ok(!/\b(?:dFdx|dFdy|fwidth)\b/.test(withoutRock(terrain.GROUND_GLSL)));
       for (const uniform of ['uSplat', 'uBiome', 'uPbrContact', 'uPbrActive']) assert.ok(shader.uniforms[uniform]);
       if (dump) dumpProgram(materials.pbrAlternative(legacy),`${tier}-full-ground`,config.PBR_TIERS[tier].cascades);
       for (const token of ['pHeightBlend(splat.r', 'pHeightBlend(splat.g', 'bankDamp', 'contact*.22', 'pBumpNormal']) assert.ok(shader.fragmentShader.includes(token));

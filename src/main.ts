@@ -15,6 +15,7 @@ import { createCrowd } from './world/crowd';
 import { START, ZONES } from './world/layout';
 import { buildBiome, buildFields, buildSplat } from './world/maps';
 import { buildLandMaps } from './world/landmaps';
+import { buildGeology } from './world/geology';
 import { cinematic } from './render/styles/cinematic';
 import { createTerrain, groundUniforms } from './world/terrain';
 import { createWater } from './world/water';
@@ -22,6 +23,7 @@ import { createWaterfalls } from './world/waterfalls';
 import { HORIZON_COLOR, createSky } from './world/sky';
 import { createGrass } from './world/grass';
 import { createScatter } from './world/scatter';
+import { createLawns } from './world/lawns';
 import { Wind, createWindFx } from './world/wind';
 import { toon } from './render/toon';
 import { configurePbr } from './render/pbr/config';
@@ -112,6 +114,7 @@ async function boot(): Promise<void> {
   const landMaps = buildLandMaps(new THREE.Vector3(...cinematic.direction));
   lap('land maps');
   groundUniforms.uBiome.value = buildBiome();
+  groundUniforms.uGeology.value = buildGeology();
   groundUniforms.uDetail.value = groundDetailTexture();
 
   const sunDir = new THREE.Vector3(0.42, 0.72, 0.55).normalize();
@@ -130,7 +133,10 @@ async function boot(): Promise<void> {
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.06;
   scene.add(sun, sun.target);
-  const abbeyLighting = createAbbeyLighting(sun, hemisphere, () => scene.fog instanceof THREE.Fog ? scene.fog : null);
+  // The eye adapts to the dark inside the abbey only where there is an exposure to adjust.
+  let adapting = false;
+  const abbeyLighting = createAbbeyLighting(sun, hemisphere, () => scene.fog instanceof THREE.Fog ? scene.fog : null,
+    { renderer, adapts: () => adapting });
 
   hud.loading('正在铺草、引水…');
   await nextFrame();
@@ -157,6 +163,7 @@ async function boot(): Promise<void> {
   const city = buildCity(detail);
   lap('city');
   scene.add(city.object, createFlags(city.flags), buildAbbey(), buildViaduct());
+  scene.add(createLawns(detail));
   scene.add(buildCrops(detail === 0 ? 0.4 : 1, toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.05, doubleSided: true })));
 
   hud.loading('正在种树…');
@@ -465,7 +472,9 @@ async function boot(): Promise<void> {
     }
     const begin = sample ? performance.now() : 0;
     const pipeline = styles!.pipeline;
-    abbeyLighting.update(shot ? 1 : dt, player.pos);
+    adapting = styles!.current === 'cinematic';
+    // What the camera sees decides how the eye adjusts; a still shot is taken fully adjusted.
+    abbeyLighting.update(shot ? 30 : dt, adapting ? camera.position : player.pos);
     pbrLighting.update(styles!.current);
     try {
       if (pipeline) pipeline.render();

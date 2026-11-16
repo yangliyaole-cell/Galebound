@@ -55,25 +55,48 @@ export function abbeyInteriorWeight(p: { x: number; y: number; z: number }): num
   return smooth(0, 4, abbeyInteriorDistance(p.x, p.z)) *
     smooth(ABBEY.floor - 4, ABBEY.floor - 1, p.y) * (1 - smooth(ABBEY.floor + 28, ABBEY.floor + 36, p.y));
 }
-/** Inside, the sun is only what the windows admit and the sky is a fraction of the open air's. */
-export const ABBEY_LIGHTING = { sun: 0.6, ambient: 0.5 } as const;
+/**
+ * Inside, the sun is only what the windows admit and the sky is a fraction of the open air's.
+ * `sun` and `ambient` are used by the flat styles, which have no exposure to adjust. The
+ * cinematic style lights the interior honestly dark (`indoor` of the sky's light reaches
+ * it) and lets the eye adapt instead: `exposure` once fully adjusted, over a couple of
+ * seconds going in and much faster coming back out into the day.
+ */
+export const ABBEY_LIGHTING = { sun: 0.6, ambient: 0.5, indoor: 0.1, exposure: 2.3, darkAdapt: 1.6, lightAdapt: 0.45 } as const;
 
 /** Scope attenuation to one render. Capture the active style, never a boot-time
  * preset; restore in finally so style switches and outdoor frames stay intact. */
 export function createAbbeyLighting(sun: THREE.DirectionalLight, hemisphere: THREE.HemisphereLight,
-  fog: THREE.Fog | (() => THREE.Fog | null)): {
-  update: (dt: number, player: THREE.Vector3) => void;
+  fog: THREE.Fog | (() => THREE.Fog | null),
+  eye?: { renderer: THREE.WebGLRenderer; adapts: () => boolean }): {
+  update: (dt: number, viewer: THREE.Vector3) => void;
   restore: () => void;
   readonly weight: number;
+  /** How far the eye has adjusted to the dark inside, 0 to 1. */
+  readonly adapted: number;
 } {
   const warmSky = new THREE.Color(0xffd9b3), warmGround = new THREE.Color(0x796556);
-  let weight = 0, undo: (() => void) | undefined;
+  let weight = 0, adapted = 0, undo: (() => void) | undefined;
   const restore = (): void => { undo?.(); undo = undefined; };
   return {
-    get weight() { return weight; }, restore,
-    update(dt, player) {
+    get weight() { return weight; }, get adapted() { return adapted; }, restore,
+    update(dt, viewer) {
       restore();
-      const target = abbeyInteriorWeight(player);
+      const target = abbeyInteriorWeight(viewer);
+      if (eye?.adapts()) {
+        // The eye opens slowly in the dark and closes quickly in the light.
+        const rate = target > adapted ? ABBEY_LIGHTING.darkAdapt : ABBEY_LIGHTING.lightAdapt;
+        adapted += (target - adapted) * (1 - Math.exp(-Math.max(0, dt) / rate));
+        if (Math.abs(target - adapted) < 0.0005) adapted = target;
+        weight = 0;
+        if (adapted === 0) return;
+        const exposure = eye.renderer.toneMappingExposure;
+        undo = () => { eye.renderer.toneMappingExposure = exposure; };
+        // Perceived brightness, not linear light: spread the change evenly in stops.
+        eye.renderer.toneMappingExposure = exposure * Math.pow(ABBEY_LIGHTING.exposure, adapted * adapted * (3 - 2 * adapted));
+        return;
+      }
+      adapted = 0;
       weight += (target - weight) * (1 - Math.exp(-Math.max(0, dt) * 3));
       if (target === 0 && weight < 0.0001) weight = 0;
       if (weight === 0) return;

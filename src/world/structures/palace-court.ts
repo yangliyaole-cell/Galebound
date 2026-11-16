@@ -5,13 +5,14 @@ import type { FlagSpot } from '../flags';
 import { heightAt } from '../heightmap';
 import { CITY } from '../layout';
 import { seededRandom } from '../noise';
+import { plant } from '../flora/garden';
+import { lawn } from '../lawns';
 import { PALACE, PALACE_RANGES, PALACE_TOWERS } from './palace';
 
 const PALE = 0xe8dfca;
 const STONE = 0xcfc5af;
 const SLATE = 0x566c89;
 const GOLD = 0xe0b84a;
-const HEDGE = 0x3f6a32;
 const LAWN = 0x587f3a;
 
 /** A small round turret corbelled out from a wall top, with a pointed roof. */
@@ -174,18 +175,25 @@ export function embellishPalace(b: Builder, flags: FlagSpot[]): void {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
       const px = gx + sx * gw / 4 + sx * 0.6, pz = gz + sz * gd / 4 + sz * 0.6;
       b.box('plain', px, y - 0.05, pz, gw / 2 - 3.2, 0.14, gd / 2 - 3.2, 0, LAWN, 0);
+      // A kept lawn, mown in stripes.
+      lawn(px, pz, gw / 2 - 3.2, gd / 2 - 3.2, y + 0.09, 0, { stripes: true });
       for (const [ex, ez, ew, ed] of [[0, -(gd / 4 - 1.4), gw / 2 - 2.6, 0.6], [0, gd / 4 - 1.4, gw / 2 - 2.6, 0.6], [-(gw / 4 - 1.4), 0, 0.6, gd / 2 - 2.6], [gw / 4 - 1.4, 0, 0.6, gd / 2 - 2.6]]) {
-        b.box('plain', px + ex, y, pz + ez, ew, 0.7, ed, 0, HEDGE, 0.25);
+        // Clipped box, planted as a run of short lengths so that it stays dense all along.
+        const along = ew > ed, length = Math.max(ew, ed), pieces = Math.max(1, Math.round(length / 1.25));
+        for (let i = 0; i < pieces; i++) {
+          const t = (i + 0.5) / pieces - 0.5;
+          plant('hedge', px + ex + (along ? t * length : 0), y, pz + ez + (along ? 0 : t * length), 1, along ? 0 : Math.PI / 2,
+            [length / pieces / 1.5 * 1.15, 0.95, 0.85]);
+        }
       }
       // A clipped yew at the inner corner of each bed, and roses along its edge.
       const yx = gx + sx * 3.2, yz = gz + sz * 3.2;
-      b.add('plain', new THREE.ConeGeometry(0.9, 3.2, 10).translate(0, 1.9, 0), 0x2f5a2a, place(yx, y, yz), 0.3);
-      b.cyl('wood', yx, y, yz, 0.12, 0.14, 0.4, 0x5a4030, 6, 0);
+      plant('yew', yx, y, yz, 1.0);
       addRound(yx, yz, 0.9, y + 3.5);
       b.detail(() => {
         for (let k = 0; k < 10; k++) {
-          b.add('plain', new THREE.IcosahedronGeometry(0.16, 0), [0xe35b6a, 0xf08fb0, 0xfff6ea, 0xf2c94c][k % 4],
-            place(px + (rand() - 0.5) * (gw / 2 - 5), y + 0.2, pz + sz * (gd / 4 - 2.1)), 0.1);
+          const u = rand() - 0.5;
+          if (k % 2 === 0) plant('rose', px + u * (gw / 2 - 5), y, pz + sz * (gd / 4 - 2.1), 0.62 + (k % 3) * 0.06);
         }
       });
     }
