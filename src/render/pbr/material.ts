@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { pbrTier } from './config';
 import { classifyNaturalStone } from './natural-stone';
 import { PBR_MATERIALS, pbrLibrary, type PbrEntry, type PbrKind } from './library';
-import { ABBEY_INDOORS_GLSL } from '../../world/abbey-space';
+import { ABBEY_INDOORS_GLSL, ABBEY_LIGHTING } from '../../world/abbey-space';
 
 export const pbrUniforms = {
   uPbrActive: { value: 0 },
@@ -10,8 +10,10 @@ export const pbrUniforms = {
   uPbrContact: { value: null as THREE.Texture | null },
   uPbrWorldSize: { value: 4096 },
   /** Bounced daylight inside the abbey, which no real-time light provides. */
-  uAbbeyFill: { value: 0.4 },
+  uAbbeyFill: { value: 0.17 },
   uAbbeyFloor: { value: 0 },
+  /** Share of the open sky's light that reaches the abbey's inside surfaces. */
+  uAbbeyIndoor: { value: ABBEY_LIGHTING.indoor },
 };
 const alternatives = new Map<THREE.Material, THREE.Material>();
 const originals = new Map<THREE.Material, THREE.Material>();
@@ -59,6 +61,7 @@ export function applyPbr(material: THREE.MeshStandardMaterial, kind: PbrKind, un
         uniform float uPbrWorldSize;
         uniform float uAbbeyFill;
         uniform float uAbbeyFloor;
+        uniform float uAbbeyIndoor;
         ${shell ? ABBEY_INDOORS_GLSL : ''}
         ${pbrLibrary(tier)}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
@@ -98,15 +101,22 @@ export function applyPbr(material: THREE.MeshStandardMaterial, kind: PbrKind, un
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         ${interior || shell ? `// Light that has bounced about the nave: warm from above, cooler from the floor.
         vec3 pbrFillN=normalize(vWorldN);
-        vec3 pbrFill=mix(vec3(.74,.7,.7),vec3(1.0,.94,.82),pbrFillN.y*.5+.5);
-        // Brightest near the floor, where the windows throw their light; cooler and dimmer up in the vault.
+        vec3 pbrFill=mix(vec3(.62,.6,.62),vec3(1.0,.95,.86),pbrFillN.y*.5+.5);
+        // Daylight comes in high, through the clerestory: the walls are brightest there and the light
+        // thins out toward the floor, dimmer still in the crown of the vault.
         float pbrLift=clamp((vWorldP.y-uAbbeyFloor)/30.0,0.0,1.0);
-        pbrFill*=mix(vec3(1.1,1.08,1.04),vec3(.72,.78,.9),pbrLift);
+        float pbrLevel=mix(.45,1.0,smoothstep(.02,.55,pbrLift))*mix(1.0,.72,smoothstep(.62,1.0,pbrLift));
+        pbrFill*=pbrLevel*mix(vec3(1.06,.98,.88),vec3(.86,.9,1.02),pbrLift);
         totalEmissiveRadiance+=pbrFillAlbedo*pbrFill*pbr.ao*uAbbeyFill${shell ? '*pbrIndoors' : ''};` : ''}`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${(kind === 'masonry' || kind === 'stone') ? 'normal=normalize(mix(normal,vPbrNaturalNormal,vPbrNatural));' : ''}\nnormal=pBumpNormal(normal,-vViewPosition,pbrRelief);`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
         reflectedLight.indirectDiffuse*=pbr.ao;
-        reflectedLight.indirectSpecular*=pbr.ao;`);
+        reflectedLight.indirectSpecular*=pbr.ao;
+        ${interior || shell ? `// Walls and vault stand between an inside surface and most of the sky.
+        float pbrSheltered=${interior ? '1.0' : 'pbrIndoors'};
+        // What light does get in has bounced off warm stone and lost the blue of the sky.
+        reflectedLight.indirectDiffuse*=mix(vec3(1.0),uAbbeyIndoor*vec3(1.1,1.0,.82),pbrSheltered);
+        reflectedLight.indirectSpecular*=mix(1.0,uAbbeyIndoor*1.5,pbrSheltered);` : ''}`);
   };
 }
 

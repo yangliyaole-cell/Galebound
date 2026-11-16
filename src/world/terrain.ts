@@ -7,6 +7,8 @@ import { MACRO_HALF } from './gen/macro';
 import { HALF, SIZE } from './layout';
 import { ABBEY_GROUND_MASK_GLSL } from './abbey-space';
 import { buildHeightPyramid, type LandMaps } from './landmaps';
+import { ROCK_GLSL } from './rock-glsl';
+import { pbrTier } from '../render/pbr/config';
 
 /**
  * Ground colour from position, slope and the painted maps. Shared with the
@@ -45,6 +47,9 @@ export const GROUND_GLSL = /* glsl */ `
     return edge * traffic;
   }
   float insideWorld(vec2 xz) { return step(max(abs(xz.x), abs(xz.y)), ${(HALF - 1).toFixed(1)}); }
+  #ifdef TERRAIN_ROCK
+  ${ROCK_GLSL}
+  #endif
 
   vec3 grassColor(vec2 xz, vec3 biome, float broad, float fine) {
     vec3 g = mix(uGrassDark, uGrassMid, smoothstep(0.3, 0.66, broad));
@@ -87,22 +92,16 @@ export const GROUND_GLSL = /* glsl */ `
     float alpine = smoothstep(760.0, 1150.0, alt);
     g.rock = smoothstep(0.82, 0.64, ny + (fine - 0.5) * 0.12 + (mid - 0.5) * 0.1);
     g.rock = max(g.rock, alpine * smoothstep(0.98, 0.86, ny + (fine - 0.5) * 0.1));
-    vec3 rockCol = mix(uRockDark, uRock, smoothstep(0.3, 0.7, gFbm3(wp.xz * 0.045 + wp.y * 0.08)));
-    // Bedding: bands that follow height, bent a little by the lie of the land.
-    float strata = gNoise(vec2(wp.y * 0.3 + mid * 4.0 + broad * 9.0, 3.7));
-    rockCol *= 0.8 + 0.34 * strata;
-    // On true cliffs the beds show: thick pale ones standing proud, thin dark ones weathered back.
-    float cliffness = smoothstep(0.62, 0.3, ny);
-    float bedY = wp.y * 0.42 + mid * 2.2 + broad * 5.0;
-    float bed = gHash(vec2(floor(bedY), 7.0)), bedEdge = abs(fract(bedY) - 0.5) * 2.0;
-    vec3 bedCol = mix(vec3(0.62, 0.64, 0.7), vec3(0.93, 0.87, 0.76), bed) * (0.82 + 0.3 * gNoise(vec2(wp.x + wp.z, wp.y) * 0.21 + bed * 9.0));
-    bedCol *= 1.0 - 0.42 * smoothstep(0.72, 0.98, bedEdge);
-    rockCol = mix(rockCol, bedCol * (0.86 + 0.2 * fine), cliffness * 0.85);
-    rockCol = mix(rockCol, rockCol * vec3(1.1, 0.98, 0.84), smoothstep(0.42, 0.7, gFbm3(wp.xz * 0.009 + 3.0)));
-    rockCol = mix(rockCol, vec3(0.52, 0.58, 0.72) * (0.75 + 0.4 * strata), smoothstep(700.0, 1900.0, wp.y) * 0.5);
     float scree = smoothstep(0.9, 0.78, ny + (fine - 0.5) * 0.1) * (1.0 - g.rock);
     col = mix(col, mix(uDirtDark, uRock, 0.55) * (0.85 + 0.3 * fine), scree * (0.25 + 0.75 * alpine));
-    col = mix(col, rockCol, g.rock);
+    #ifdef TERRAIN_ROCK
+    vec4 bare = terrainRock(wp, g.rock, g.grass, alt, alpine, fine);
+    g.rock = bare.a;
+    col = mix(col, bare.rgb, bare.a);
+    #else
+    // Grass never grows on rock, so it only needs a plain stone colour here.
+    col = mix(col, mix(uRockDark, uRock, smoothstep(0.3, 0.7, gFbm3(wp.xz * 0.045 + wp.y * 0.08))), g.rock);
+    #endif
 
     g.snow = smoothstep(uSnowLine - 150.0, uSnowLine + 260.0, alt) * smoothstep(0.42, 0.7, ny + (fine - 0.5) * 0.1 + (mid - 0.5) * 0.12);
     col = mix(col, uSnow * (0.93 + 0.07 * fine), g.snow);
@@ -151,6 +150,7 @@ export const groundUniforms = {
   uBiome: { value: null as THREE.Texture | null },
   uCover: { value: null as THREE.Texture | null },
   uDetail: { value: null as THREE.Texture | null },
+  uGeology: { value: null as THREE.Texture | null },
   uGrassDark: { value: new THREE.Color(0x3d8c37) },
   uGrassMid: { value: new THREE.Color(0x6ab846) },
   uGrassLight: { value: new THREE.Color(0xaed657) },
@@ -260,7 +260,9 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
   const vertex = landVertexGLSL(cell, n, maps.farCell, maps.farN);
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.94, metalness: 0 });
   mat.name = 'land';
-  mat.customProgramCacheKey = () => `land-v1-${cell}`;
+  // Small screens get one scale of rock facets instead of two.
+  const lite = pbrTier() === 'low';
+  mat.customProgramCacheKey = () => `land-v2-${cell}-${lite ? 'lite' : 'full'}`;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -269,10 +271,21 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
       .replace('#include <begin_vertex>', 'vec3 transformed = landVertex(position);\nvLand = transformed;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
+        #define TERRAIN_ROCK
+        ${lite ? '#define ROCK_LITE' : ''}
         varying vec3 vLand;
         uniform sampler2D uLand;
         uniform sampler2D uFarLand;
+        uniform sampler2D uHeight;
         ${GROUND_GLSL}
+        float fineHeight(vec2 xz) {
+          vec2 g = (xz + ${HALF.toFixed(1)}) / ${cell.toFixed(1)};
+          ivec2 i = clamp(ivec2(floor(g)), ivec2(0), ivec2(${n - 2}));
+          vec2 f = clamp(g - vec2(i), 0.0, 1.0);
+          float a = texelFetch(uHeight, i, 0).r, b = texelFetch(uHeight, i + ivec2(1, 0), 0).r;
+          float c = texelFetch(uHeight, i + ivec2(0, 1), 0).r, d = texelFetch(uHeight, i + ivec2(1, 1), 0).r;
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
         // Relief from a height value, without tangents: perturb along screen derivatives.
         vec3 bumped(vec3 n, vec3 viewPos, float h) {
           vec3 dx = dFdx(viewPos), dy = dFdy(viewPos);
@@ -291,21 +304,26 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
         landFace *= sign(landFace.y + 1e-5);
         landN = normalize(mix(landN, landFace, smoothstep(0.1, 0.28, landN.y - landFace.y) * landInside));
         float landDist = length(cameraPosition - vLand);
+        rkN = landN; rkDx = dFdx(vLand); rkDy = dFdy(vLand);
+        rkNs = landN;
+        if (landInside > 0.5) {
+          const float e = ${cell.toFixed(1)};
+          rkNs = normalize(vec3(fineHeight(vLand.xz - vec2(e, 0.0)) - fineHeight(vLand.xz + vec2(e, 0.0)), 2.0 * e,
+            fineHeight(vLand.xz - vec2(0.0, e)) - fineHeight(vLand.xz + vec2(0.0, e))));
+        }
+        rkFp = max(length(fwidth(vLand)), 1e-3); rkDist = landDist;
         Ground ground = groundCover(vLand, landN.y);
+        landN = rkOutN;
         vec3 landCol = ground.color;
         float landRough = 0.95;
         float landRelief = 0.0;
-        // Brushwork near the eye: dabs on turf, pebbles on tracks and shores, cracks on rock.
+        // Brushwork near the eye: dabs on turf, pebbles on tracks and shores. Rock has its own (rock-glsl).
         float nearK = 1.0 - smoothstep(140.0, 520.0, landDist);
         float midK = 1.0 - smoothstep(700.0, 2600.0, landDist);
         if (midK > 0.0) {
           vec3 d1 = texture2D(uDetail, vLand.xz * 0.15).rgb;
           vec3 d2 = texture2D(uDetail, vLand.xz * 0.031 + 0.37).rgb;
           vec3 d3 = texture2D(uDetail, vLand.xz * 0.0071 + 0.61).rgb;
-          vec3 face = abs(landN);
-          vec2 cliffUv = face.x > face.z ? vLand.zy : vLand.xy;
-          vec3 c1 = texture2D(uDetail, cliffUv * vec2(0.07, 0.11)).rgb;
-          vec3 c2 = texture2D(uDetail, cliffUv * vec2(0.017, 0.029) + 0.21).rgb;
           float turf = (d1.r - 0.5) * 0.7 * nearK + (d2.r - 0.5) * 0.8 * mix(0.5, 1.0, nearK) + (d3.r - 0.5) * 0.7;
           float soft = 1.0 - max(max(ground.rock, ground.snow), max(ground.road, max(ground.cobble, ground.sand)));
           landCol *= 1.0 + turf * 0.4 * soft * midK;
@@ -313,8 +331,6 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
           float stones = (d1.g - 0.5) * nearK + (d2.g - 0.5) * 0.6;
           float hard = max(ground.road * (1.0 - ground.cobble), ground.sand);
           landCol *= 1.0 + stones * 0.55 * hard * midK;
-          float crack = mix(d2.b, c1.b, smoothstep(0.75, 0.5, landN.y)) * 0.6 + c2.b * 0.6 - 0.6;
-          landCol *= 1.0 + crack * 0.75 * ground.rock * midK;
           // Paving: small staggered setts, each a slightly different stone, with dark joints.
           vec2 q = vLand.xz * vec2(3.4, 4.6); q.x += floor(q.y) * 0.5 + gHash(vec2(floor(q.y), 3.0)) * 0.4;
           vec2 f = fract(q) - 0.5;
@@ -322,8 +338,7 @@ export function createTerrain(heightTex: THREE.Texture, maps: LandMaps, split: n
           float joint = smoothstep(0.42 - settAA, 0.48 + settAA, max(abs(f.x) * 0.98, abs(f.y))) * nearK * ground.cobble * (1.0 - smoothstep(0.25, 0.6, settAA));
           float settTone = gHash(floor(q));
           landCol = mix(landCol * (0.84 + 0.32 * settTone * nearK * ground.cobble + (1.0 - nearK * ground.cobble) * 0.16), landCol * 0.5, joint);
-          landRelief = (turf * 0.05 * soft + stones * 0.06 * hard + crack * 0.5 * ground.rock - joint * 0.05) * nearK
-            + crack * 1.6 * ground.rock * midK * (1.0 - nearK);
+          landRelief = (turf * 0.05 * soft + stones * 0.06 * hard - joint * 0.05) * nearK;
           landRough = mix(landRough, 0.82, ground.rock * 0.5 + ground.cobble * 0.4);
         }
         landRough = mix(landRough, 0.55, ground.snow);

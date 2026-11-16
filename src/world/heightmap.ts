@@ -171,6 +171,10 @@ export function waterLevelAt(x: number, z: number): number {
   return waterSurfaceAt(x, z, heightAt(x, z));
 }
 
+/** Metres of bank per metre of cut or fill beside a road, and the widest bank allowed. */
+const BANK_RUN = 4;
+const BANK_MAX = 30;
+
 /** Linear-time local earthwork: preserve each crest and ease approaches below a
  * 0.72 grade. Work only in narrow road corridors, never across an open water bed. */
 function gradeRoadbeds(): void {
@@ -188,10 +192,14 @@ function gradeRoadbeds(): void {
       const a = road.pts[i], b = road.pts[i + 1];
       heights[i] = Math.max(heights[i], heights[i + 1] - 0.72 * Math.hypot(b[0] - a[0], b[1] - a[1]));
     }
-    const grades = new Map<number, { d: number; target: number; reach: number }>();
+    // The roadbed is level out to `inner`; beyond it a bank eases back to the ground, as wide
+    // as the cut or fill is deep (a road-cut a few metres deep in a 4 m ramp is a cliff, and the
+    // grid draws it as a row of teeth). The bank always ends by `inner + BANK_MAX`.
+    const grades = new Map<number, { d: number; target: number; inner: number }>();
     for (let i = 0; i < road.pts.length - 1; i++) {
       const a = road.pts[i], b = road.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1];
-      const reach = Math.max(road.widths[i], road.widths[i + 1]) / 2 + cell * 2 + 4;
+      const inner = Math.max(road.widths[i], road.widths[i + 1]) / 2 + cell + 2;
+      const reach = inner + BANK_MAX;
       const x0 = Math.max(0, Math.floor((Math.min(a[0], b[0]) - reach + HALF) / cell));
       const x1 = Math.min(n, Math.ceil((Math.max(a[0], b[0]) + reach + HALF) / cell));
       const z0 = Math.max(0, Math.floor((Math.min(a[1], b[1]) - reach + HALF) / cell));
@@ -204,10 +212,13 @@ function gradeRoadbeds(): void {
         if (d >= reach || data[o] < waterSurfaceAt(x, z, data[o]) + 0.3 || data[o] < 0.3 || Math.hypot(x - START.x, z - START.z) < 80 || insideCity(x, z)) continue;
         if (d < Math.max(road.widths[i], road.widths[i + 1]) / 2 + cell * 1.5) core.add(o);
         const target = heights[i] + (heights[i + 1] - heights[i]) * t;
-        if (d < (grades.get(o)?.d ?? Infinity)) grades.set(o, { d, target, reach });
+        if (d < (grades.get(o)?.d ?? Infinity)) grades.set(o, { d, target, inner });
       }
     }
-    for (const [o, g] of grades) data[o] = lerp(data[o], g.target, 1 - sstep(g.reach - cell, g.reach, g.d));
+    for (const [o, g] of grades) {
+      const bank = clamp(Math.abs(data[o] - g.target) * BANK_RUN, cell + 2, BANK_MAX);
+      data[o] = lerp(data[o], g.target, 1 - sstep(g.inner, g.inner + bank, g.d));
+    }
   }
   // At junctions two independently graded lanes must agree. A max-heap propagates
   // the minimum necessary embankment through the road-core grid (O(N log N)).
