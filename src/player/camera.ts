@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { solidAt } from '../world/colliders';
+import { heightAt } from '../world/heightmap';
 import { WATER_LEVEL } from '../world/layout';
 import type { Player } from './controller';
 
@@ -9,8 +10,11 @@ export class FollowCamera {
   pitch = 0.2;
   distance = 6;
   private current = 6;
+  /** Wanted distance, eased: a glide's extra 3 m pulls out and back in smoothly instead of snapping. */
+  private reach = 6;
   private idle = 10;
   private readonly target = new THREE.Vector3();
+  private readonly targetVel = new THREE.Vector3();
   private readonly dir = new THREE.Vector3();
   private fov = 55;
   private started = false;
@@ -41,11 +45,13 @@ export class FollowCamera {
     const gliding = player.gliding;
     // Swing round behind the player when they fly, or run on a touch screen.
     const follow = gliding ? 1.8 : this.autoFollow && player.speed > 4 ? 0.7 : 0;
-    if (follow > 0 && this.idle > 1.4) {
+    // Recentring fades in after the player lets go of the view, rather than kicking in at once.
+    const settle = Math.min(1, Math.max(0, (this.idle - 1.4) / 1.2));
+    if (follow > 0 && settle > 0) {
       const behind = player.yaw + Math.PI;
       const diff = Math.atan2(Math.sin(behind - this.yaw), Math.cos(behind - this.yaw));
-      this.yaw += diff * Math.min(1, dt * follow);
-      if (gliding) this.pitch += (0.32 - this.pitch) * Math.min(1, dt * 0.8);
+      this.yaw += diff * Math.min(1, dt * follow * settle * settle);
+      if (gliding) this.pitch += (0.32 - this.pitch) * Math.min(1, dt * 0.8 * settle);
     }
     if (Math.abs(this.yaw) > Math.PI) this.yaw = Math.atan2(Math.sin(this.yaw), Math.cos(this.yaw));
 
@@ -53,21 +59,36 @@ export class FollowCamera {
     const tx = player.pos.x;
     const ty = player.pos.y + eye;
     const tz = player.pos.z;
-    if (!this.started) {
+    if (!this.started || Math.hypot(tx - this.target.x, ty - this.target.y, tz - this.target.z) > 6) {
+      // First frame or a teleport: no lag to recover from.
       this.target.set(tx, ty, tz);
+      this.targetVel.set(0, 0, 0);
       this.started = true;
     }
-    this.target.x = tx;
-    this.target.z = tz;
-    this.target.y += (ty - this.target.y) * (1 - Math.exp(-dt * 12));
+    // The look-at point trails the body on a critically damped spring: starts and stops feel
+    // weighted, steps and stairs are smoothed, and the lag is capped so the hero stays framed.
+    const w = 9;
+    this.targetVel.x += (w * w * (tx - this.target.x) - 2 * w * this.targetVel.x) * dt;
+    this.targetVel.z += (w * w * (tz - this.target.z) - 2 * w * this.targetVel.z) * dt;
+    this.targetVel.y += (w * w * (ty - this.target.y) - 2 * w * this.targetVel.y) * dt;
+    this.target.addScaledVector(this.targetVel, dt);
+    const lagX = this.target.x - tx, lagZ = this.target.z - tz, lag = Math.hypot(lagX, lagZ);
+    if (lag > 0.35) {
+      this.target.x = tx + lagX * 0.35 / lag;
+      this.target.z = tz + lagZ * 0.35 / lag;
+    }
+    this.target.y = ty + Math.max(-0.6, Math.min(0.6, this.target.y - ty));
 
     const cp = Math.cos(this.pitch);
     this.dir.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
-    const wanted = this.distance + (gliding ? 3 : 0);
+    this.reach += (this.distance + (gliding ? 3 : 0) - this.reach) * (1 - Math.exp(-dt * 2.5));
+    if (!Number.isFinite(this.reach)) this.reach = this.distance;
+    const wanted = this.reach;
 
-    // Walk outward from the player and stop at the first thing in the way.
+    // Walk outward from the player and stop at the first thing in the way. Obstacles pull the
+    // camera in at once (never see through a wall); it eases back out once the way is clear.
     let clear = wanted;
-    const steps = 14;
+    const steps = 24;
     for (let i = 1; i <= steps; i++) {
       const d = (wanted * i) / steps;
       if (solidAt(this.target.x + this.dir.x * d, this.target.y + this.dir.y * d, this.target.z + this.dir.z * d)) {
@@ -81,6 +102,9 @@ export class FollowCamera {
     const cam = this.camera;
     cam.position.copy(this.target).addScaledVector(this.dir, this.current);
     if (cam.position.y < WATER_LEVEL + 0.25) cam.position.y = WATER_LEVEL + 0.25;
+    // The ray is sampled; a bump between samples could still swallow the lens.
+    const ground = heightAt(cam.position.x, cam.position.z) + 0.3;
+    if (Number.isFinite(ground) && cam.position.y < ground) cam.position.y = ground;
     cam.lookAt(this.target);
 
     // A tall, narrow screen needs a wider lens to see as much to the sides.
