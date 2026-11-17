@@ -1,4 +1,5 @@
-import { QUALITY_NAMES, storeTier, storedTier, type QualityName } from '../core/quality';
+import { QUALITY_NAMES, storeTier, storedTier, isIOSLike, type QualityName } from '../core/quality';
+import { QUALITY_LABELS, resetBootRecovery } from '../core/boot-guard';
 import type { Wind } from '../world/wind';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -37,9 +38,10 @@ export class Hud {
     if (touch) this.showTouch();
 
     this.startButton.addEventListener('click', () => {
+      if (this.startButton.dataset.bootFailed) return;
       this.title.classList.add('hidden');
       this.root.classList.remove('hidden');
-      setTimeout(() => (this.title.style.display = 'none'), 1200);
+      setTimeout(() => { if (!this.startButton.dataset.bootFailed) this.title.style.display = 'none'; }, 1200);
       this.onStart();
     });
     const jump = $('jump');
@@ -56,7 +58,7 @@ export class Hud {
     const names: Record<string, string> = { auto: '自动', low: '低', medium: '中', high: '高', ultra: '极致' };
     const quality = $('quality');
     const stored = storedTier();
-    quality.textContent = `画质：${stored === 'auto' ? `自动（${names[tier]}）` : names[stored]}`;
+    quality.textContent = `画质：${stored === 'auto' ? `自动（${names[tier]}）` : names[tier]}${isIOSLike() ? '（内存保护）' : ''}`;
     // Choose first, then apply: changing tier rebuilds the world, so it reloads once, on 应用.
     const picker = $('quality-picker'), options = $('quality-options'), note = $('quality-note');
     const apply = $('quality-apply') as HTMLButtonElement;
@@ -71,7 +73,7 @@ export class Hud {
         button.classList.toggle('current', button.dataset.tier === stored);
       }
       apply.disabled = picked === stored;
-      note.textContent = `${notes[picked]}${picked === stored ? '（当前）' : ' 应用后会重新加载一次。'}`;
+      note.textContent = `${isIOSLike() ? '此设备启用内存保护，世界细节以低档为上限。' : notes[picked]}${picked === stored ? '（当前）' : ' 应用后会重新加载一次。'}`;
     };
     for (const option of ['auto', ...QUALITY_NAMES] as (QualityName | 'auto')[]) {
       const button = document.createElement('button');
@@ -89,6 +91,10 @@ export class Hud {
     apply.addEventListener('click', () => {
       if (picked === stored) return close();
       storeTier(picked);
+      resetBootRecovery();
+      const url = new URL(location.href);
+      url.searchParams.delete('q');
+      history.replaceState(null, '', url);
       apply.disabled = true;
       apply.textContent = '正在重新加载…';
       location.reload();
@@ -103,6 +109,26 @@ export class Hud {
     cinema.addEventListener('click', () => {
       void this.onCinema().then((on) => this.cinemaLabel(on)).catch(() => this.toast('风格加载失败，请重试'));
     });
+  }
+
+  /** Also works before HUD/Input/renderer construction has completed. */
+  static bootNotice(text: string): void {
+    $('boot-status').textContent = text;
+  }
+
+  static bootFailure(stage: string, message: string, quality: QualityName, next: QualityName | null): void {
+    const title = $('title'), button = $<HTMLButtonElement>('start');
+    title.classList.remove('hidden');
+    title.style.display = '';
+    $('hud').classList.add('hidden');
+    $('boot-status').classList.add('error');
+    $('boot-status').textContent = `加载失败：${stage}（${QUALITY_LABELS[quality]}画质）。${message}\n${next
+      ? `将在 2.5 秒后自动改用「${QUALITY_LABELS[next]}」画质重试。`
+      : '请关闭其他标签页后重试，并确认 Safari 已启用 WebGL；也可更新系统后再试。'}`;
+    button.dataset.bootFailed = 'true';
+    button.disabled = !!next;
+    button.textContent = next ? '正在准备重试…' : '重试';
+    button.onclick = () => location.reload();
   }
 
   cinemaLabel(on: boolean): void {

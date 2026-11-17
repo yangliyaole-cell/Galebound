@@ -89,6 +89,9 @@
       #title #start:disabled { opacity: 0.6; cursor: default; transform: none; }
       #title .keys { margin-top: 22px; font-size: 12.5px; opacity: 0.9; line-height: 1.9; text-shadow: 0 1px 6px rgba(10, 30, 60, 0.7); }
       @media (max-height: 460px) { #title .tag, #title .keys { display: none; } #title #start { margin-top: 16px; } }
+      #boot-status { max-width: 540px; margin: 16px 24px 0; white-space: pre-line; line-height: 1.7; font-size: 14px; color: #e8e1ce; }
+      #boot-status:empty { display: none; }
+      #boot-status.error { color: #ffd0b8; }
     </style>
   </head>
   <body>
@@ -125,6 +128,7 @@
       <div class="cn">乘风</div>
       <div class="tag">纵身一跃，张开双臂上的风布：顺风疾飞，逆风扶摇。<br />走遍这片土地，找到藏在各处的光。</div>
       <button id="start" disabled>正在生成世界…</button>
+      <div id="boot-status" role="status" aria-live="polite"></div>
       <div class="keys" id="keys"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>

@@ -58,7 +58,7 @@ export const TIERS: Record<QualityName, Quality> = {
 
 const KEY = 'galebound.quality';
 
-const isName = (v: unknown): v is QualityName => QUALITY_NAMES.includes(v as QualityName);
+export const isName = (v: unknown): v is QualityName => QUALITY_NAMES.includes(v as QualityName);
 
 export function storedTier(): QualityName | 'auto' {
   try {
@@ -79,7 +79,28 @@ export function storeTier(tier: QualityName | 'auto'): void {
   }
 }
 
+/** iPadOS uses a desktop Mac UA, including when a trackpad makes pointer:fine true. */
+export function isIOSLike(): boolean {
+  return /iPad|iPhone|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+/** Keep even an explicitly selected tier within the tested low world's memory budget.
+ * The name records the player's choice; subsystem detail is capped independently.
+ * Desktop profiles and the layout baselines remain untouched.
+ */
+export function mobileCap(q: Quality): Quality {
+  if (!isIOSLike()) return q;
+  return { ...q, tier: 'low', cape: 'low', pixelRatio: Math.min(q.pixelRatio, 1), antialias: false,
+    terrainCell: Math.max(q.terrainCell, 8), terrainSplit: Math.min(q.terrainSplit, 1.7),
+    splatSize: Math.min(q.splatSize, 1024), shadowSize: 0, shadowRange: 0,
+    grassNear: Math.min(q.grassNear, 5000), grassFar: Math.min(q.grassFar, 6000),
+    flowers: Math.min(q.flowers, 800), propRange: Math.min(q.propRange, 260),
+    viewRange: Math.min(q.viewRange, 3200), outline: false, particles: Math.min(q.particles, 60) };
+}
+
 function detect(): Tier {
+  if (isIOSLike()) return 'low';
   const coarse = window.matchMedia('(pointer: coarse)').matches;
   const cores = navigator.hardwareConcurrency ?? 4;
   const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
@@ -87,11 +108,12 @@ function detect(): Tier {
   return cores >= 8 ? 'high' : 'medium';
 }
 
-export function pickQuality(): Quality {
+export function pickQuality(override?: QualityName): Quality {
+  if (override) return mobileCap(TIERS[override]);
   const param = new URLSearchParams(location.search).get('q');
-  if (isName(param)) return TIERS[param];
+  if (isName(param)) return mobileCap(TIERS[param]);
   const stored = storedTier();
-  return TIERS[stored === 'auto' ? detect() : stored];
+  return mobileCap(TIERS[stored === 'auto' ? detect() : stored]);
 }
 
 /**

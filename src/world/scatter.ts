@@ -177,7 +177,7 @@ function bough(from: [number, number, number], to: [number, number, number], rad
   return finish(ng, colors, 0);
 }
 
-function makeSpecies(detail: number): Record<string, Species> {
+function makeSpecies(detail: number, legacyTrees = true): Record<string, Species> {
   const oakParts: Part[] = [
     [0, 4.0, 0, 2.0], [1.6, 3.3, 0.4, 1.45], [-1.5, 3.4, -0.5, 1.5], [0.3, 5.3, 0.3, 1.4],
     [-0.4, 3.1, 1.5, 1.3], [0.5, 3.2, -1.6, 1.35], [-1.0, 4.7, 0.9, 1.1], [1.1, 4.6, -0.8, 1.15],
@@ -251,7 +251,7 @@ function makeSpecies(detail: number): Record<string, Species> {
       tints: [0xb3b0a4, 0xa5a297, 0xc0bcae, 0x9a988f],
     },
   };
-  if (!detail) return result;
+  if (!detail || !legacyTrees) return result;
   // Independent small leaves close up; sparse larger clusters finish the mid crown.
   // This RNG never participates in world placement or collision generation.
   const crowns: Record<string, Part[]> = { oak: oakParts, great: greatParts, blossom: oakParts, cypress: cypressParts, pine: pineParts };
@@ -330,7 +330,8 @@ export function createScatter(quality: Pick<Quality, 'tier' | 'propRange'>, sunD
   stats: () => { tiers: number[]; trees: number[]; blended: number; total: number; allocatedInstances: number };
 } {
   const low = quality.tier === 'low';
-  const species = makeSpecies(low ? 0 : quality.tier === 'high' ? 2 : 1);
+  // The renderer uses Forest for trees. The old tree meshes only serve headless layout checks.
+  const species = makeSpecies(low ? 0 : quality.tier === 'high' ? 2 : 1, !stage);
   const forest = new Forest();
   const names = Object.keys(species).filter((name) => !(name in TREE_SIZE));
   const lists = new Map<string, Instance[][]>();

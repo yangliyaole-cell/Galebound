@@ -89,6 +89,8 @@ class Soup {
     g.setAttribute('position', new THREE.BufferAttribute(this.pos.slice(0, this.n * 3), 3));
     g.setAttribute('normal', new THREE.BufferAttribute(this.nor.slice(0, this.n * 3), 3));
     g.setAttribute('color', new THREE.BufferAttribute(this.col.slice(0, this.n * 3), 3));
+    // The builder consumes each soup once; don't retain its growth capacity during merging.
+    this.pos = this.nor = this.col = new Float32Array(0);
     return g;
   }
 }
@@ -375,6 +377,8 @@ export class Builder {
     const mats = getMaterials(false, this.interior, this.shell);
     for (const [mat, list] of this.parts) {
       const mesh = new THREE.Mesh(mergeGeometries(list), mats[mat]);
+      for (const source of list) source.dispose();
+      list.length = 0;
       mesh.castShadow = castShadow && mat !== 'glow';
       mesh.receiveShadow = mat !== 'glow';
       mesh.matrixAutoUpdate = false;
@@ -385,6 +389,8 @@ export class Builder {
     const detailMats = getMaterials(true, this.interior, this.shell);
     for (const [cell, parts] of this.detailParts) for (const [mat, list] of parts) {
       const mesh = new THREE.Mesh(mergeGeometries(list), detailMats[mat]);
+      for (const source of list) source.dispose();
+      list.length = 0;
       mesh.name = `structure-detail-${cell}-${mat}`;
       // Thin relief receives shadows; it does not introduce detached/fading shadow casters.
       mesh.receiveShadow = true;

@@ -365,6 +365,7 @@ export class Forest {
           renderer.render(stage, lens);
         }
         stage.remove(wood, leaves);
+        leaves.dispose(); // Release the atlas capture's one-instance GPU buffer.
         (wood.material as THREE.Material).dispose();
         (leaves.material as THREE.Material).dispose();
       });
@@ -374,6 +375,9 @@ export class Forest {
       renderer.setClearColor(clearColor, clearAlpha);
       renderer.autoClear = auto;
     }
+
+    // Low draws only the mid cards after capture; the full cards were temporary atlas inputs.
+    if (nearEnd === 0) for (const model of models.values()) model.leaves.dispose();
 
     // ---- far: one quad per plant, all kinds in a few regional batches
     const REGION = 512;

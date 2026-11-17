@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CLOUD_BASE, CLOUD_GLSL, CLOUD_TOP, NOISE_GLSL } from '../render/glsl';
+import { colorTargetType } from '../render/target-type';
 import { shared } from '../render/uniforms';
 import { seededRandom } from './noise';
 
@@ -70,7 +71,7 @@ export function createSky(sunDir: THREE.Vector3, renderer: THREE.WebGLRenderer, 
   const width = detail === 2 ? 4096 : detail === 1 ? 2048 : 1024, height = width / 4;
   const steps = detail === 2 ? 150 : detail === 1 ? 80 : 40;
   const targets = [0, 1].map(() => new THREE.WebGLRenderTarget(width, height, {
-    type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping,
+    type: colorTargetType(renderer), depthBuffer: false, wrapS: THREE.RepeatWrapping,
     minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
   }));
   const panorama = { value: targets[0].texture as THREE.Texture };

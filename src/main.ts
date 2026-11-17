@@ -1,6 +1,7 @@
 import { setStructureDetail, updateStructureDetails } from './world/structure-detail';
 import * as THREE from 'three';
 import { DynamicResolution, pickQuality } from './core/quality';
+import { BootGuard, QUALITY_LABELS } from './core/boot-guard';
 import { Input } from './core/input';
 import { loadSave, writeSave } from './core/save';
 import { shared } from './render/uniforms';
@@ -33,7 +34,7 @@ import { createFlags } from './world/flags';
 import { Sound } from './core/audio';
 import { createLife } from './world/life';
 import { createOrbs } from './world/orbs';
-import { buildCity } from './world/structures/city';
+import { buildCityAsync } from './world/structures/city';
 import { buildAbbey } from './world/structures/abbey';
 import { buildViaduct } from './world/structures/viaduct';
 import { createAbbeyLighting } from './world/abbey-space';
@@ -55,11 +56,46 @@ const num = (key: string, fallback: number): number => {
   const value = params.has(key) ? Number(params.get(key)) : fallback;
   return Number.isFinite(value) ? value : fallback;
 };
+const bootGuard = new BootGuard(pickQuality().name, shot);
+const quality = pickQuality(bootGuard.quality);
+debugWindow.__galeBootGuard = bootGuard;
+let bootFailed = false;
+let bootReady = false;
+let stopRendering = (): void => {};
+const loading = (stage: string): void => {
+  bootGuard.update(stage);
+  const button = document.getElementById('start');
+  if (button) button.textContent = stage;
+};
+const failBoot = (error: unknown): void => {
+  if (bootFailed) return;
+  bootFailed = true;
+  try { stopRendering(); } catch { /* Still show the failure if the renderer is already gone. */ }
+  const message = (error instanceof Error ? error.message : String(error)).slice(0, 220);
+  console.error('Could not prepare Galebound', error);
+  if (shot) {
+    debugWindow.__galeShotReady = false;
+    debugWindow.__galeShotError = message;
+    return;
+  }
+  const current = quality.name;
+  const next = bootGuard.fail();
+  Hud.bootFailure(bootGuard.stage, message, current, next);
+  if (next) window.setTimeout(() => location.reload(), 2500);
+};
+if (bootGuard.interruptedStage) {
+  Hud.bootNotice(`上次在「${bootGuard.interruptedStage}」阶段中断，${bootGuard.downgradedByGuard
+    ? `已自动改用「${QUALITY_LABELS[quality.name]}」画质。`
+    : `本次使用「${QUALITY_LABELS[quality.name]}」画质；若再次失败，将停止自动重试。`}`);
+}
 // A hidden tab is given no animation frames; loading carries on regardless.
-const nextFrame = (): Promise<void> => new Promise((resolve) => {
-  requestAnimationFrame(() => resolve());
-  setTimeout(resolve, 150);
-});
+const nextFrame = async (): Promise<void> => {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+    setTimeout(resolve, 150);
+  });
+  if (bootFailed) throw new Error('加载已中断');
+};
 /** Boot timings, in milliseconds per stage; logged once the world is ready. */
 const bootTimes: Record<string, number> = {};
 let bootMark = performance.now();
@@ -70,14 +106,19 @@ const lap = (stage: string): void => {
 };
 
 async function boot(): Promise<void> {
-  const quality = pickQuality();
   configurePbr(quality.tier);
   const canvas = document.getElementById('game') as HTMLCanvasElement;
+  canvas.addEventListener('webglcontextlost', (event) => {
+    event.preventDefault();
+    failBoot(new Error('图形上下文丢失，设备可能没有足够的可用内存。'));
+  });
   const input = new Input(canvas);
   const hud = new Hud(input.touch, quality.name);
   const save = loadSave();
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.antialias, powerPreference: 'high-performance' });
+  stopRendering = () => renderer.setAnimationLoop(null);
+  if (renderer.getContext().isContextLost()) throw new Error('WebGL 不可用，请检查 Safari 的图形设置。');
   const basePixelRatio = Math.min(window.devicePixelRatio, quality.pixelRatio);
   renderer.setPixelRatio(basePixelRatio);
   renderer.shadowMap.enabled = quality.shadowSize > 0;
@@ -102,7 +143,8 @@ async function boot(): Promise<void> {
   });
 
   // ---- build the world, yielding so the title screen can show progress
-  hud.loading('正在隆起山丘…');
+  bootGuard.begin();
+  loading('正在隆起山丘…');
   await nextFrame();
   lap('start');
   buildHeightmap(quality.terrainCell);
@@ -138,7 +180,7 @@ async function boot(): Promise<void> {
   const abbeyLighting = createAbbeyLighting(sun, hemisphere, () => scene.fog instanceof THREE.Fog ? scene.fog : null,
     { renderer, adapts: () => adapting });
 
-  hud.loading('正在铺草、引水…');
+  loading('正在铺草、引水…');
   await nextFrame();
   lap('sky');
   const terrain = createTerrain(heightTex, landMaps, quality.terrainSplit);
@@ -150,29 +192,37 @@ async function boot(): Promise<void> {
   grass.name = 'Grass';
   scene.add(grass);
 
-  hud.loading('正在砌墙盖瓦…');
+  loading('正在砌墙盖瓦…');
   await nextFrame();
   const detail = quality.tier === 'high' ? 2 : quality.tier === 'medium' ? 1 : 0;
   setStructureDetail(detail);
   lap('water and grass');
   const village = buildVillage(detail);
+  scene.add(village.object);
+  await nextFrame();
   const landmarks = buildLandmarks();
-  scene.add(village.object, landmarks.object);
+  scene.add(landmarks.object);
   await nextFrame();
   lap('village and landmarks');
-  const city = buildCity(detail);
+  const city = await buildCityAsync(detail, nextFrame);
   lap('city');
-  scene.add(city.object, createFlags(city.flags), buildAbbey(), buildViaduct());
+  scene.add(city.object, createFlags(city.flags));
+  await nextFrame();
+  scene.add(buildAbbey());
+  await nextFrame();
+  scene.add(buildViaduct());
+  await nextFrame();
   scene.add(createLawns(detail));
+  await nextFrame();
   scene.add(buildCrops(detail === 0 ? 0.4 : 1, toon(0xffffff, { vertexColors: true, leafTint: true, sway: 0.05, doubleSided: true })));
 
-  hud.loading('正在种树…');
+  loading('正在种树…');
   await nextFrame();
   const scatter = createScatter(quality, sunDir, { renderer, sun, hemisphere });
   lap('trees and props');
   scene.add(scatter.object);
 
-  hud.loading('正在藏起光点…');
+  loading('正在藏起光点…');
   await nextFrame();
   const life = createLife(village.info, city.info, detail === 0 ? 3 : 7);
   scene.add(life.object);
@@ -190,7 +240,7 @@ async function boot(): Promise<void> {
   const player = new Player(quality.outline);
   player.character.capeTier = quality.cape;
   if (params.get('hero') !== 'classic') {
-    hud.loading('正在整理旅人的行装…');
+    loading('正在整理旅人的行装…');
     await nextFrame();
     await player.character.loadModel();
     lap('hero');
@@ -254,6 +304,8 @@ async function boot(): Promise<void> {
   }
   if (!shot && params.has('gust')) wind.force(num('gust', 0));
 
+  loading('正在准备画面…');
+  await nextFrame();
   const pbrLighting = createPbrLighting(renderer, scene, camera, sun, sunDir, sky.object, quality, heightTex);
   styles = createStyleController({ renderer, scene, camera, sun, hemisphere, sunDir, sky: sky.object,
     quality, heavy: params.get('effects') !== '0' }, (name) => hud.style(name));
@@ -290,7 +342,6 @@ async function boot(): Promise<void> {
   (window as unknown as Record<string, unknown>).__gale = { player, wind, follow, input, scene, renderer, orbs, heightAt, style: styles,
     capeStats: () => player.character.rig.capeStats?.() ?? { tier: quality.tier, available: false } };
 
-  hud.ready();
   let last = performance.now() / 1000;
   window.addEventListener('focus', () => { last = performance.now() / 1000; });
   let titleAngle = 0;
@@ -508,15 +559,21 @@ async function boot(): Promise<void> {
     }
     if (!shot) resolution.tick(dt);
   };
-  renderer.setAnimationLoop(frame);
+  const safeFrame = (ms: number): void => {
+    if (bootFailed) return;
+    try {
+      frame(ms);
+      // Keep the sentinel through the first actual GPU upload/render, where OOM often occurs.
+      if (!bootReady && !bootFailed && !document.hidden && !renderer.getContext().isContextLost()) {
+        bootReady = true;
+        hud.ready();
+        bootGuard.ready();
+      }
+    } catch (error) { failBoot(error); }
+  };
+  renderer.setAnimationLoop(safeFrame);
   // Lets a review tool draw a frame on demand when the page is not being given any.
-  handles.frame = (): void => frame(performance.now());
+  handles.frame = (): void => safeFrame(performance.now());
 }
 
-void boot().catch((error: unknown) => {
-  if (shot) {
-    debugWindow.__galeShotReady = false;
-    debugWindow.__galeShotError = error instanceof Error ? error.message : String(error);
-  }
-  console.error('Could not prepare Galebound', error);
-});
+void boot().catch(failBoot);
