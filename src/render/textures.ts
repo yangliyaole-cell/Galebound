@@ -158,7 +158,10 @@ function cutout(size: number, background: number, paint: Painter): THREE.DataTex
     ctx.fillStyle = mask ? '#000' : grey(background);
     ctx.fillRect(0, 0, size, size);
     paint(ctx, mask);
-    return ctx.getImageData(0, 0, size, size).data;
+    const data = ctx.getImageData(0, 0, size, size).data;
+    // These layers are read back into the final texture; release their canvas backing stores now.
+    canvas.width = canvas.height = 0;
+    return data;
   };
   const colour = layer(false);
   const mask = layer(true);
@@ -350,7 +353,10 @@ export function groundDetailTexture(): THREE.CanvasTexture {
     ctx.fillStyle = grey(128);
     ctx.fillRect(0, 0, size, size);
     paint(ctx);
-    return ctx.getImageData(0, 0, size, size).data;
+    const data = ctx.getImageData(0, 0, size, size).data;
+    // These layers are read back into the final texture; release their canvas backing stores now.
+    canvas.width = canvas.height = 0;
+    return data;
   };
   // Draw at all four wrapped positions so the texture repeats without a seam.
   const wrapped = (x: number, y: number, draw: (x: number, y: number) => void): void => {

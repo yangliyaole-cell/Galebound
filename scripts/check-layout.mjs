@@ -37,7 +37,10 @@ try {
   H.buildHeightmap(low ? 8 : 4);
   const village = (await server.ssrLoadModule('/src/world/structures/village.ts')).buildVillage(detail);
   const landmarks = (await server.ssrLoadModule('/src/world/structures/landmarks.ts')).buildLandmarks();
-  const city = (await server.ssrLoadModule('/src/world/structures/city.ts')).buildCity(detail);
+  const cityModule = await server.ssrLoadModule('/src/world/structures/city.ts');
+  const city = process.argv.includes('--async')
+    ? await cityModule.buildCityAsync(detail, () => new Promise(resolve => setImmediate(resolve)))
+    : cityModule.buildCity(detail);
   const abbey = buildAbbey();
   const viaduct = (await server.ssrLoadModule('/src/world/structures/viaduct.ts')).buildViaduct();
   const hydro = await server.ssrLoadModule('/src/world/gen/hydro.ts');

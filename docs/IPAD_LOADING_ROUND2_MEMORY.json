@@ -1,0 +1,336 @@
+{
+  "unit": "MiB",
+  "source": "Node Vite SSR, real world modules, stub canvas/GPU; constructor/yield samples, not continuous RSS peak",
+  "tiers": {
+    "low": {
+      "before": {
+        "city:props": {
+          "name": "city:props",
+          "sample": {
+            "heap": 80.6,
+            "arrays": 210.5,
+            "rss": 872.1
+          }
+        },
+        "city:merge": {
+          "name": "city:merge",
+          "sample": {
+            "heap": 43.9,
+            "arrays": 278.2,
+            "rss": 956.3
+          }
+        },
+        "city": {
+          "name": "city",
+          "mode": "async",
+          "checkpoint": true,
+          "ms": 1458,
+          "before": {
+            "heap": 34.5,
+            "arrays": 33.2,
+            "rss": 694.6
+          },
+          "end": {
+            "heap": 44.3,
+            "arrays": 278.3,
+            "rss": 956.3
+          },
+          "retained": {
+            "heap": 38.2,
+            "arrays": 169.4,
+            "rss": 891.9
+          },
+          "peak": {
+            "heap": 81.8,
+            "arrays": 371.3,
+            "rss": 995
+          },
+          "phase": "merge"
+        },
+        "complete": {
+          "name": "complete",
+          "retained": {
+            "heap": 161.6,
+            "arrays": 224.6,
+            "rss": 1075.2
+          }
+        }
+      },
+      "after": {
+        "city:props": {
+          "name": "city:props",
+          "sample": {
+            "heap": 89.5,
+            "arrays": 91.5,
+            "rss": 467.7
+          }
+        },
+        "city:merge": {
+          "name": "city:merge",
+          "sample": {
+            "heap": 42,
+            "arrays": 85.5,
+            "rss": 482.5
+          }
+        },
+        "city": {
+          "name": "city",
+          "mode": "async",
+          "checkpoint": false,
+          "ms": 1777,
+          "before": {
+            "heap": 34,
+            "arrays": 24.9,
+            "rss": 383.7
+          },
+          "end": {
+            "heap": 42.4,
+            "arrays": 85.6,
+            "rss": 482.5
+          },
+          "retained": {
+            "heap": 39.1,
+            "arrays": 71.4,
+            "rss": 482.5
+          },
+          "peak": {
+            "heap": 89.5,
+            "arrays": 102.2,
+            "rss": 497
+          },
+          "phase": "merge"
+        },
+        "complete": {
+          "name": "complete",
+          "retained": {
+            "heap": 162.9,
+            "arrays": 96.1,
+            "rss": 649.6
+          }
+        }
+      },
+      "expanded_geometry_hashes_match": true,
+      "batches": 11
+    },
+    "medium": {
+      "before": {
+        "city:props": {
+          "name": "city:props",
+          "sample": {
+            "heap": 169.5,
+            "arrays": 881,
+            "rss": 1318.6
+          }
+        },
+        "city:merge": {
+          "name": "city:merge",
+          "sample": {
+            "heap": 41,
+            "arrays": 919.8,
+            "rss": 1807.5
+          }
+        },
+        "city": {
+          "name": "city",
+          "mode": "async",
+          "checkpoint": true,
+          "ms": 5652,
+          "before": {
+            "heap": 34.1,
+            "arrays": 68.1,
+            "rss": 481.7
+          },
+          "end": {
+            "heap": 41.4,
+            "arrays": 919.8,
+            "rss": 1807.5
+          },
+          "retained": {
+            "heap": 39.9,
+            "arrays": 654.3,
+            "rss": 1807.5
+          },
+          "peak": {
+            "heap": 206.8,
+            "arrays": 1075.2,
+            "rss": 1807.5
+          },
+          "phase": "merge"
+        },
+        "complete": {
+          "name": "complete",
+          "retained": {
+            "heap": 166.9,
+            "arrays": 727.1,
+            "rss": 1816.9
+          }
+        }
+      },
+      "after": {
+        "city:props": {
+          "name": "city:props",
+          "sample": {
+            "heap": 92.2,
+            "arrays": 367.7,
+            "rss": 815.2
+          }
+        },
+        "city:merge": {
+          "name": "city:merge",
+          "sample": {
+            "heap": 50.3,
+            "arrays": 278.9,
+            "rss": 925.1
+          }
+        },
+        "city": {
+          "name": "city",
+          "mode": "async",
+          "checkpoint": false,
+          "ms": 11972,
+          "before": {
+            "heap": 36.9,
+            "arrays": 54.1,
+            "rss": 483
+          },
+          "end": {
+            "heap": 50.7,
+            "arrays": 278.9,
+            "rss": 925.1
+          },
+          "retained": {
+            "heap": 44.9,
+            "arrays": 262.7,
+            "rss": 925.1
+          },
+          "peak": {
+            "heap": 125.2,
+            "arrays": 398.9,
+            "rss": 925.1
+          },
+          "phase": "merge"
+        },
+        "complete": {
+          "name": "complete",
+          "retained": {
+            "heap": 172.2,
+            "arrays": 295.7,
+            "rss": 1025.6
+          }
+        }
+      },
+      "expanded_geometry_hashes_match": true,
+      "batches": 17
+    },
+    "high": {
+      "before": {
+        "city:props": {
+          "name": "city:props",
+          "sample": {
+            "heap": 160.1,
+            "arrays": 1585.6,
+            "rss": 2269
+          }
+        },
+        "city:merge": {
+          "name": "city:merge",
+          "sample": {
+            "heap": 41.4,
+            "arrays": 1474.8,
+            "rss": 3120.7
+          }
+        },
+        "city": {
+          "name": "city",
+          "mode": "async",
+          "checkpoint": true,
+          "ms": 9124,
+          "before": {
+            "heap": 35.1,
+            "arrays": 170.9,
+            "rss": 863.9
+          },
+          "end": {
+            "heap": 41.8,
+            "arrays": 1474.8,
+            "rss": 3120.7
+          },
+          "retained": {
+            "heap": 40.3,
+            "arrays": 1247.2,
+            "rss": 3120.7
+          },
+          "peak": {
+            "heap": 220.5,
+            "arrays": 1798.5,
+            "rss": 3120.7
+          },
+          "phase": "merge"
+        },
+        "complete": {
+          "name": "complete",
+          "retained": {
+            "heap": 167.2,
+            "arrays": 1320.7,
+            "rss": 3127.2
+          }
+        }
+      },
+      "after": {
+        "city:props": {
+          "name": "city:props",
+          "sample": {
+            "heap": 92.3,
+            "arrays": 653.1,
+            "rss": 1355.7
+          }
+        },
+        "city:merge": {
+          "name": "city:merge",
+          "sample": {
+            "heap": 49.5,
+            "arrays": 561.3,
+            "rss": 1492.9
+          }
+        },
+        "city": {
+          "name": "city",
+          "mode": "async",
+          "checkpoint": false,
+          "ms": 22225,
+          "before": {
+            "heap": 38,
+            "arrays": 148.8,
+            "rss": 849.7
+          },
+          "end": {
+            "heap": 50,
+            "arrays": 561.4,
+            "rss": 1492.9
+          },
+          "retained": {
+            "heap": 46.9,
+            "arrays": 560.5,
+            "rss": 1492.9
+          },
+          "peak": {
+            "heap": 151.3,
+            "arrays": 697.6,
+            "rss": 1492.9
+          },
+          "phase": "merge"
+        },
+        "complete": {
+          "name": "complete",
+          "retained": {
+            "heap": 174.3,
+            "arrays": 594.3,
+            "rss": 1580.5
+          }
+        }
+      },
+      "expanded_geometry_hashes_match": true,
+      "batches": 17
+    }
+  }
+}

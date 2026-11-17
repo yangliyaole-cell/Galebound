@@ -34,7 +34,7 @@
 
       #menu { top: calc(max(14px, env(safe-area-inset-top)) + 46px); left: max(14px, env(safe-area-inset-left)); display: flex; gap: 6px; pointer-events: auto; }
       #menu button { padding: 5px 11px; font-size: 12px; cursor: pointer; opacity: 0.85; }
-      #quality-picker { top: calc(max(14px, env(safe-area-inset-top)) + 80px); left: max(14px, env(safe-area-inset-left)); pointer-events: auto;
+      #quality-picker { position: fixed; z-index: 20; color: #fff; background: rgba(22, 34, 48, 0.92); max-width: calc(100vw - 40px); top: calc(max(14px, env(safe-area-inset-top)) + 80px); left: max(14px, env(safe-area-inset-left)); pointer-events: auto;
         border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; min-width: 190px; transition: opacity 0.2s; }
       #quality-picker .options { display: flex; flex-wrap: wrap; gap: 5px; }
       #quality-picker .options button { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.08); cursor: pointer; }
@@ -84,11 +84,15 @@
       #title h1 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: clamp(46px, 11vw, 112px); letter-spacing: 0.08em; text-shadow: 0 4px 30px rgba(10, 30, 60, 0.6); line-height: 1; }
       #title .cn { font-family: var(--serif); font-size: clamp(20px, 4vw, 34px); letter-spacing: 0.9em; text-indent: 0.9em; margin-top: 12px; text-shadow: 0 2px 14px rgba(10, 30, 60, 0.6); }
       #title .tag { margin-top: 18px; font-size: clamp(13px, 1.9vw, 16px); opacity: 0.95; max-width: 34em; line-height: 1.7; text-shadow: 0 1px 8px rgba(10, 30, 60, 0.7); }
+      #title-quality { margin-top: 16px; padding: 7px 16px; cursor: pointer; }
       #title #start { margin-top: 30px; padding: 14px 44px; font-size: 18px; font-weight: 600; letter-spacing: 0.2em; text-indent: 0.2em; color: var(--ink); background: var(--paper); border: none; border-radius: 999px; cursor: pointer; box-shadow: 0 8px 30px rgba(10, 30, 60, 0.35); transition: transform 0.2s, opacity 0.4s; }
       #title #start:hover { transform: translateY(-2px); }
       #title #start:disabled { opacity: 0.6; cursor: default; transform: none; }
       #title .keys { margin-top: 22px; font-size: 12.5px; opacity: 0.9; line-height: 1.9; text-shadow: 0 1px 6px rgba(10, 30, 60, 0.7); }
       @media (max-height: 460px) { #title .tag, #title .keys { display: none; } #title #start { margin-top: 16px; } }
+      #boot-status { max-width: 540px; margin: 16px 24px 0; white-space: pre-line; line-height: 1.7; font-size: 14px; color: #e8e1ce; }
+      #boot-status:empty { display: none; }
+      #boot-status.error { color: #ffd0b8; }
     </style>
   </head>
   <body>
@@ -101,11 +105,6 @@
         <button id="quality" class="panel">画质</button>
         <button id="sound" class="panel">声音</button>
         <button id="cinema" class="panel">电影感</button>
-      </div>
-      <div id="quality-picker" class="panel hidden" role="dialog" aria-label="选择画质">
-        <div class="options" id="quality-options"></div>
-        <div class="note" id="quality-note"></div>
-        <div class="actions"><button id="quality-cancel">取消</button><button id="quality-apply" disabled>应用</button></div>
       </div>
       <div id="wind">
         <svg viewBox="0 0 84 84">
@@ -124,9 +123,16 @@
       <h1>Galebound</h1>
       <div class="cn">乘风</div>
       <div class="tag">纵身一跃，张开双臂上的风布：顺风疾飞，逆风扶摇。<br />走遍这片土地，找到藏在各处的光。</div>
+      <button id="title-quality" class="panel" aria-controls="quality-picker">画质</button>
       <button id="start" disabled>正在生成世界…</button>
+      <div id="boot-status" role="status" aria-live="polite"></div>
       <div class="keys" id="keys"></div>
     </div>
+      <div id="quality-picker" class="panel hidden" role="dialog" aria-label="选择画质">
+        <div class="options" id="quality-options"></div>
+        <div class="note" id="quality-note"></div>
+        <div class="actions"><button id="quality-cancel">取消</button><button id="quality-apply" disabled>应用</button></div>
+      </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

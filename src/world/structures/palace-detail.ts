@@ -65,7 +65,7 @@ export function palaceTowerMasonry(b:Builder,x:number,z:number,base:number,h:num
     }
   }
   const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.computeVertexNormals();
-  b.add('plain',geometry,0xffffff);
+  b.addMutable('plain',geometry,0xffffff);
   // Retain per-block limestone variation after Builder has installed its standard attributes.
   geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
 }

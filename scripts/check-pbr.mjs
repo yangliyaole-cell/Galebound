@@ -182,7 +182,7 @@ try {
         const trunk=new THREE.Mesh(new THREE.BoxGeometry(),rockLegacy); scene.add(rock,trunk);
         const sky = new THREE.Group();
         sky.add(new THREE.Mesh(new THREE.SphereGeometry(),new THREE.ShaderMaterial({ uniforms: { uSunDir: { value: dir } },fragmentShader: 'gl_FragColor = vec4(col, 1.0);' })));
-        const lighting = createPbrLighting({},scene,camera,sun,dir,sky,{tier},new THREE.Texture());
+        const lighting = createPbrLighting({ extensions: { has: name => name === 'EXT_color_buffer_float' } },scene,camera,sun,dir,sky,{tier},new THREE.Texture());
         assert.equal(captures,0); assert.equal(scene.environment,null);
         lighting.update('default'); assert.equal(scene.children.includes(sun),true);
         lighting.update('cinematic'); assert.equal(captures,1);

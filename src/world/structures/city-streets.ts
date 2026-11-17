@@ -149,7 +149,7 @@ function paveStreet(b: Builder, road: Road, line: Sample[], rand: () => number):
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   g.computeVertexNormals();
-  b.add('paving', g, 0xffffff);
+  b.addMutable('paving', g, 0xffffff);
   g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 }
 
@@ -272,7 +272,7 @@ function paveSquare(b: Builder, q: CitySquare, inHouse: (x: number, z: number, p
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   g.computeVertexNormals();
-  b.add('paving', g, 0xffffff);
+  b.addMutable('paving', g, 0xffffff);
   g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
   // Edge: kerb, balustrade or retaining wall, opening wherever a street comes in.

@@ -70,23 +70,28 @@ class Wood {
 }
 
 function cardGeometry(cards: Card[]): THREE.BufferGeometry {
-  const pos: number[] = [], nor: number[] = [], corner: number[] = [], data: number[] = [], idx: number[] = [];
+  const vertices = cards.length * 4;
+  const pos = new Float32Array(vertices * 3), nor = new Float32Array(vertices * 3);
+  const corner = new Float32Array(vertices * 2), data = new Float32Array(vertices * 3);
+  const idx = vertices > 65535 ? new Uint32Array(cards.length * 6) : new Uint16Array(cards.length * 6);
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
   cards.forEach((c, i) => {
     const seed = (Math.sin(i * 91.7 + c.p.x * 13.1) * 43758.5453) % 1;
-    for (const [cx, cy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      pos.push(c.p.x, c.p.y, c.p.z);
-      nor.push(c.n.x, c.n.y, c.n.z);
-      corner.push(cx, cy);
-      data.push(c.size, Math.abs(seed), c.depth);
+    for (let j = 0; j < 4; j++) {
+      const v = i * 4 + j;
+      pos.set([c.p.x, c.p.y, c.p.z], v * 3);
+      nor.set([c.n.x, c.n.y, c.n.z], v * 3);
+      corner.set(corners[j], v * 2);
+      data.set([c.size, Math.abs(seed), c.depth], v * 3);
     }
-    idx.push(i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3);
+    idx.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
   });
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  g.setAttribute('aCorner', new THREE.Float32BufferAttribute(corner, 2));
-  g.setAttribute('aCard', new THREE.Float32BufferAttribute(data, 3));
-  g.setIndex(idx);
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('aCorner', new THREE.BufferAttribute(corner, 2));
+  g.setAttribute('aCard', new THREE.BufferAttribute(data, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
   return g;
 }
 

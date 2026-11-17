@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CSM } from 'three/addons/csm/CSM.js';
+import { supportsHalfFloatTarget } from '../target-type';
 import type { Quality } from '../../core/quality';
 import { PBR_TIERS } from './config';
 import { createContactTexture } from './contact';
@@ -55,9 +56,10 @@ export function createPbrLighting(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   let active = false, environment: THREE.WebGLRenderTarget | undefined;
   let capturedDirection = new THREE.Vector3(Infinity, 0, 0);
   const projection = new THREE.Matrix4().copy(camera.projectionMatrix);
-  const pmrem = new THREE.PMREMGenerator(renderer);
+  const pmrem = supportsHalfFloatTarget(renderer) ? new THREE.PMREMGenerator(renderer) : null;
   const baselineEnvironment = scene.environment, baselineIntensity = scene.environmentIntensity;
   const captureSky = (): void => {
+    if (!pmrem) { capturedDirection.copy(sunDir); return; }
     environment?.dispose();
     // Capture the actual palette/cloud shader, with a dark ground hemisphere.
     // Ridges/billboards intentionally stay out of the infinitely distant lighting probe.

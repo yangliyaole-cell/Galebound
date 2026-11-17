@@ -4,6 +4,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { isIOSLike } from '../../core/quality';
+import { colorTargetType, supportsHalfFloatTarget } from '../target-type';
 import { shared } from '../uniforms';
 import { seededRandom } from '../../world/noise';
 import type { StyleContext, StyleName, StylePipeline } from './index';
@@ -50,7 +52,8 @@ function paperTexture(): THREE.DataTexture {
 
 /** Soft sky / horizon / ground-bounce dome, prefiltered once. It supplies natural fill for PBR
  * materials (the hero) and carries no sun disc: the shadow-casting sun is the only key light. */
-function skyEnvironment(renderer: THREE.WebGLRenderer, sky: [number, number, number], sunDir: THREE.Vector3): THREE.Texture {
+function skyEnvironment(renderer: THREE.WebGLRenderer, sky: [number, number, number], sunDir: THREE.Vector3): THREE.Texture | null {
+  if (!supportsHalfFloatTarget(renderer)) return null;
   const dome = new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
     uniforms: {
@@ -91,7 +94,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
     direction: sunDir.clone(), radius: sun.shadow.radius,
   };
   const applyMaterials = createMaterialStyles(context);
-  let environment: THREE.Texture | undefined;
+  let environment: THREE.Texture | null | undefined;
   const heroMaterials = new Set<THREE.MeshStandardMaterial>();
   const heroColors = new Map<THREE.MeshStandardMaterial, THREE.Color>();
   scene.traverse((object) => {
@@ -101,9 +104,9 @@ export function createPipeline(context: StyleContext): StylePipeline {
     }
   });
   const target = new THREE.WebGLRenderTarget(1, 1, {
-    type: THREE.HalfFloatType,
+    type: colorTargetType(renderer),
     // MSAA resolves both colour and depth; the canvas's AA cannot cover an offscreen target.
-    samples: Math.min(quality.tier === 'low' ? 2 : 4, renderer.capabilities.maxSamples),
+    samples: isIOSLike() ? 0 : Math.min(quality.tier === 'low' ? 2 : 4, renderer.capabilities.maxSamples),
     depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
   });
   const composer = new EffectComposer(renderer, target);
@@ -143,6 +146,10 @@ export function createPipeline(context: StyleContext): StylePipeline {
   composer.addPass(new RenderPass(scene, camera));
   // A soft, continuous glow over the brightest light (blended in place, so the scene's depth stays paired).
   const glow = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.3, 0.55, 1.0);
+  // Bloom creates its own half-float targets independently of the composer's type.
+  for (const buffer of [glow.renderTargetBright, ...glow.renderTargetsHorizontal, ...glow.renderTargetsVertical]) {
+    buffer.texture.type = colorTargetType(renderer);
+  }
   glow.enabled = false;
   // One NaN or infinite pixel (a degenerate normal, a grazing specular) would smear across the whole blur
   // chain into a black block; the bright pass drops such texels and caps fireflies.
@@ -200,7 +207,7 @@ export function createPipeline(context: StyleContext): StylePipeline {
         // hemisphere light, so distant terrain keeps its look.
         environment ??= skyEnvironment(renderer, [0x4f86c8, 0x9fb2bb, 0x4a5c44], new THREE.Vector3(...preset.direction));
         for (const material of heroMaterials) {
-          material.envMap = environment;
+          material.envMap = environment ?? null;
           material.envMapIntensity = HERO_ENVIRONMENT_INTENSITY;
           material.color.copy(heroColors.get(material)!).multiplyScalar(HERO_ALBEDO);
         }

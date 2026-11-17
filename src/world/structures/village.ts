@@ -308,7 +308,7 @@ export function buildVillage(detail: number): { object: THREE.Group; info: Villa
     orbAt('village-roof-2', h2.spec.x, h2.spec.z, 1.2);
   }
   void detail;
-  return { object: batchSettlementDetails(b.build()), info };
+  return { object: batchSettlementDetails(b.buildSettlement()), info };
 }
 
 /**

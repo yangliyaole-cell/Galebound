@@ -286,7 +286,24 @@ export interface CityInfo {
 /** Milliseconds per stage of the last city build, for boot profiling. */
 export const cityBuildTimes: Record<string, number> = {};
 
-export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpot[]; info: CityInfo } {
+type BuiltCity = { object: THREE.Group; flags: FlagSpot[]; info: CityInfo };
+
+/** Both entry points drain the same generator, preserving geometry and RNG order. */
+export function buildCity(detail: number): BuiltCity {
+  const steps = citySteps(detail);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+export async function buildCityAsync(detail: number, yieldFrame: () => Promise<void>): Promise<BuiltCity> {
+  const steps = citySteps(detail);
+  let step = steps.next();
+  while (!step.done) { await yieldFrame(); step = steps.next(); }
+  return step.value;
+}
+
+function* citySteps(detail: number): Generator<void, BuiltCity> {
   let mark = performance.now();
   const lap = (stage: string): void => { const now = performance.now(); cityBuildTimes[stage] = Math.round(now - mark); mark = now; };
   const b = new Builder();
@@ -320,10 +337,12 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
 
   grandGate(b, flags);
   lap('wall');
+  yield;
   const water = aqueduct(b);
   buildPalace(b, flags);
   embellishPalace(b, flags);
   lap('palace');
+  yield;
 
   const market = CITY_SQUARES.find((q) => q.kind === 'market')!;
   fountain(b, market.x, market.z, squareLevel.get(market)!, rand);
@@ -348,8 +367,9 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
   ];
   const parcels = planCityParcels(keepOut, (x, z) => distToLine(x, z, water));
   lap('parcels');
+  yield;
   const smoke: number[] = [];
-  parcels.forEach((h, i) => {
+  for (const [i, h] of parcels.entries()) {
     const built = addHouse(b, { ...h, simple: detail > 1 ? 1 : 2 }, rand);
     // Smoke from a few of the chimneys: someone is always cooking somewhere.
     if (h.chimney && !h.tower && i % 6 === 0) {
@@ -360,19 +380,23 @@ export function buildCity(detail: number): { object: THREE.Group; flags: FlagSpo
     // Keep the existing four city roof ids; increased density must not add orbs.
     const count = i + 1;
     if (count <= 116 && count % 37 === 5) orbAt(`city-roof-${count}`, h.x, h.z, 1.2);
-  });
+    if (count % 8 === 0) yield;
+  }
   lap('houses');
+  yield;
   // The forecourt stays open where the grand stair leaves it for the castle gate.
   buildCityStreets(b, parcels, (x, z) => {
     const along = (x - cx) * ax + (z - cz) * az, across = Math.abs(-(x - cx) * az + (z - cz) * ax);
     return along > 0 && along < foreR + 4 && across < 8;
   });
   lap('streets');
+  yield;
 
   buildCityProps(b, parcels, rand);
   lap('props');
+  yield;
 
-  const object = batchSettlementDetails(b.build());
+  const object = batchSettlementDetails(yield* b.buildSteps(true, true));
   lap('merge');
   object.add(chimneySmoke(smoke));
   return { object, flags, info: { plaza: { x: market.x, z: market.z }, houseCount: parcels.length, southGate: { x: SOUTH_GATE.x, z: SOUTH_GATE.z + 8 } } };

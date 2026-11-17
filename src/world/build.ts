@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { packFloats, PackedStaticAttribute, type FloatBlock } from '../render/packed-attribute';
 import { fracturedRock } from './rock-geometry';
 import { fbm } from './noise';
 import { structureDetail, registerStructureDetail, structureDetailRange, detailCounters } from './structure-detail';
@@ -72,25 +72,104 @@ export function place(x: number, y: number, z: number, rot = 0): THREE.Matrix4 {
  * material. A whole village becomes a handful of draw calls.
  */
 /** Growable flat triangle soup: positions, normals and colours, non-indexed. */
+interface SoupChunk { pos: FloatBlock; nor: FloatBlock; col: FloatBlock; n: number; index: Uint16Array | Uint32Array }
+
+/** Exact Float32-bit deduplication. Triangle order, normals, colours and seams stay intact. */
+function compactChunk(pos: Float32Array, nor: Float32Array, col: Float32Array, count: number): SoupChunk {
+  const words = [pos, nor, col].map(array => new Uint32Array(array.buffer, array.byteOffset, array.length));
+  let capacity = 1;
+  while (capacity < count * 2) capacity *= 2;
+  const table = new Uint32Array(capacity), mask = capacity - 1;
+  const index = count <= 65535 ? new Uint16Array(count) : new Uint32Array(count);
+  let unique = 0;
+  for (let i = 0; i < count; i++) {
+    const from = i * 3;
+    let hash = 2166136261;
+    for (const array of words) for (let k = 0; k < 3; k++) hash = Math.imul(hash ^ array[from + k], 16777619);
+    let slot = (hash ^ (hash >>> 16)) & mask;
+    while (table[slot]) {
+      const at = (table[slot] - 1) * 3;
+      let same = true;
+      for (const array of words) for (let k = 0; k < 3; k++) if (array[from + k] !== array[at + k]) same = false;
+      if (same) break;
+      slot = (slot + 1) & mask;
+    }
+    if (!table[slot]) {
+      const to = unique * 3;
+      for (const array of words) for (let k = 0; k < 3; k++) array[to + k] = array[from + k];
+      table[slot] = ++unique;
+    }
+    index[i] = table[slot] - 1;
+  }
+  return { pos: packFloats(pos.slice(0, unique * 3)), nor: packFloats(nor.slice(0, unique * 3)), col: packFloats(col.slice(0, unique * 3)), n: unique, index };
+}
+
+/** Bounded chunks avoid retaining exponentially grown backing arrays. */
 class Soup {
-  pos = new Float32Array(36 * 3 * 64);
-  nor = new Float32Array(36 * 3 * 64);
-  col = new Float32Array(36 * 3 * 64);
+  pos = new Float32Array(0);
+  nor = new Float32Array(0);
+  col = new Float32Array(0);
   n = 0;
+  readonly chunks: SoupChunk[] = [];
+  private seal(): void {
+    if (this.n) this.chunks.push(compactChunk(this.pos, this.nor, this.col, this.n));
+    this.pos = this.nor = this.col = new Float32Array(0); this.n = 0;
+  }
   reserve(vertices: number): void {
-    const need = (this.n + vertices) * 3;
-    if (need <= this.pos.length) return;
-    let size = this.pos.length * 2;
-    while (size < need) size *= 2;
-    for (const key of ['pos', 'nor', 'col'] as const) { const next = new Float32Array(size); next.set(this[key]); this[key] = next; }
+    if ((this.n + vertices) * 3 <= this.pos.length) return;
+    this.seal();
+    const size = Math.max(16380, vertices) * 3;
+    this.pos = new Float32Array(size); this.nor = new Float32Array(size); this.col = new Float32Array(size);
   }
-  geometry(): THREE.BufferGeometry {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos.slice(0, this.n * 3), 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(this.nor.slice(0, this.n * 3), 3));
-    g.setAttribute('color', new THREE.BufferAttribute(this.col.slice(0, this.n * 3), 3));
-    return g;
+  get count(): number { this.seal(); return this.chunks.reduce((sum, chunk) => sum + chunk.n, 0); }
+  get corners(): number { this.seal(); return this.chunks.reduce((sum, chunk) => sum + chunk.index.length, 0); }
+  *consume(): Generator<SoupChunk> {
+    this.seal();
+    for (let i = 0; i < this.chunks.length; i++) {
+      const chunk = this.chunks[i];
+      this.chunks[i] = undefined!;
+      yield chunk;
+    }
+    this.chunks.length = 0;
   }
+}
+type Source = Soup | THREE.BufferGeometry;
+
+/** Finalize attribute blocks without a second vertex allocation; only indices are concatenated. */
+function* mergeSources(sources: Source[]): Generator<void, THREE.BufferGeometry> {
+  const count = sources.reduce((sum, source) => sum + (source instanceof Soup ? source.count : source.attributes.position.count), 0);
+  const blocks: Record<'pos' | 'nor' | 'col', FloatBlock[]> = { pos: [], nor: [], col: [] };
+  const corners = sources.reduce((sum, source) => sum + (source instanceof Soup ? source.corners : source.index?.count ?? source.attributes.position.count), 0);
+  const index = count <= 65535 ? new Uint16Array(corners) : new Uint32Array(corners);
+  let offset = 0, corner = 0, copied = 0;
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i]; sources[i] = undefined!;
+    if (source instanceof Soup) {
+      for (const chunk of source.consume()) {
+        const length = chunk.n * 3;
+        blocks.pos.push(chunk.pos); blocks.nor.push(chunk.nor); blocks.col.push(chunk.col);
+        for (let k = 0; k < chunk.index.length; k++) index[corner++] = chunk.index[k] + offset / 3;
+        offset += length; copied += length * 12;
+        if (copied >= 4 * 1048576) { copied = 0; yield; }
+      }
+    } else {
+      const length = source.attributes.position.count * 3;
+      blocks.pos.push(packFloats(source.attributes.position.array as Float32Array));
+      blocks.nor.push(packFloats(source.attributes.normal.array as Float32Array));
+      blocks.col.push(packFloats(source.attributes.color.array as Float32Array));
+      const vertices = source.index?.count ?? source.attributes.position.count;
+      for (let k = 0; k < vertices; k++) index[corner++] = (source.index ? source.index.getX(k) : k) + offset / 3;
+      source.dispose(); offset += length; copied += length * 12;
+      if (copied >= 4 * 1048576) { copied = 0; yield; }
+    }
+  }
+  sources.length = 0;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new PackedStaticAttribute(blocks.pos, 3));
+  g.setAttribute('normal', new PackedStaticAttribute(blocks.nor, 3));
+  g.setAttribute('color', new PackedStaticAttribute(blocks.col, 3));
+  g.setIndex(new THREE.BufferAttribute(index, 1));
+  return g;
 }
 // Box faces: normal, then the two in-plane axes (u x v = normal), as unit vectors.
 const BOX_FACES = [
@@ -100,8 +179,8 @@ const BOX_FACES = [
 const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]];
 
 export class Builder {
-  private readonly parts = new Map<Mat, THREE.BufferGeometry[]>();
-  private readonly detailParts = new Map<string, Map<Mat, THREE.BufferGeometry[]>>();
+  private readonly parts = new Map<Mat, Source[]>();
+  private readonly detailParts = new Map<string, Map<Mat, Source[]>>();
   /** Boxes go straight into flat arrays: no geometry objects, so no garbage. */
   private readonly soups = new Map<string, Map<Mat, Soup>>();
   private detailing = false;
@@ -137,7 +216,7 @@ export class Builder {
   /** Fractured, bevelled stone. It uses unpatterned vertex color, never brick UVs. */
   rock(x: number, y: number, z: number, w: number, h: number, d: number, rot: number, color: number, seed: number, detail = 1, profile: 'rubble' | 'wall' = 'rubble'): THREE.BufferGeometry {
     const g = fracturedRock(w, h, d, seed, structureDetail(), detail, profile);
-    this.add('rock', g, color, place(x, y, z, rot), 0.16);
+    this.addMutable('rock', g, color, place(x, y, z, rot), 0.16);
     const colors = g.attributes.color, pos = g.attributes.position, normal = g.attributes.normal;
     for (let i = 0; i < colors.count; i++) {
       const grain = 0.87 + fbm(pos.getX(i) * 8 + seed, pos.getZ(i) * 8 + pos.getY(i), 2) * 0.17;
@@ -219,6 +298,56 @@ export class Builder {
    * @param shade how much to darken the bottom of the solid, as cheap ambient occlusion
    */
   add(mat: Mat, geo: THREE.BufferGeometry, color: number, matrix?: THREE.Matrix4, shade = 0): void {
+    // Attribute transforms match BufferGeometry.applyMatrix4 before expansion, preserving Float32 rounding.
+    const g = !geo.attributes.normal && geo.index ? geo.toNonIndexed() : geo;
+    if (!g.attributes.normal) g.computeVertexNormals();
+    g.computeBoundingBox();
+    const minY = g.boundingBox!.min.y, span = Math.max(1e-3, g.boundingBox!.max.y - minY);
+    const pos = g.attributes.position, colors = new Float32Array(pos.count * 3);
+    tmp.set(color);
+    for (let i = 0; i < pos.count; i++) {
+      const k = 1 - shade * (1 - (pos.getY(i) - minY) / span);
+      colors[i * 3] = tmp.r * k; colors[i * 3 + 1] = tmp.g * k; colors[i * 3 + 2] = tmp.b * k;
+    }
+    if (matrix) g.applyMatrix4(matrix);
+    const index = g.index, count = index?.count ?? pos.count;
+    let parts = this.parts;
+    if (this.detailing) {
+      // Old add() assigned the cell from the bounds of the expanded, transformed vertices.
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (let i = 0; i < count; i++) {
+        const v = index ? index.getX(i) : i;
+        minX = Math.min(minX, pos.getX(v)); maxX = Math.max(maxX, pos.getX(v));
+        minZ = Math.min(minZ, pos.getZ(v)); maxZ = Math.max(maxZ, pos.getZ(v));
+      }
+      const cell = `${Math.floor((minX + maxX) / 2 / 128)},${Math.floor((minZ + maxZ) / 2 / 128)}`;
+      if (!this.detailParts.has(cell)) this.detailParts.set(cell, new Map());
+      parts = this.detailParts.get(cell)!;
+    }
+    let list = parts.get(mat);
+    if (!list) parts.set(mat, list = []);
+    let soup = list.at(-1);
+    if (!(soup instanceof Soup)) { soup = new Soup(); list.push(soup); }
+    const normal = g.attributes.normal;
+    // A geometry can be larger than a chunk. Keep transient colour/position copies bounded.
+    for (let from = 0; from < count; from += 16380) {
+      const length = Math.min(16380, count - from);
+      soup.reserve(length);
+      let o = soup.n * 3;
+      for (let i = from; i < from + length; i++) {
+        const v = index ? index.getX(i) : i;
+        soup.pos[o] = pos.getX(v); soup.pos[o + 1] = pos.getY(v); soup.pos[o + 2] = pos.getZ(v);
+        soup.nor[o] = normal.getX(v); soup.nor[o + 1] = normal.getY(v); soup.nor[o + 2] = normal.getZ(v);
+        soup.col[o] = colors[v * 3]; soup.col[o + 1] = colors[v * 3 + 1]; soup.col[o + 2] = colors[v * 3 + 2];
+        o += 3;
+      }
+      soup.n += length;
+    }
+    g.dispose(); if (g !== geo) geo.dispose();
+  }
+
+  /** Rare geometries painted/seated by callers after insertion must stay live until build(). */
+  addMutable(mat: Mat, geo: THREE.BufferGeometry, color: number, matrix?: THREE.Matrix4, shade = 0): void {
     const g = geo.index ? geo.toNonIndexed() : geo;
     g.deleteAttribute('uv');
     if (!g.attributes.normal) g.computeVertexNormals();
@@ -358,43 +487,59 @@ export class Builder {
     this.add(mat, g, color, matrix, 0.1);
   }
 
-  build(castShadow = true): THREE.Group {
-    // Fold the box soups in with the other parts of their material and cell.
+  build(castShadow = true): THREE.Group { return this.finish(castShadow, false); }
+  buildSettlement(castShadow = true): THREE.Group { return this.finish(castShadow, true); }
+  private finish(castShadow: boolean, settlement: boolean): THREE.Group {
+    const steps = this.buildSteps(castShadow, settlement);
+    let step = steps.next();
+    while (!step.done) step = steps.next();
+    return step.value;
+  }
+
+  /** Async city construction drains this same path, yielding between bounded copies. */
+  *buildSteps(castShadow = true, settlement = false): Generator<void, THREE.Group> {
     for (const [cell, byMat] of this.soups) for (const [mat, soup] of byMat) {
-      if (!soup.n) continue;
+      if (!soup.count) continue;
       let parts = this.parts;
       if (cell) {
         if (!this.detailParts.has(cell)) this.detailParts.set(cell, new Map());
         parts = this.detailParts.get(cell)!;
       }
       const list = parts.get(mat);
-      if (list) list.push(soup.geometry()); else parts.set(mat, [soup.geometry()]);
+      if (list) list.push(soup); else parts.set(mat, [soup]);
     }
     this.soups.clear();
     const group = new THREE.Group();
     const mats = getMaterials(false, this.interior, this.shell);
     for (const [mat, list] of this.parts) {
-      const mesh = new THREE.Mesh(mergeGeometries(list), mats[mat]);
+      const mesh = new THREE.Mesh(yield* mergeSources(list), mats[mat]);
       mesh.castShadow = castShadow && mat !== 'glow';
-      mesh.receiveShadow = mat !== 'glow';
-      mesh.matrixAutoUpdate = false;
-      mesh.name = `structure-${mat}`;
-      group.add(mesh);
+      mesh.receiveShadow = mat !== 'glow'; mesh.matrixAutoUpdate = false;
+      mesh.name = `structure-${mat}`; group.add(mesh);
+      yield;
     }
     this.parts.clear();
     const detailMats = getMaterials(true, this.interior, this.shell);
+    const detailBatches = new Map<string, { mat: Mat; list: Source[] }>();
+    // Fold the cell lists straight into their final material batch, without intermediate geometries.
     for (const [cell, parts] of this.detailParts) for (const [mat, list] of parts) {
-      const mesh = new THREE.Mesh(mergeGeometries(list), detailMats[mat]);
-      mesh.name = `structure-detail-${cell}-${mat}`;
-      // Thin relief receives shadows; it does not introduce detached/fading shadow casters.
-      mesh.receiveShadow = true;
-      mesh.matrixAutoUpdate = false;
-      registerStructureDetail(mesh);
-      group.add(mesh);
+      const key = settlement ? mat : `${cell}-${mat}`;
+      const saved = detailBatches.get(key);
+      if (saved) saved.list.push(...list); else detailBatches.set(key, { mat, list: [...list] });
+      list.length = 0;
     }
     this.detailParts.clear();
+    for (const [key, { mat, list }] of detailBatches) {
+      const mesh = new THREE.Mesh(yield* mergeSources(list), detailMats[mat]);
+      mesh.name = settlement ? 'Settlement merged relief' : `structure-detail-${key}`;
+      mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
+      registerStructureDetail(mesh); group.add(mesh);
+      yield;
+    }
+    if (settlement) group.userData.settlementBatched = true;
     return group;
   }
+
 }
 
 export interface Opening {

@@ -5,6 +5,7 @@ import { registerStructureDetail } from '../structure-detail';
 /** Compact one settlement's relief by material. Retains all vertices and the original
  * per-fragment distance fade; each settlement still has independent bounds/culling. */
 export function batchSettlementDetails<T extends THREE.Group>(root: T): T {
+  if (root.userData.settlementBatched) return root;
   root.updateMatrixWorld(true);
   const inverse = root.matrixWorld.clone().invert();
   const batches = new Map<THREE.Material, THREE.Mesh[]>();

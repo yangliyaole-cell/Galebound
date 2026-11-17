@@ -1,4 +1,5 @@
-import { QUALITY_NAMES, storeTier, storedTier, type QualityName } from '../core/quality';
+import type { QualityName } from '../core/quality';
+import { QUALITY_LABELS } from '../core/boot-guard';
 import type { Wind } from '../world/wind';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -29,7 +30,7 @@ export class Hud {
   onSound: () => boolean = () => true;
   onCinema: () => Promise<boolean> = async () => false;
 
-  constructor(touch: boolean, tier: QualityName) {
+  constructor(touch: boolean) {
     $('keys').innerHTML = touch
       ? '左侧拖动：移动（推到底奔跑）　右侧拖动：视角　双指：缩放'
       : 'WASD 移动　·　Shift 奔跑　·　空格 跳跃　·　鼠标 视角　·　滚轮 缩放<br />空中再按空格：张开风布滑翔　·　A / D 转向　·　W 俯冲　·　S 拉升　·　按住 Shift 收臂加速　·　空格 收起风布';
@@ -37,9 +38,10 @@ export class Hud {
     if (touch) this.showTouch();
 
     this.startButton.addEventListener('click', () => {
+      if (this.startButton.dataset.bootFailed) return;
       this.title.classList.add('hidden');
       this.root.classList.remove('hidden');
-      setTimeout(() => (this.title.style.display = 'none'), 1200);
+      setTimeout(() => { if (!this.startButton.dataset.bootFailed) this.title.style.display = 'none'; }, 1200);
       this.onStart();
     });
     const jump = $('jump');
@@ -53,47 +55,6 @@ export class Hud {
       run.classList.toggle('on', this.onRun());
     });
 
-    const names: Record<string, string> = { auto: '自动', low: '低', medium: '中', high: '高', ultra: '极致' };
-    const quality = $('quality');
-    const stored = storedTier();
-    quality.textContent = `画质：${stored === 'auto' ? `自动（${names[tier]}）` : names[stored]}`;
-    // Choose first, then apply: changing tier rebuilds the world, so it reloads once, on 应用.
-    const picker = $('quality-picker'), options = $('quality-options'), note = $('quality-note');
-    const apply = $('quality-apply') as HTMLButtonElement;
-    const notes: Record<string, string> = {
-      auto: '按设备自动选择。', low: '最快，照顾低端设备。', medium: '流畅优先，手机可用。',
-      high: '高画质，兼顾帧率。', ultra: '画面拉满，不考虑性能。',
-    };
-    let picked: QualityName | 'auto' = stored;
-    const render = (): void => {
-      for (const button of options.querySelectorAll('button')) {
-        button.classList.toggle('picked', button.dataset.tier === picked);
-        button.classList.toggle('current', button.dataset.tier === stored);
-      }
-      apply.disabled = picked === stored;
-      note.textContent = `${notes[picked]}${picked === stored ? '（当前）' : ' 应用后会重新加载一次。'}`;
-    };
-    for (const option of ['auto', ...QUALITY_NAMES] as (QualityName | 'auto')[]) {
-      const button = document.createElement('button');
-      button.dataset.tier = option;
-      button.textContent = names[option];
-      button.addEventListener('click', () => { picked = option; render(); });
-      options.append(button);
-    }
-    const close = (): void => { picker.classList.add('hidden'); picked = stored; render(); };
-    quality.addEventListener('click', () => {
-      if (picker.classList.contains('hidden')) { picked = stored; render(); picker.classList.remove('hidden'); }
-      else close();
-    });
-    $('quality-cancel').addEventListener('click', close);
-    apply.addEventListener('click', () => {
-      if (picked === stored) return close();
-      storeTier(picked);
-      apply.disabled = true;
-      apply.textContent = '正在重新加载…';
-      location.reload();
-    });
-    window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !picker.classList.contains('hidden')) close(); });
     const sound = $('sound');
     sound.addEventListener('click', () => {
       sound.textContent = `声音：${this.onSound() ? '开' : '关'}`;
@@ -103,6 +64,26 @@ export class Hud {
     cinema.addEventListener('click', () => {
       void this.onCinema().then((on) => this.cinemaLabel(on)).catch(() => this.toast('风格加载失败，请重试'));
     });
+  }
+
+  /** Also works before HUD/Input/renderer construction has completed. */
+  static bootNotice(text: string): void {
+    $('boot-status').textContent = text;
+  }
+
+  static bootFailure(stage: string, message: string, quality: QualityName, next: QualityName | null): void {
+    const title = $('title'), button = $<HTMLButtonElement>('start');
+    title.classList.remove('hidden');
+    title.style.display = '';
+    $('hud').classList.add('hidden');
+    $('boot-status').classList.add('error');
+    $('boot-status').textContent = `加载失败：${stage}（${QUALITY_LABELS[quality]}画质）。${message}\n${next
+      ? `将在 2.5 秒后自动改用「${QUALITY_LABELS[next]}」画质重试。`
+      : '请关闭其他标签页后重试，并确认 Safari 已启用 WebGL；也可更新系统后再试。'}`;
+    button.dataset.bootFailed = 'true';
+    button.disabled = !!next;
+    button.textContent = next ? '正在准备重试…' : '重试';
+    button.onclick = () => location.reload();
   }
 
   cinemaLabel(on: boolean): void {
