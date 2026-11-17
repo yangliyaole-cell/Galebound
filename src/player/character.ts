@@ -230,6 +230,14 @@ export class Character {
   private hipDrop = 0;
   private slope = 0;
   private readonly footPos = new THREE.Vector3();
+  /** Idle life: glances and weight shifts on a seeded schedule (deterministic for checks). */
+  private idleClock = 0;
+  private nextGlance = 2.5;
+  private nextShift = 6;
+  private glanceYaw = 0;
+  private glancePitch = 0;
+  private stance = 1;
+  private seed = 20231;
   private blink = 2;
   private capeGlide = 0;
   capeTier: CapeTier = 'medium';
@@ -308,8 +316,35 @@ export class Character {
   }
 
   /** Idle stance, tuned for the imported anatomy when it is loaded. */
-  private idlePose(time: number): Pose {
+  private random(): number {
+    this.seed = (this.seed * 16807) % 2147483647;
+    return (this.seed - 1) / 2147483646;
+  }
+
+  private idlePose(dt: number, time: number): Pose {
     const target = poseFor('idle', this.phase, time, 0, 0);
+    // A person standing still glances about and now and then moves their weight to the other
+    // leg, rather than sweeping the head on a sine. The pose spring turns each new target into
+    // a quick, eased glance.
+    this.idleClock += dt;
+    if (this.idleClock > this.nextGlance) {
+      const look = this.random();
+      this.glanceYaw = look < 0.35 ? 0 : (this.random() * 2 - 1) * 0.6;
+      this.glancePitch = (this.random() - 0.62) * 0.26;
+      this.nextGlance = this.idleClock + 1.6 + this.random() * 3.6;
+    }
+    if (this.idleClock > this.nextShift) {
+      this.stance = -this.stance;
+      this.nextShift = this.idleClock + 5 + this.random() * 6;
+    }
+    target.headY = this.glanceYaw + 0.035 * Math.sin(time * 0.6);
+    target.headX = this.glancePitch + 0.02 * Math.sin(time * 0.37 + 1);
+    target.chestY += this.glanceYaw * 0.14;
+    // Contrapposto: the standing leg's hip rides up, the free knee softens.
+    target.bodyRoll += 0.022 * this.stance;
+    target.spineZ -= 0.028 * this.stance;
+    if (this.stance > 0) { target.kneeR += 0.15; target.footR -= 0.08; target.legRZ -= 0.02; }
+    else { target.kneeL += 0.15; target.footL -= 0.08; target.legLZ += 0.02; }
     if (this.rig.setMaskVisible) {
       // Relax the new anatomy into a small weight shift, with shoulders back
       // and unequal elbow flexion, rather than a symmetric mannequin stance.
@@ -341,7 +376,7 @@ export class Character {
       const loco = mixPose(poseFor('walk', this.phase, time, 0, 0), poseFor('run', this.phase, time, 0, 0), gait);
       // A slow shuffle swings the limbs less rather than stepping in place.
       const move = smooth(0.08, 1.4, speed);
-      target = mixPose(this.idlePose(time), loco, move);
+      target = mixPose(this.idlePose(dt, time), loco, move);
       // Lean into acceleration, back against braking; bank into turns like a runner.
       const accel = state.accel ?? 0;
       target.bodyPitch += Math.max(-0.2, Math.min(0.16, accel * 0.011)) * move;
