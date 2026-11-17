@@ -127,6 +127,8 @@ export class CapeSimulation {
   private readonly acceleration: Float64Array;
   private readonly areas: Float64Array;
   private readonly pinned: Uint8Array;
+  /** Per-point max distance from the skinned target (metres); Infinity where the hem is free. */
+  private readonly tether: Float64Array;
   private readonly edgeList: { a: number; b: number; stiffness: number }[] = [];
   // Packed for the solver's inner loop: endpoints, stiffness / combined weight, and per-step rest length.
   private edgeA = new Int32Array(0);
@@ -146,6 +148,13 @@ export class CapeSimulation {
     this.oldTargets = new Float64Array(rest); this.targets = new Float64Array(rest);
     this.acceleration = new Float64Array(rest.length); this.areas = new Float64Array(rest.length / 3);
     this.pinned = new Uint8Array(rest.length / 3);
+    // Game-cloth style max-distance mask: the yoke under the mantle and folded hood barely moves,
+    // easing to a free hem. Without it the upper cloak swung through the mantle and hood.
+    this.tether = new Float64Array(rest.length / 3);
+    for (let n = 0; n < this.tether.length; n++) {
+      const v = Math.floor(n / cols) / Math.max(1, rows - 1);
+      this.tether[n] = v < 0.42 ? 0.012 + 0.3 * Math.pow(Math.max(0, v - 0.04) / 0.38, 2.2) : Infinity;
+    }
     const edge = (a: number, b: number, stiffness: number): void => { this.edgeList.push({ a: a * 3, b: b * 3, stiffness }); };
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const n = r * cols + c;
@@ -223,6 +232,7 @@ export class CapeSimulation {
         // Interleave contact and distance solves, so the body cannot pull the cloth through itself.
         resolvePrepared(p, prepared);
       }
+      this.applyTether(p);
       if (frame.groundAt) for (let i = 0; i < p.length; i += 3) p[i + 1] = Math.max(p[i + 1], frame.groundAt(p[i], p[i + 2]) + 0.015);
       resolvePrepared(p, prepared);
       this.stats.maxSpeed = 0;
@@ -239,6 +249,19 @@ export class CapeSimulation {
     this.oldColliders = frame.colliders.map(c => ({ a: [...c.a], b: [...c.b], radius: c.radius }));
     this.stats.maxPenetration = capePenetration(p, frame.colliders);
     this.stats.simulationMs = performance.now() - begin;
+  }
+
+  private applyTether(p: Float64Array): void {
+    const t = this.targets, tether = this.tether;
+    for (let n = 0; n < tether.length; n++) {
+      const limit = tether[n];
+      if (limit === Infinity || this.pinned[n]) continue;
+      const i = n * 3, dx = p[i] - t[i], dy = p[i + 1] - t[i + 1], dz = p[i + 2] - t[i + 2];
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 <= limit * limit) continue;
+      const k = limit / Math.sqrt(d2);
+      p[i] = t[i] + dx * k; p[i + 1] = t[i + 1] + dy * k; p[i + 2] = t[i + 2] + dz * k;
+    }
   }
 
   private aerodynamics(time: number, frame: CapeFrame): void {
@@ -260,7 +283,7 @@ export class CapeSimulation {
         pressure += (frame.wind[k] - frame.velocity[k] - clothRelative + turbulence) * normal[k];
       }
       // Signed quadratic pressure gives the SAME force after flipping the triangle normal.
-      const drag = Math.max(-160, Math.min(160, pressure * Math.abs(pressure) * 0.13));
+      const drag = Math.max(-160, Math.min(160, pressure * Math.abs(pressure) * 0.095));
       for (const i of [a, b, c]) {
         areas[i / 3] += area;
         for (let k = 0; k < 3; k++) f[i + k] += normal[k] * drag * area;

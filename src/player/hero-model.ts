@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { Rig } from './rig';
+import { HairSpring } from './hair-spring';
 import { CapeSimulation, capePatternFromMesh, sampleCape, resolveCapeCollisions, capePenetration, type CapeCapsule, type CapeTier } from './cape-sim';
 
 type JointName = 'body' | 'spine' | 'chest' | 'head' | 'armL' | 'foreL' | 'handL' |
@@ -55,6 +56,7 @@ export function createHeroRig(scene: THREE.Group, tier: CapeTier = 'medium'): Ri
   const blinkMeshes: THREE.Mesh[] = [];
   const maskMeshes: THREE.Mesh[] = [];
   const capeMeshes: THREE.SkinnedMesh[] = [];
+  let hairMesh: THREE.SkinnedMesh | null = null;
   const meshes: THREE.SkinnedMesh[] = [];
   root.traverse((object) => {
     if (object instanceof THREE.SkinnedMesh) meshes.push(object);
@@ -72,12 +74,15 @@ export function createHeroRig(scene: THREE.Group, tier: CapeTier = 'medium'): Ri
     if (original.map) original.map.anisotropy = 8;
     if (mesh.name.startsWith('Traveler_Mask')) maskMeshes.push(mesh);
     if (mesh.name.startsWith('Traveler_Cape')) capeMeshes.push(mesh);
+    if (mesh.name.startsWith('Traveler_Hair')) hairMesh = mesh;
     if (mesh.morphTargetDictionary?.Blink !== undefined) blinkMeshes.push(mesh);
   }
   root.updateMatrixWorld(true);
   const capes = capeMeshes.map(mesh => new CapeBinding(mesh, tier));
+  const hair = hairMesh ? new HairSpring(hairMesh, joints.head, bindPositions.get('head')!.y) : null;
   return {
     root, ...joints, hipHeight, eyes: null,
+    updateHair: hair ? (dt, time, wind) => hair.update(dt, time, wind) : undefined,
     setMaskVisible(visible) {
       for (const mesh of maskMeshes) mesh.visible = visible;
     },
@@ -115,18 +120,25 @@ export function disposeProceduralHero(root: THREE.Group): void {
 /** Anatomical capsules follow the posed joints, including prone/banked flight. Metres. */
 export function heroCapeColliders(joints: Pick<Rig, JointName>): CapeCapsule[] {
   const point = (name: JointName, x = 0, y = 0, z = 0): number[] => joints[name].localToWorld(new THREE.Vector3(x, y, z)).toArray();
+  // Radii are fitted to the dressed mesh (scripts/probe-cape-fit.mjs): the tunic skirt, trousers
+  // and boot cuffs stand 3-5 cm proud of the bare limbs, and boots reach well past the ankle.
+  // The torso and shoulder radii stay tight because the cloak itself is modelled close to the back.
   const capsules: CapeCapsule[] = [
     { a: point('body', 0, -0.04), b: point('chest', 0, 0.12), radius: 0.145 },
     { a: point('armL'), b: point('armR'), radius: 0.108 },
-    { a: point('legL'), b: point('legR'), radius: 0.12 },
+    { a: point('legL'), b: point('legR'), radius: 0.15 },
   ];
   for (const side of ['L', 'R'] as const) {
     capsules.push(
       { a: point(`arm${side}`), b: point(`fore${side}`), radius: 0.075 },
-      { a: point(`fore${side}`), b: point(`hand${side}`), radius: 0.059 },
-      { a: point(`leg${side}`), b: point(`shin${side}`), radius: 0.087 },
-      { a: point(`shin${side}`), b: point(`foot${side}`), radius: 0.067 },
+      { a: point(`fore${side}`), b: point(`hand${side}`), radius: 0.064 },
+      { a: point(`leg${side}`), b: point(`shin${side}`), radius: 0.118 },
+      { a: point(`shin${side}`), b: point(`foot${side}`), radius: 0.08 },
     );
+  }
+  // Boots, heel to toe: a swinging foot used to pass straight through the hem.
+  for (const side of ['L', 'R'] as const) {
+    capsules.push({ a: point(`foot${side}`, 0, -0.02, -0.06), b: point(`foot${side}`, 0, -0.025, 0.12), radius: 0.06 });
   }
   return capsules;
 }
@@ -197,6 +209,15 @@ export class CapeBinding {
     (geometry.attributes.position as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
     const material = (source.material as THREE.MeshStandardMaterial).clone();
     material.side = THREE.DoubleSide;
+    // The cloak texture averages ~4% linear albedo; after the hero albedo scale it rendered as a
+    // flat black hole whenever it faced away from the sun. Lift it to a charcoal wool and add a
+    // fabric sheen (grazing-angle lobe, as in film/game cloth shading) so folds stay readable.
+    material.color.multiplyScalar(2.1);
+    if (material instanceof THREE.MeshPhysicalMaterial) {
+      material.sheen = 1;
+      material.sheenRoughness = 0.55;
+      material.sheenColor.setRGB(0.32, 0.3, 0.29);
+    }
     this.render = new THREE.Mesh(geometry, material);
     this.render.name = `${source.name}_SoftCloth`;
     this.render.position.copy(source.position); this.render.quaternion.copy(source.quaternion); this.render.scale.copy(source.scale);
