@@ -7,8 +7,8 @@ let installed = false;
 
 export function qualityLabel(tier: QualityName): string {
   const q = new URLSearchParams(location.search).get('q');
-  const source = isName(q) ? 'URL' : storedTier() === 'auto' ? '自动' : '已保存';
-  return `画质：${source}（${names[tier]}）${isIOSLike() ? '（内存保护）' : ''}`;
+  const source = isName(q) ? ' · 网址指定' : storedTier() === 'auto' ? ' · 自动' : '';
+  return `${names[tier]}${source}${isIOSLike() ? ' · 省内存' : ''}`;
 }
 
 /** Shared by the title and game menus; applying always clears previous recovery overrides. */
@@ -28,7 +28,9 @@ export function installQualityPicker(tier: QualityName): void {
   const q = new URLSearchParams(location.search).get('q');
   const current = isName(q) ? q : storedTier();
   const triggers = [$('quality'), $('title-quality')];
-  for (const trigger of triggers) trigger.textContent = qualityLabel(tier);
+  // The in-game menu stays short on phones; the title chip says where the choice came from.
+  $('quality').textContent = `画质 · ${names[tier]}`;
+  $('title-quality').textContent = qualityLabel(tier);
   const picker = $('quality-picker'), options = $('quality-options'), note = $('quality-note');
   const apply = $<HTMLButtonElement>('quality-apply');
   const notes: Record<string, string> = {

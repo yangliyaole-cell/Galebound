@@ -8,52 +8,59 @@
     <style>
       :root {
         --ink: #17202b;
-        --paper: rgba(248, 244, 232, 0.92);
-        --glass: rgba(22, 34, 48, 0.42);
-        --line: rgba(255, 255, 255, 0.55);
-        --gold: #ffd77a;
+        --paper: rgba(250, 246, 236, 0.94);
+        --glass: rgba(18, 30, 44, 0.42);
+        --glass-deep: rgba(14, 24, 36, 0.62);
+        --line: rgba(255, 255, 255, 0.34);
+        --line-soft: rgba(255, 255, 255, 0.16);
+        --gold: #f4d58d;
+        --gold-deep: #d9b45f;
+        --mist: rgba(236, 242, 248, 0.78);
         --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Songti SC', 'Noto Serif CJK SC', 'STSong', Georgia, serif;
         --sans: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        --ease: cubic-bezier(0.22, 0.7, 0.18, 1);
       }
       html, body { margin: 0; height: 100%; overflow: hidden; background: #6fa8dc; font-family: var(--sans); }
       body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
       canvas#game { display: block; width: 100%; height: 100%; touch-action: none; outline: none; filter: saturate(1.1) contrast(1.03); }
       /* A soft darkening toward the corners, like the edge of a painted cel. */
       #vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 46%, rgba(20, 35, 60, 0) 55%, rgba(20, 35, 60, 0.26) 100%); }
-      button { font: inherit; color: inherit; }
+      button { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
 
-      #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; text-shadow: 0 1px 3px rgba(10, 25, 40, 0.55); }
+      #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; text-shadow: 0 1px 3px rgba(10, 25, 40, 0.55); transition: opacity 1.2s var(--ease); }
       #hud > * { position: absolute; }
       .hidden { opacity: 0 !important; pointer-events: none !important; }
 
-      .panel { background: var(--glass); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+      .panel { background: var(--glass); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2); }
 
-      #orbs { top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); padding: 8px 16px 8px 12px; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; transition: transform 0.25s; }
-      #orbs.pop { transform: scale(1.14); }
-      #orbs .spark { width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle, #fff 0 22%, var(--gold) 45%, rgba(255, 215, 122, 0) 72%); }
+      #orbs { top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); padding: 7px 15px 7px 11px; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; transition: transform 0.25s; }
+      #orbs.pop { transform: scale(1.12); }
+      #orbs .spark { width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle, #fff 0 22%, var(--gold) 45%, rgba(244, 213, 141, 0) 72%); }
 
-      #menu { top: calc(max(14px, env(safe-area-inset-top)) + 46px); left: max(14px, env(safe-area-inset-left)); display: flex; gap: 6px; pointer-events: auto; }
-      #menu button { padding: 5px 11px; font-size: 12px; cursor: pointer; opacity: 0.85; }
-      #quality-picker { position: fixed; z-index: 20; color: #fff; background: rgba(22, 34, 48, 0.92); max-width: calc(100vw - 40px); top: calc(max(14px, env(safe-area-inset-top)) + 80px); left: max(14px, env(safe-area-inset-left)); pointer-events: auto;
-        border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; min-width: 190px; transition: opacity 0.2s; }
+      #menu { top: calc(max(14px, env(safe-area-inset-top)) + 44px); left: max(14px, env(safe-area-inset-left)); display: flex; gap: 6px; pointer-events: auto; }
+      #menu button { padding: 4px 11px; font-size: 12px; letter-spacing: 0.04em; cursor: pointer; opacity: 0.8; transition: opacity 0.2s; }
+      #menu button:hover { opacity: 1; }
+      #quality-picker { position: fixed; z-index: 20; color: #fff; background: var(--glass-deep); max-width: calc(100vw - 40px); top: calc(max(14px, env(safe-area-inset-top)) + 80px); left: max(14px, env(safe-area-inset-left)); pointer-events: auto;
+        border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; min-width: 200px; transition: opacity 0.2s; }
       #quality-picker .options { display: flex; flex-wrap: wrap; gap: 5px; }
-      #quality-picker .options button { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.08); cursor: pointer; }
-      #quality-picker .options button.current { border-color: rgba(255, 255, 255, 0.7); }
-      #quality-picker .options button.picked { background: rgba(255, 215, 122, 0.55); color: var(--ink); text-shadow: none; }
+      #quality-picker .options button { padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); cursor: pointer; }
+      #quality-picker .options button.current { border-color: rgba(255, 255, 255, 0.75); }
+      #quality-picker .options button.picked { background: var(--gold); border-color: var(--gold); color: var(--ink); text-shadow: none; }
       #quality-picker .note { opacity: 0.8; line-height: 1.5; }
       #quality-picker .actions { display: flex; gap: 6px; justify-content: flex-end; }
-      #quality-picker .actions button { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.1); cursor: pointer; }
-      #quality-picker .actions #quality-apply { background: rgba(255, 215, 122, 0.7); color: var(--ink); text-shadow: none; }
+      #quality-picker .actions button { padding: 5px 13px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.08); cursor: pointer; }
+      #quality-picker .actions #quality-apply { background: var(--gold); border-color: var(--gold); color: var(--ink); text-shadow: none; }
       #quality-picker .actions #quality-apply:disabled { opacity: 0.4; cursor: default; }
+      body.entry-setup #quality-picker { left: auto; right: max(24px, env(safe-area-inset-right)); top: auto; bottom: calc(max(24px, env(safe-area-inset-bottom)) + 96px); }
 
       #wind { top: max(12px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); width: 92px; text-align: center; transition: opacity 0.4s; }
-      #wind svg { width: 84px; height: 84px; display: block; margin: 0 auto; overflow: visible; }
-      #wind .ring { fill: rgba(22, 34, 48, 0.38); stroke: rgba(255, 255, 255, 0.45); stroke-width: 1.5; }
+      #wind svg { width: 78px; height: 78px; display: block; margin: 0 auto; overflow: visible; }
+      #wind .ring { fill: rgba(18, 30, 44, 0.36); stroke: rgba(255, 255, 255, 0.42); stroke-width: 1.5; }
       #wind .arc { fill: none; stroke: var(--gold); stroke-width: 4; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
       #wind .arrow { fill: #fff; transition: fill 0.3s; transform-origin: 50% 50%; }
       #wind.gust .arrow { fill: var(--gold); }
       #wind.aligned .ring { stroke: var(--gold); stroke-width: 2.5; }
-      #wind .label { margin-top: 3px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; white-space: nowrap; }
+      #wind .label { margin-top: 3px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; white-space: nowrap; }
       #wind.gust .label { color: var(--gold); }
 
       #style-label { position: fixed; top: max(18px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); padding: 8px 18px; color: #fff; font-size: 13px; letter-spacing: 0.06em; pointer-events: none; transition: opacity 0.35s; }
@@ -61,38 +68,123 @@
       html[data-render-style] #vignette { display: none; }
       html.shot body > :not(#game):not(#vignette):not(script) { display: none !important; }
 
-      #toast { top: 20%; left: 50%; transform: translateX(-50%); padding: 9px 20px; font-size: 15px; font-weight: 600; white-space: nowrap; transition: opacity 0.5s; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
+      #toast { top: 19%; left: 50%; transform: translateX(-50%); padding: 8px 20px; font-size: 14px; font-weight: 500; letter-spacing: 0.08em; white-space: nowrap; transition: opacity 0.6s; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
 
-      #zone { top: 31%; left: 0; right: 0; text-align: center; transition: opacity 1.2s; font-family: var(--serif); }
-      #zone .name { font-size: clamp(34px, 7vw, 64px); letter-spacing: 0.18em; text-indent: 0.18em; font-weight: 500; text-shadow: 0 2px 18px rgba(10, 30, 50, 0.55); }
-      #zone .sub { font-size: clamp(13px, 2vw, 18px); letter-spacing: 0.32em; text-indent: 0.32em; font-style: italic; opacity: 0.92; margin-top: 4px; }
-      #zone .rule { width: min(260px, 50vw); height: 1px; margin: 10px auto 0; background: linear-gradient(90deg, transparent, #fff, transparent); }
+      #zone { top: 30%; left: 0; right: 0; text-align: center; transition: opacity 1.2s; font-family: var(--serif); }
+      #zone .name { font-size: clamp(32px, 7vw, 62px); letter-spacing: 0.2em; text-indent: 0.2em; font-weight: 500; text-shadow: 0 2px 18px rgba(10, 30, 50, 0.55); }
+      #zone .sub { font-size: clamp(12px, 1.8vw, 17px); letter-spacing: 0.34em; text-indent: 0.34em; font-style: italic; opacity: 0.9; margin-top: 4px; }
+      #zone .rule { width: min(240px, 50vw); height: 1px; margin: 10px auto 0; background: linear-gradient(90deg, transparent, #fff, transparent); }
 
-      #hint { bottom: max(14px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-size: 12.5px; opacity: 0.85; white-space: nowrap; transition: opacity 1s; padding: 6px 14px; }
+      #hint { bottom: max(14px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-size: 12px; letter-spacing: 0.06em; opacity: 0.85; white-space: nowrap; transition: opacity 1.2s; padding: 6px 15px; }
 
-      #touch { right: max(18px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); display: none; pointer-events: auto; }
-      #touch button { position: absolute; border-radius: 50%; background: var(--glass); border: 1.5px solid var(--line); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); font-weight: 700; touch-action: none; }
-      #touch #jump { right: 0; bottom: 0; width: 84px; height: 84px; font-size: 17px; }
-      #touch #run { right: 96px; bottom: 0; width: 60px; height: 60px; font-size: 14px; }
-      #touch button.on { background: rgba(255, 215, 122, 0.55); color: var(--ink); text-shadow: none; }
-      #touch button:active { transform: scale(0.94); }
+      /* Touch: no buttons. A soft guide shows once, then the screen is all world. */
+      #touch-guide { inset: 0; display: none; transition: opacity 1.4s var(--ease); }
+      #touch-guide .half { position: absolute; top: 34%; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font-size: 13px; letter-spacing: 0.12em; opacity: 0.88; }
+      #touch-guide .left { left: 0; width: 50%; }
+      #touch-guide .right { right: 0; width: 50%; border-left: 1px dashed rgba(255, 255, 255, 0.22); }
+      #touch-guide .ring { width: 74px; height: 74px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.55); background: rgba(18, 30, 44, 0.18); box-shadow: inset 0 0 0 16px rgba(255, 255, 255, 0.05); }
+      #touch-guide .dot { width: 22px; height: 22px; border-radius: 50%; background: rgba(255, 255, 255, 0.7); box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.12); animation: tap 1.8s ease-in-out infinite; }
+      #touch-guide small { display: block; font-size: 11px; opacity: 0.75; letter-spacing: 0.06em; }
+      @keyframes tap { 0%, 100% { transform: scale(1); } 45% { transform: scale(0.78); } }
 
-      .stick-base { position: fixed; display: none; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%; background: rgba(22, 34, 48, 0.28); border: 1.5px solid var(--line); pointer-events: none; }
-      .stick-knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; border-radius: 50%; background: rgba(255, 255, 255, 0.75); transform: translate(-50%, -50%); }
+      .stick-base { position: fixed; display: none; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: rgba(18, 30, 44, 0.22); border: 1.5px solid rgba(255, 255, 255, 0.45); pointer-events: none; transition: border-color 0.2s, background 0.2s; }
+      .stick-base::after { content: ''; position: absolute; inset: 23px; border-radius: 50%; border: 1px dashed rgba(255, 255, 255, 0.28); }
+      .stick-base.run { border-color: var(--gold); background: rgba(60, 46, 18, 0.22); }
+      .stick-knob { position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; border-radius: 50%; background: rgba(255, 255, 255, 0.78); transform: translate(-50%, -50%); transition: background 0.2s; z-index: 1; }
+      .stick-base.run .stick-knob { background: var(--gold); }
 
-      #title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; background: radial-gradient(ellipse at 50% 42%, rgba(20, 45, 75, 0.05), rgba(15, 35, 60, 0.5)); transition: opacity 1.1s; padding: 24px; box-sizing: border-box; }
-      #title h1 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: clamp(46px, 11vw, 112px); letter-spacing: 0.08em; text-shadow: 0 4px 30px rgba(10, 30, 60, 0.6); line-height: 1; }
-      #title .cn { font-family: var(--serif); font-size: clamp(20px, 4vw, 34px); letter-spacing: 0.9em; text-indent: 0.9em; margin-top: 12px; text-shadow: 0 2px 14px rgba(10, 30, 60, 0.6); }
-      #title .tag { margin-top: 18px; font-size: clamp(13px, 1.9vw, 16px); opacity: 0.95; max-width: 34em; line-height: 1.7; text-shadow: 0 1px 8px rgba(10, 30, 60, 0.7); }
-      #title-quality { margin-top: 16px; padding: 7px 16px; cursor: pointer; }
-      #title #start { margin-top: 30px; padding: 14px 44px; font-size: 18px; font-weight: 600; letter-spacing: 0.2em; text-indent: 0.2em; color: var(--ink); background: var(--paper); border: none; border-radius: 999px; cursor: pointer; box-shadow: 0 8px 30px rgba(10, 30, 60, 0.35); transition: transform 0.2s, opacity 0.4s; }
-      #title #start:hover { transform: translateY(-2px); }
-      #title #start:disabled { opacity: 0.6; cursor: default; transform: none; }
-      #title .keys { margin-top: 22px; font-size: 12.5px; opacity: 0.9; line-height: 1.9; text-shadow: 0 1px 6px rgba(10, 30, 60, 0.7); }
-      @media (max-height: 460px) { #title .tag, #title .keys { display: none; } #title #start { margin-top: 16px; } }
-      #boot-status { max-width: 540px; margin: 16px 24px 0; white-space: pre-line; line-height: 1.7; font-size: 14px; color: #e8e1ce; }
+      /* ---- the way in ---- */
+      #title { position: fixed; inset: 0; color: #fff; transition: opacity 1.4s var(--ease); box-sizing: border-box; pointer-events: none; }
+      #title::before { content: ''; position: absolute; inset: 0; pointer-events: none; transition: opacity 1.2s var(--ease);
+        background: radial-gradient(ellipse at 50% 40%, rgba(16, 36, 62, 0.02), rgba(12, 28, 50, 0.42)), linear-gradient(180deg, rgba(12, 26, 44, 0.12), rgba(12, 26, 44, 0) 30%, rgba(12, 26, 44, 0) 62%, rgba(12, 26, 44, 0.5)); }
+      #title[data-stage='setup']::before { background: linear-gradient(90deg, rgba(12, 26, 44, 0.42), rgba(12, 26, 44, 0) 34%, rgba(12, 26, 44, 0) 56%, rgba(12, 26, 44, 0.5)), linear-gradient(180deg, rgba(12, 26, 44, 0) 70%, rgba(12, 26, 44, 0.35)); }
+      #title > * { pointer-events: auto; }
+      #title .brand { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); text-align: center; transition: top 1.1s var(--ease), left 1.1s var(--ease), transform 1.1s var(--ease); pointer-events: none; width: max-content; max-width: 92vw; }
+      #title h1 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: clamp(48px, 11vw, 116px); letter-spacing: 0.08em; text-indent: 0.08em; text-shadow: 0 4px 34px rgba(10, 30, 60, 0.55); line-height: 1; transition: font-size 1.1s var(--ease); }
+      #title .cn { font-family: var(--serif); font-size: clamp(18px, 3.4vw, 30px); letter-spacing: 1em; text-indent: 1em; margin-top: 14px; opacity: 0.95; text-shadow: 0 2px 14px rgba(10, 30, 60, 0.6); }
+      #title .tag { margin: 22px auto 0; font-family: var(--serif); font-size: clamp(14px, 1.9vw, 17px); letter-spacing: 0.14em; opacity: 0.92; line-height: 1.9; text-shadow: 0 1px 10px rgba(10, 30, 60, 0.7); min-height: 1.9em; transition: opacity 0.6s; }
+      #title .rule { width: min(220px, 46vw); height: 1px; margin: 22px auto 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent); }
+      #title .gate { position: absolute; left: 50%; bottom: max(13vh, calc(env(safe-area-inset-bottom) + 64px)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 14px; transition: opacity 0.7s var(--ease); width: min(92vw, 560px); }
+      #title #start { padding: 14px 52px; font-family: var(--serif); font-size: 19px; letter-spacing: 0.5em; text-indent: 0.5em; color: var(--ink); background: var(--paper); border: none; border-radius: 999px; cursor: pointer; box-shadow: 0 10px 34px rgba(10, 30, 60, 0.32); transition: transform 0.25s var(--ease), box-shadow 0.25s, opacity 0.4s, background 0.4s, color 0.4s, letter-spacing 0.4s; }
+      #title #start:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 14px 40px rgba(10, 30, 60, 0.4); }
+      /* While the world is being made the button is only a quiet line of text over a drawn hairline. */
+      #title #start:disabled { background: none; box-shadow: none; color: rgba(255, 255, 255, 0.85); font-family: var(--sans); font-size: 13px; letter-spacing: 0.18em; text-indent: 0.18em; padding: 6px 0; cursor: default; transform: none; text-shadow: 0 1px 8px rgba(10, 30, 60, 0.7); }
+      #title .loader { width: min(260px, 60vw); height: 1px; background: rgba(255, 255, 255, 0.18); overflow: hidden; position: relative; }
+      #title .loader::after { content: ''; position: absolute; top: 0; bottom: 0; width: 40%; background: linear-gradient(90deg, transparent, var(--gold), transparent); animation: drift 2.2s ease-in-out infinite; }
+      #title:not([data-stage='loading']) .loader { opacity: 0; }
+      @keyframes drift { 0% { left: -40%; } 100% { left: 100%; } }
+      #boot-status { max-width: 540px; margin: 0 24px; white-space: pre-line; line-height: 1.7; font-size: 13px; color: #e8e1ce; text-align: center; text-shadow: 0 1px 8px rgba(10, 30, 60, 0.7); }
       #boot-status:empty { display: none; }
       #boot-status.error { color: #ffd0b8; }
+
+      #setup { position: absolute; right: max(24px, env(safe-area-inset-right)); top: 50%; width: min(372px, calc(100vw - 48px)); max-height: calc(100vh - 48px); overflow-y: auto; box-sizing: border-box;
+        transform: translate(24px, -50%); opacity: 0; pointer-events: none; transition: opacity 0.8s var(--ease), transform 0.9s var(--ease);
+        padding: 22px 22px 20px; border-radius: 22px; background: linear-gradient(180deg, rgba(16, 28, 42, 0.58), rgba(16, 28, 42, 0.66)); border: 1px solid var(--line-soft);
+        backdrop-filter: blur(16px) saturate(1.25); -webkit-backdrop-filter: blur(16px) saturate(1.25); box-shadow: 0 24px 60px rgba(6, 16, 30, 0.35); scrollbar-width: none; }
+      #setup::-webkit-scrollbar { display: none; }
+      #title[data-stage='setup'] #setup { opacity: 1; transform: translate(0, -50%); pointer-events: auto; }
+      #title[data-stage='setup'] .gate, #title[data-stage='leaving'] .gate { opacity: 0; pointer-events: none; }
+      #title[data-stage='setup'] .brand { left: max(48px, calc(env(safe-area-inset-left) + 32px)); top: max(44px, calc(env(safe-area-inset-top) + 28px)); transform: translate(0, 0); text-align: left; }
+      #title[data-stage='setup'] h1 { font-size: clamp(36px, 5vw, 60px); }
+      #title[data-stage='setup'] .cn { letter-spacing: 0.8em; text-indent: 0; margin-top: 8px; font-size: clamp(15px, 2vw, 20px); }
+      #title[data-stage='setup'] .rule { margin-left: 0; background: linear-gradient(90deg, rgba(255, 255, 255, 0.85), transparent); }
+      #title[data-stage='setup'] .tag { margin-left: 0; }
+      #setup h2 { margin: 0 0 16px; font-family: var(--serif); font-weight: 500; font-size: 21px; letter-spacing: 0.32em; }
+      #setup h3 { margin: 18px 0 9px; font-size: 11px; font-weight: 600; letter-spacing: 0.32em; color: var(--mist); opacity: 0.8; }
+      #setup .vistas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      #setup .vista { text-align: left; padding: 11px 12px 10px; border-radius: 14px; border: 1px solid var(--line-soft); background: rgba(255, 255, 255, 0.05); cursor: pointer; transition: background 0.25s, border-color 0.25s, transform 0.2s; }
+      #setup .vista:hover { background: rgba(255, 255, 255, 0.1); }
+      #setup .vista b { display: block; font-family: var(--serif); font-weight: 500; font-size: 16px; letter-spacing: 0.12em; }
+      #setup .vista span { display: block; margin-top: 3px; font-size: 10.5px; font-style: italic; letter-spacing: 0.08em; opacity: 0.7; }
+      #setup .vista.on { border-color: var(--gold); background: rgba(244, 213, 141, 0.16); box-shadow: inset 3px 0 0 var(--gold); }
+      #setup .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; letter-spacing: 0.06em; }
+      #setup .row > span { opacity: 0.88; }
+      .seg { display: inline-flex; padding: 2px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); border: 1px solid var(--line-soft); }
+      .seg button { border: none; background: none; padding: 5px 12px; border-radius: 999px; font-size: 12px; letter-spacing: 0.08em; cursor: pointer; opacity: 0.75; transition: background 0.2s, color 0.2s, opacity 0.2s; }
+      .seg button.on { background: var(--paper); color: var(--ink); opacity: 1; }
+      #setup .chip, #title-quality { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line-soft); background: rgba(255, 255, 255, 0.07); font-size: 12px; letter-spacing: 0.06em; cursor: pointer; }
+      #setup .keys { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 12px; line-height: 1.5; opacity: 0.9; }
+      #setup .keys kbd { font-family: var(--sans); font-size: 11px; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.08); white-space: nowrap; }
+      #setup .keys dt { text-align: right; white-space: nowrap; }
+      #setup .keys dd { margin: 0; opacity: 0.85; }
+      /* The way out of the panel never scrolls away: it rests on a soft fade at the bottom. */
+      #depart-bar { position: sticky; bottom: -20px; margin: 16px -22px -20px; padding: 14px 22px 20px; background: linear-gradient(180deg, rgba(16, 28, 42, 0), rgba(16, 28, 42, 0.92) 38%); }
+      #depart { width: 100%; padding: 13px 0; font-family: var(--serif); font-size: 18px; letter-spacing: 0.6em; text-indent: 0.6em; color: var(--ink); background: var(--paper); border: none; border-radius: 999px; cursor: pointer; box-shadow: 0 10px 30px rgba(6, 16, 30, 0.3); transition: transform 0.25s var(--ease), box-shadow 0.25s; }
+      #depart:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(6, 16, 30, 0.38); }
+      #title[data-stage='leaving'] { opacity: 0; pointer-events: none; }
+      #title[data-stage='leaving'] > * { pointer-events: none; }
+      #title[data-stage='leaving'] .brand { transform: translate(-50%, -54%); }
+
+      /* Phones in portrait: the setup becomes a sheet from the bottom, the title sits above it. */
+      @media (max-width: 720px) {
+        #setup { right: 0; left: 0; top: auto; bottom: 0; width: 100%; max-height: 64vh; border-radius: 22px 22px 0 0; padding: 18px 18px calc(16px + env(safe-area-inset-bottom)); transform: translateY(30px); }
+        #title[data-stage='setup'] #setup { transform: translateY(0); }
+        #title[data-stage='setup'] .brand { left: 50%; top: max(36px, calc(env(safe-area-inset-top) + 20px)); transform: translate(-50%, 0); text-align: center; }
+        #title[data-stage='setup'] .rule, #title[data-stage='setup'] .tag { margin-left: auto; }
+        #title[data-stage='setup'] .rule { background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent); }
+        #title[data-stage='setup'] .cn { text-indent: 0.8em; }
+        #setup h2 { display: none; }
+        #depart-bar { margin: 12px -18px calc(-16px - env(safe-area-inset-bottom)); padding: 12px 18px calc(14px + env(safe-area-inset-bottom)); bottom: calc(-16px - env(safe-area-inset-bottom)); }
+        #setup h3 { margin-top: 12px; }
+        body.entry-setup #quality-picker { left: 50%; right: auto; transform: translateX(-50%); bottom: auto; top: max(20px, env(safe-area-inset-top)); }
+      }
+      /* Landscape phones: short screens keep the panel at the side but compact. */
+      @media (max-height: 520px) {
+        #title .tag, #title .rule { display: none; }
+        #title .gate { bottom: max(18px, env(safe-area-inset-bottom)); }
+        #setup { max-height: calc(100vh - 24px); padding: 14px 16px; }
+        #setup h2 { font-size: 17px; margin-bottom: 8px; }
+        #setup h3 { margin: 10px 0 6px; }
+        #setup .keys { display: none; }
+        #depart { padding: 10px 0; }
+        #depart-bar { margin: 8px -16px -14px; padding: 10px 16px 14px; bottom: -14px; }
+      }
+      @media (max-height: 520px) and (max-width: 720px) {
+        #setup { max-height: 70vh; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #title .loader::after, #touch-guide .dot { animation: none; }
+      }
     </style>
   </head>
   <body>
@@ -100,7 +192,7 @@
     <div id="vignette"></div>
     <div id="style-label" class="panel hidden" aria-live="polite"></div>
     <div id="hud" class="hidden">
-      <div id="orbs" class="panel"><span class="spark"></span><span id="orb-count">0 / 0</span></div>
+      <div id="orbs" class="panel" title="寻得的光"><span class="spark"></span><span id="orb-count">0 / 0</span></div>
       <div id="menu">
         <button id="quality" class="panel">画质</button>
         <button id="sound" class="panel">声音</button>
@@ -117,16 +209,37 @@
       <div id="zone" class="hidden"><div class="name"></div><div class="rule"></div><div class="sub"></div></div>
       <div id="toast" class="panel hidden"></div>
       <div id="hint" class="panel"></div>
-      <div id="touch"><button id="run">跑</button><button id="jump">跳</button></div>
+      <div id="touch-guide" class="hidden" aria-hidden="true">
+        <div class="half left"><div class="ring"></div>按住移动<small>推远即奔跑</small></div>
+        <div class="half right"><div class="dot"></div>轻点跳跃<small>空中再点，乘风而起 · 滑动转视角</small></div>
+      </div>
     </div>
-    <div id="title">
-      <h1>Galebound</h1>
-      <div class="cn">乘风</div>
-      <div class="tag">纵身一跃，张开双臂上的风布：顺风疾飞，逆风扶摇。<br />走遍这片土地，找到藏在各处的光。</div>
-      <button id="title-quality" class="panel" aria-controls="quality-picker">画质</button>
-      <button id="start" disabled>正在生成世界…</button>
-      <div id="boot-status" role="status" aria-live="polite"></div>
-      <div class="keys" id="keys"></div>
+    <div id="title" data-stage="loading">
+      <div class="brand">
+        <h1>Galebound</h1>
+        <div class="cn">乘风</div>
+        <div class="rule"></div>
+        <div class="tag" id="title-line">张开风布，去寻散落各处的光。</div>
+      </div>
+      <div class="gate">
+        <div class="loader"></div>
+        <button id="start" disabled>正在生成世界</button>
+        <div id="boot-status" role="status" aria-live="polite"></div>
+      </div>
+      <div id="setup" role="dialog" aria-label="启程之前">
+        <h2>启程之前</h2>
+        <h3>远望</h3>
+        <div class="vistas" id="vistas"></div>
+        <h3>画面</h3>
+        <div class="row"><span>画质</span><button id="title-quality" aria-controls="quality-picker">画质</button></div>
+        <div class="row"><span>电影感</span><div class="seg" id="seg-cinema"><button data-v="1">开</button><button data-v="0">关</button></div></div>
+        <h3>行动</h3>
+        <div class="row" id="row-gait"><span>默认步伐</span><div class="seg" id="seg-gait"><button data-v="run">奔跑</button><button data-v="walk">漫步</button></div></div>
+        <div class="row"><span>视角转速</span><div class="seg" id="seg-look"><button data-v="0.7">缓</button><button data-v="1">中</button><button data-v="1.4">疾</button></div></div>
+        <div class="row"><span>声音</span><div class="seg" id="seg-sound"><button data-v="1">开</button><button data-v="0">关</button></div></div>
+        <dl class="keys" id="keys"></dl>
+        <div id="depart-bar"><button id="depart">出发</button></div>
+      </div>
     </div>
       <div id="quality-picker" class="panel hidden" role="dialog" aria-label="选择画质">
         <div class="options" id="quality-options"></div>

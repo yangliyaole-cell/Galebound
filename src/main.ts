@@ -4,6 +4,7 @@ import { DynamicResolution, pickQuality } from './core/quality';
 import { BootGuard, QUALITY_LABELS } from './core/boot-guard';
 import { installBootErrorHandlers } from './core/boot-errors';
 import { installQualityPicker } from './ui/quality-picker';
+import { EntryDirector, loadPrefs, savePrefs } from './ui/entry';
 import { releaseStructureArraysAfterUpload } from './render/static-upload';
 import { Input } from './core/input';
 import { loadSave, writeSave } from './core/save';
@@ -268,16 +269,30 @@ async function boot(): Promise<void> {
   canvas.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse') return;
     hud.showTouch();
+    if (started) hud.touchUsed();
     follow.autoFollow = true;
   });
+  // The way in: remembered choices, the vista the title looks out on, and the hand-over to play.
+  const prefs = loadPrefs();
+  const entry = new EntryDirector(prefs.vista);
+  const applyPrefs = (next: typeof prefs): void => {
+    entry.choose(next.vista);
+    input.walking = next.walk;
+    input.lookSpeed = next.look;
+  };
+  applyPrefs(prefs);
+  hud.showPrefs(prefs);
+  hud.onPrefs = (next) => {
+    applyPrefs(next);
+    savePrefs(next);
+  };
+  input.onWalkToggle = (walking) => hud.toast(walking ? '漫步' : '奔跑', 1.4);
 
   // ---- events
   wind.onState = (state) => {
-    if (state === 'warning') hud.toast('阵风将至');
-    else if (state === 'gust') hud.toast(`阵风起了，吹向${wind.heading()}。顺风飞得快，逆风升得高`);
+    if (state === 'warning') hud.toast('风起了');
+    else if (state === 'gust') hud.toast(`阵风 · 吹向${wind.heading()}`);
   };
-  hud.onJump = () => input.pressJump();
-  hud.onRun = () => input.toggleRun();
   hud.onSound = () => {
     const on = sound.toggle();
     save.muted = !on;
@@ -291,15 +306,17 @@ async function boot(): Promise<void> {
   player.onGlide = (begun) => {
     if (!begun) return;
     sound.whoosh();
-    if (glides++ === 0) hud.toast('张开风布了。A / D 转向，W 俯冲攒速度再 S 拉升，按住 Shift 收臂加速', 5);
+    if (glides++ === 0) hud.toast(input.touch ? '乘风 · 左侧转向与俯仰 · 再点收起' : '乘风 · A D 转向 · W 俯冲 · S 拉升', 4.5);
   };
 
   let started = false;
   let zone = '';
   let saveTimer = 0;
+  hud.onSetup = () => sound.start();
   hud.onStart = () => {
     started = true;
     sound.start();
+    entry.depart(follow, { pitch: 0.16, distance: 6 });
     canvas.focus();
   };
   let stride = 0;
@@ -322,7 +339,7 @@ async function boot(): Promise<void> {
     event.preventDefault();
     void styles!.next().then(() => hud.cinemaLabel(styles!.current === 'cinematic')).catch((error: unknown) => {
       console.error('Could not load render style', error);
-      hud.toast('风格加载失败，请重试');
+      hud.toast('风格加载失败');
     });
   });
   // Cinematic is the default look; the 电影感 button toggles it and is remembered.
@@ -340,6 +357,7 @@ async function boot(): Promise<void> {
     await styles.set('default', false);
   }
   hud.cinemaLabel(styles.current === 'cinematic');
+  hud.soundLabel(!sound.muted);
   sky.repaint();
   resize();
 
@@ -349,7 +367,6 @@ async function boot(): Promise<void> {
 
   let last = performance.now() / 1000;
   window.addEventListener('focus', () => { last = performance.now() / 1000; });
-  let titleAngle = 0;
   /** One step of the whole game, without drawing. */
   const tick = (dt: number, time: number): void => {
     shared.uTime.value = time;
@@ -358,16 +375,17 @@ async function boot(): Promise<void> {
 
     if (started) {
       const [lx, ly] = input.takeLook();
+      // Right after setting off the camera glides from the title framing to behind the traveller.
+      entry.settle(dt, follow, player, lx !== 0 || ly !== 0);
       follow.look(lx, ly);
       follow.zoom(input.takeZoom());
       player.update(dt, time, input, follow.yaw, wind);
     } else {
-      // Title screen: a slow turn around the starting hill.
+      // Title: the traveller looks out at the chosen vista, the camera low behind them.
       input.takeLook();
       input.takeJump();
       input.takeZoom();
-      titleAngle += dt * 0.05;
-      follow.yaw = player.yaw + Math.PI + Math.sin(titleAngle) * 0.5;
+      entry.title(dt, follow, player, document.body.classList.contains('entry-setup'));
       const idle = { moveX: 0, moveY: 0, run: false, takeJump: () => false } as unknown as Input;
       player.update(dt, time, idle, follow.yaw, wind);
     }
@@ -381,9 +399,9 @@ async function boot(): Promise<void> {
         writeSave(save);
         hud.setOrbs(orbs.found, orbs.total, true);
         sound.chime(orbs.found);
-        if (orbs.found === orbs.total) hud.toast('所有的光都找到了。这片土地记住了你', 8);
-        else if (orbs.found === 1) hud.toast('找到一点光。还有更多藏在高处和角落里');
-        else if (orbs.found % 10 === 0) hud.toast(`已找到 ${orbs.found} 点光`);
+        if (orbs.found === orbs.total) hud.toast('所有的光，都已寻回', 8);
+        else if (orbs.found === 1) hud.toast('寻得一点光 · 更多藏在高处');
+        else if (orbs.found % 10 === 0) hud.toast(`已寻得 ${orbs.found} 点光`);
       }
       if (player.mode === 'ground' && player.speed > 0.5) {
         stride += player.speed * dt;

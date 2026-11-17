@@ -144,9 +144,9 @@ try {
     assert.equal(failures.length, 3); assert.equal(logs.length, 2);
   });
   check('quality labels distinguish URL, saved and auto; mobileCap is unchanged', () => {
-    location.search = '?q=high'; assert.match(qualityLabel('high'), /URL（高）/); assert.ok(!qualityLabel('high').includes('自动'));
-    location.search = ''; local.setItem('galebound.quality', 'ultra'); assert.match(qualityLabel('ultra'), /已保存（极致）/);
-    local.clear(); assert.match(qualityLabel('low'), /自动（低）.*内存保护/);
+    location.search = '?q=high'; assert.match(qualityLabel('high'), /^高 · 网址指定/); assert.ok(!qualityLabel('high').includes('自动'));
+    location.search = ''; local.setItem('galebound.quality', 'ultra'); assert.match(qualityLabel('ultra'), /^极致/);
+    local.clear(); assert.match(qualityLabel('low'), /^低 · 自动 · 省内存/);
     assert.deepEqual(mobileCap(TIERS.ultra), {
       ...TIERS.ultra, tier: 'low', cape: 'low', pixelRatio: 1, antialias: false,
       terrainCell: 8, terrainSplit: 1.7, splatSize: 1024, shadowSize: 0, shadowRange: 0,
