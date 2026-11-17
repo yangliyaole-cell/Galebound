@@ -110,6 +110,8 @@ export interface Rig {
   /** Soft cloak: continuous flight target, world-space inertia and posed body contact. */
   setCapeState?: (glide: number, dt: number, time: number, wind: THREE.Vector3, velocity: THREE.Vector3,
     groundAt: (x: number, z: number) => number) => void;
+  /** Optional spring-driven hair (imported hero only). */
+  updateHair?: (dt: number, time: number, wind: THREE.Vector3) => void;
   capeStats?: () => CapeStats & { updateMs: number; renderVertices: number; renderTriangles: number; drawCalls: number };
   armL: THREE.Group;
   armR: THREE.Group;
