@@ -1,5 +1,5 @@
-import { QUALITY_NAMES, storeTier, storedTier, isIOSLike, type QualityName } from '../core/quality';
-import { QUALITY_LABELS, resetBootRecovery } from '../core/boot-guard';
+import type { QualityName } from '../core/quality';
+import { QUALITY_LABELS } from '../core/boot-guard';
 import type { Wind } from '../world/wind';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -30,7 +30,7 @@ export class Hud {
   onSound: () => boolean = () => true;
   onCinema: () => Promise<boolean> = async () => false;
 
-  constructor(touch: boolean, tier: QualityName) {
+  constructor(touch: boolean) {
     $('keys').innerHTML = touch
       ? '左侧拖动：移动（推到底奔跑）　右侧拖动：视角　双指：缩放'
       : 'WASD 移动　·　Shift 奔跑　·　空格 跳跃　·　鼠标 视角　·　滚轮 缩放<br />空中再按空格：张开风布滑翔　·　A / D 转向　·　W 俯冲　·　S 拉升　·　按住 Shift 收臂加速　·　空格 收起风布';
@@ -55,51 +55,6 @@ export class Hud {
       run.classList.toggle('on', this.onRun());
     });
 
-    const names: Record<string, string> = { auto: '自动', low: '低', medium: '中', high: '高', ultra: '极致' };
-    const quality = $('quality');
-    const stored = storedTier();
-    quality.textContent = `画质：${stored === 'auto' ? `自动（${names[tier]}）` : names[tier]}${isIOSLike() ? '（内存保护）' : ''}`;
-    // Choose first, then apply: changing tier rebuilds the world, so it reloads once, on 应用.
-    const picker = $('quality-picker'), options = $('quality-options'), note = $('quality-note');
-    const apply = $('quality-apply') as HTMLButtonElement;
-    const notes: Record<string, string> = {
-      auto: '按设备自动选择。', low: '最快，照顾低端设备。', medium: '流畅优先，手机可用。',
-      high: '高画质，兼顾帧率。', ultra: '画面拉满，不考虑性能。',
-    };
-    let picked: QualityName | 'auto' = stored;
-    const render = (): void => {
-      for (const button of options.querySelectorAll('button')) {
-        button.classList.toggle('picked', button.dataset.tier === picked);
-        button.classList.toggle('current', button.dataset.tier === stored);
-      }
-      apply.disabled = picked === stored;
-      note.textContent = `${isIOSLike() ? '此设备启用内存保护，世界细节以低档为上限。' : notes[picked]}${picked === stored ? '（当前）' : ' 应用后会重新加载一次。'}`;
-    };
-    for (const option of ['auto', ...QUALITY_NAMES] as (QualityName | 'auto')[]) {
-      const button = document.createElement('button');
-      button.dataset.tier = option;
-      button.textContent = names[option];
-      button.addEventListener('click', () => { picked = option; render(); });
-      options.append(button);
-    }
-    const close = (): void => { picker.classList.add('hidden'); picked = stored; render(); };
-    quality.addEventListener('click', () => {
-      if (picker.classList.contains('hidden')) { picked = stored; render(); picker.classList.remove('hidden'); }
-      else close();
-    });
-    $('quality-cancel').addEventListener('click', close);
-    apply.addEventListener('click', () => {
-      if (picked === stored) return close();
-      storeTier(picked);
-      resetBootRecovery();
-      const url = new URL(location.href);
-      url.searchParams.delete('q');
-      history.replaceState(null, '', url);
-      apply.disabled = true;
-      apply.textContent = '正在重新加载…';
-      location.reload();
-    });
-    window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !picker.classList.contains('hidden')) close(); });
     const sound = $('sound');
     sound.addEventListener('click', () => {
       sound.textContent = `声音：${this.onSound() ? '开' : '关'}`;

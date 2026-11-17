@@ -22,6 +22,8 @@ const check = (name, run) => { reset(); run(); count++; console.log(`PASS ${name
 try {
   const { pickQuality, mobileCap, TIERS, isIOSLike } = await server.ssrLoadModule('/src/core/quality.ts');
   const { BootGuard, BOOT_GUARD_KEY, BOOT_RETRY_KEY, BOOT_MAX_AGE, resetBootRecovery } = await server.ssrLoadModule('/src/core/boot-guard.ts');
+  const { installBootErrorHandlers } = await server.ssrLoadModule('/src/core/boot-errors.ts');
+  const { qualityLabel, installQualityPicker } = await server.ssrLoadModule('/src/ui/quality-picker.ts');
   const { Hud } = await server.ssrLoadModule('/src/ui/hud.ts');
   const { colorTargetType } = await server.ssrLoadModule('/src/render/target-type.ts');
   const { HalfFloatType, UnsignedByteType } = await import('three');
@@ -126,6 +128,60 @@ try {
     assert.equal(elements.get('start').textContent, '重试'); assert.equal(elements.get('start').disabled, false);
     elements.get('start').onclick(); assert.ok(reloaded);
     delete globalThis.document;
+  });
+  check('global error/rejection call failBoot before ready, and only log after ready', () => {
+    const listeners = new Map(), failures = [], logs = [];
+    window.addEventListener = (type, listener) => listeners.set(type, listener);
+    let ready = false;
+    installBootErrorHandlers(error => failures.push(error), () => ready);
+    const error = new Error('全局脚本错误');
+    listeners.get('error')({ error }); listeners.get('unhandledrejection')({ reason: '异步错误' });
+    listeners.get('error')({ message: '只有消息' });
+    assert.equal(failures[0], error); assert.equal(failures[1], '异步错误'); assert.equal(failures[2].message, '只有消息');
+    const original = console.error; console.error = (...args) => logs.push(args);
+    try { ready = true; listeners.get('error')({ error }); listeners.get('unhandledrejection')({ reason: '运行时' }); }
+    finally { console.error = original; }
+    assert.equal(failures.length, 3); assert.equal(logs.length, 2);
+  });
+  check('quality labels distinguish URL, saved and auto; mobileCap is unchanged', () => {
+    location.search = '?q=high'; assert.match(qualityLabel('high'), /URL（高）/); assert.ok(!qualityLabel('high').includes('自动'));
+    location.search = ''; local.setItem('galebound.quality', 'ultra'); assert.match(qualityLabel('ultra'), /已保存（极致）/);
+    local.clear(); assert.match(qualityLabel('low'), /自动（低）.*内存保护/);
+    assert.deepEqual(mobileCap(TIERS.ultra), {
+      ...TIERS.ultra, tier: 'low', cape: 'low', pixelRatio: 1, antialias: false,
+      terrainCell: 8, terrainSplit: 1.7, splatSize: 1024, shadowSize: 0, shadowRange: 0,
+      grassNear: 5000, grassFar: 6000, flowers: 800, propRange: 260, viewRange: 3200,
+      outline: false, particles: 60,
+    });
+  });
+  check('title and HUD share one picker; applying saves choice, clears recovery and q, then reloads', () => {
+    const element = () => {
+      const classes = new Set(['hidden']), handlers = new Map(), children = [];
+      return { textContent: '', style: {}, dataset: {}, disabled: false, children,
+        classList: { add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c), toggle() {} },
+        addEventListener: (type, handler) => handlers.set(type, handler),
+        click() { handlers.get('click')?.(); }, append: child => children.push(child), querySelectorAll: () => children,
+      };
+    };
+    const elements = new Map(['quality', 'title-quality', 'quality-picker', 'quality-options', 'quality-note', 'quality-apply', 'quality-cancel'].map(id => [id, element()]));
+    globalThis.document = { getElementById: id => elements.get(id), createElement: element };
+    location.search = '?q=high&style=cinematic'; location.href = 'https://example.test/?q=high&style=cinematic';
+    let reloaded = false, replaced;
+    location.reload = () => { reloaded = true; };
+    globalThis.history = { replaceState: (_a, _b, url) => { replaced = String(url); } };
+    sentinel('high'); session.setItem(BOOT_RETRY_KEY, JSON.stringify({ quality: 'medium', retries: 1 }));
+    installQualityPicker('high');
+    assert.equal(elements.get('quality-options').children.length, 5);
+    elements.get('title-quality').click(); assert.equal(elements.get('quality-picker').classList.contains('hidden'), false);
+    elements.get('quality').click(); assert.equal(elements.get('quality-picker').classList.contains('hidden'), true);
+    elements.get('title-quality').click();
+    elements.get('quality-options').children.find(button => button.dataset.tier === 'low').click();
+    assert.equal(elements.get('quality-apply').disabled, false);
+    elements.get('quality-apply').click();
+    assert.equal(local.getItem('galebound.quality'), 'low'); assert.equal(local.getItem(BOOT_GUARD_KEY), null);
+    assert.equal(session.getItem(BOOT_RETRY_KEY), null); assert.ok(reloaded);
+    assert.equal(new URL(replaced).searchParams.get('q'), null); assert.equal(new URL(replaced).searchParams.get('style'), 'cinematic');
+    delete globalThis.document; delete globalThis.history;
   });
   console.log(`PASS: ${count} iOS boot checks; no browser required`);
 } finally { await server.close(); }

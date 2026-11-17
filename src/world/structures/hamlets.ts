@@ -63,7 +63,7 @@ export function buildHamlets(): THREE.Group {
     }
     group.userData[`hamlet:${village.x},${village.z}`] = taken.length;
   }
-  group.add(batchSettlementDetails(b.build(true)));
+  group.add(batchSettlementDetails(b.buildSettlement(true)));
 
   group.add(chimneySmoke(smoke));
   return group;

@@ -2,6 +2,9 @@ import { setStructureDetail, updateStructureDetails } from './world/structure-de
 import * as THREE from 'three';
 import { DynamicResolution, pickQuality } from './core/quality';
 import { BootGuard, QUALITY_LABELS } from './core/boot-guard';
+import { installBootErrorHandlers } from './core/boot-errors';
+import { installQualityPicker } from './ui/quality-picker';
+import { releaseStructureArraysAfterUpload } from './render/static-upload';
 import { Input } from './core/input';
 import { loadSave, writeSave } from './core/save';
 import { shared } from './render/uniforms';
@@ -83,6 +86,8 @@ const failBoot = (error: unknown): void => {
   Hud.bootFailure(bootGuard.stage, message, current, next);
   if (next) window.setTimeout(() => location.reload(), 2500);
 };
+installBootErrorHandlers(failBoot, () => bootReady);
+installQualityPicker(quality.name);
 if (bootGuard.interruptedStage) {
   Hud.bootNotice(`上次在「${bootGuard.interruptedStage}」阶段中断，${bootGuard.downgradedByGuard
     ? `已自动改用「${QUALITY_LABELS[quality.name]}」画质。`
@@ -113,7 +118,7 @@ async function boot(): Promise<void> {
     failBoot(new Error('图形上下文丢失，设备可能没有足够的可用内存。'));
   });
   const input = new Input(canvas);
-  const hud = new Hud(input.touch, quality.name);
+  const hud = new Hud(input.touch);
   const save = loadSave();
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.antialias, powerPreference: 'high-performance' });
@@ -471,6 +476,15 @@ async function boot(): Promise<void> {
     console.info('Galebound boot (ms)', JSON.stringify(bootTimes));
     debugWindow.__galeBootTimes = bootTimes;
     shotState.shadersReady = true;
+  }
+
+  if (!shot) {
+    releaseStructureArraysAfterUpload(scene);
+    loading('正在准备图形程序…');
+    await nextFrame();
+    // compileAsync prepares shader programs, without eagerly uploading distant relief buffers.
+    await renderer.compileAsync(scene, camera);
+    await nextFrame();
   }
 
   type Measurement = { remaining: number; frames: number; total: number; calls: number; triangles: number;

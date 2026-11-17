@@ -396,7 +396,7 @@ function* citySteps(detail: number): Generator<void, BuiltCity> {
   lap('props');
   yield;
 
-  const object = batchSettlementDetails(b.build());
+  const object = batchSettlementDetails(yield* b.buildSteps(true, true));
   lap('merge');
   object.add(chimneySmoke(smoke));
   return { object, flags, info: { plaza: { x: market.x, z: market.z }, houseCount: parcels.length, southGate: { x: SOUTH_GATE.x, z: SOUTH_GATE.z + 8 } } };
