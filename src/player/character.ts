@@ -225,6 +225,11 @@ export class Character {
   private crouchVel = 0;
   private skid = 0;
   private wasGrounded = true;
+  /** Foot planting: blend weight, smoothed hip drop and the ground slope along the facing. */
+  private plant = 0;
+  private hipDrop = 0;
+  private slope = 0;
+  private readonly footPos = new THREE.Vector3();
   private blink = 2;
   private capeGlide = 0;
   capeTier: CapeTier = 'medium';
@@ -345,6 +350,9 @@ export class Character {
       target.spineZ -= bank * 0.35;
       // The head leads into the turn and steadies against the stride.
       target.headY += Math.max(-0.3, Math.min(0.3, (state.yawRate ?? 0) * 0.07));
+      // Lean into a climb, sit back a little going downhill.
+      target.bodyPitch += this.slope * (0.18 + 0.3 * move);
+      target.chestX += this.slope * 0.1 * move;
       target.headX -= target.bodyPitch * 0.4;
       // Skid: brace, lean back, arms out for balance.
       this.skid += ((state.skid ?? 0) - this.skid) * (1 - Math.exp(-dt * 12));
@@ -448,7 +456,55 @@ export class Character {
     return target;
   }
 
+  /**
+   * Feet on uneven ground. The cycle is authored for flat ground under the body's centre, so on a
+   * slope the uphill foot sank and the downhill one floated. Each foot reads the terrain under it;
+   * the hips drop to the lower one and the other leg is shortened with an analytic two-bone solve
+   * (knee from the law of cosines, thigh swung to keep the ankle on the same hip-ankle line, foot
+   * counter-rotated to stay level). Large steps (stairs, bridges over terrain) are left alone.
+   */
+  private plantFeet(dt: number, state: CharacterState, groundAt: (x: number, z: number) => number): Pose | null {
+    const grounded = (state.grounded ?? true) && (state.motion === 'idle' || state.motion === 'walk'
+      || state.motion === 'run' || state.motion === 'land');
+    this.plant += ((grounded ? 1 : 0) - this.plant) * (1 - Math.exp(-dt * 10));
+    if (this.plant < 0.01) {
+      this.hipDrop = 0;
+      return null;
+    }
+    const rig = this.rig, base = this.root.position.y;
+    this.root.updateMatrixWorld(true);
+    const offset = [rig.footL, rig.footR].map((foot) => {
+      foot.getWorldPosition(this.footPos);
+      const o = groundAt(this.footPos.x, this.footPos.z) - base;
+      return Number.isFinite(o) && Math.abs(o) < 0.4 ? o : 0;
+    });
+    const drop = Math.max(-0.3, Math.min(0, offset[0], offset[1]));
+    this.hipDrop += (drop - this.hipDrop) * (1 - Math.exp(-dt * 14));
+    const w = this.plant, p = { ...this.pose };
+    p.bodyY += this.hipDrop * w;
+    const legs = [['legLX', 'kneeL', 'footL', rig.shinL, rig.footL], ['legRX', 'kneeR', 'footR', rig.shinR, rig.footR]] as const;
+    legs.forEach(([hipKey, kneeKey, footKey, shin, foot], i) => {
+      const shorten = Math.max(0, offset[i] - this.hipDrop) * w;
+      if (shorten < 1e-4) return;
+      const a = shin.position.length(), b = foot.position.length();
+      const k0 = p[kneeKey], c0 = Math.sqrt(a * a + b * b + 2 * a * b * Math.cos(k0));
+      const c1 = Math.max(0.55 * (a + b), c0 - shorten);
+      const k1 = Math.acos(Math.max(-1, Math.min(1, (c1 * c1 - a * a - b * b) / (2 * a * b))));
+      const angle = (k: number, c: number): number => Math.asin(Math.max(-1, Math.min(1, b * Math.sin(k) / c)));
+      const swing = -(angle(k1, c1) - angle(k0, c0));
+      p[hipKey] += swing;
+      p[kneeKey] = k1;
+      p[footKey] -= swing + (k1 - k0);
+    });
+    return p;
+  }
+
   update(dt: number, time: number, state: CharacterState, groundAt: (x: number, z: number) => number): void {
+    // Ground slope along the facing (rise over run), ignoring steps the terrain does not know about.
+    const yaw = this.root.rotation.y, fx = Math.sin(yaw) * 0.6, fz = Math.cos(yaw) * 0.6, at = this.root.position;
+    const rise = (groundAt(at.x + fx, at.z + fz) - groundAt(at.x - fx, at.z - fz)) / 1.2;
+    const slope = Number.isFinite(rise) && Math.abs(rise) < 1.2 ? Math.max(-0.5, Math.min(0.5, rise)) : 0;
+    this.slope += (slope - this.slope) * (1 - Math.exp(-dt * 6));
     const target = this.targetPose(dt, time, state);
     // Critically damped spring per channel. Stiffer for footwork and landings, softer for flight.
     const omega = state.motion === 'glide' ? 8 : state.motion === 'jump' || state.motion === 'fall' ? 12
@@ -462,6 +518,8 @@ export class Character {
       }
     }
     applyPose(this.rig, this.pose);
+    const planted = this.plantFeet(dt, state, groundAt);
+    if (planted) applyPose(this.rig, planted);
     this.capeGlide += ((state.motion === 'glide' ? 1 : 0) - this.capeGlide) * (1 - Math.exp(-dt * 6));
 
     this.blink -= dt;
