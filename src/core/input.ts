@@ -1,6 +1,19 @@
+/** Keys the game uses; with Ctrl held, their browser shortcuts (save, bookmark, select all…) are blocked. */
+const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+/** A Ctrl press shorter than this, with no other key, toggles walking. */
+const CTRL_TAP_MS = 280;
+/** Touch: a right-side touch released this quickly without travelling is a tap (jump / fly). */
+const TAP_MS = 260;
+const TAP_TRAVEL = 10;
+/** Stick deflection (0..1) beyond which the gait changes from walk to run. */
+const RUN_PUSH = 0.62;
+
 /**
  * Keyboard, mouse, touch and gamepad folded into one set of controls.
- * Touch: the left side of the screen is a floating joystick, the rest looks around.
+ * Desktop: WASD runs; hold Ctrl to walk, tap Ctrl to keep walking (tap again to run).
+ * Touch, with no on-screen buttons: a finger on the left half becomes a floating stick where it
+ * lands (a short push walks, a long push runs); on the right half a tap jumps (and in the air
+ * opens the cloths), a swipe turns the view and two fingers pinch to zoom.
  */
 export class Input {
   moveX = 0;
@@ -16,7 +29,19 @@ export class Input {
   private lookX = 0;
   private lookY = 0;
   private zoomDelta = 0;
-  private runToggle = false;
+  /** Walking gait locked on by a Ctrl tap (or the title-screen preference). */
+  private walkLock = false;
+  private ctrlDown = false;
+  private ctrlAt = 0;
+  private ctrlUsed = false;
+  /** Stick gait, with a little hysteresis so it does not flicker at the threshold. */
+  private stickRun = false;
+  /** Look-pointer taps: start time, travel and whether it ever joined a pinch. */
+  private readonly taps = new Map<number, { t: number; travel: number; pinched: boolean }>();
+  /** Multiplier on mouse/touch look speed (set from the title screen). */
+  lookSpeed = 1;
+  /** Called when a Ctrl tap toggles the walking gait. */
+  onWalkToggle: (walking: boolean) => void = () => {};
 
   private stickId = -1;
   private stickX = 0;
@@ -46,14 +71,46 @@ export class Input {
     window.addEventListener('keydown', (e) => {
       if (!this.active) return;
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      // Walking with Ctrl held must not save the page, bookmark it or select everything.
+      // (Ctrl+W itself is reserved by browsers; the unload guard below catches it.)
+      if (e.ctrlKey && GAME_KEYS.has(e.code)) e.preventDefault();
       if (e.repeat) return;
       this.keys.add(e.code);
+      if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+        if (!this.ctrlDown) {
+          this.ctrlDown = true;
+          this.ctrlAt = performance.now();
+          this.ctrlUsed = false;
+        }
+      } else if (this.ctrlDown) {
+        this.ctrlUsed = true;
+      }
       if (e.code === 'Space') {
         this.jumpQueued = true;
         e.preventDefault();
       }
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+        if (this.ctrlDown && !this.ctrlUsed && performance.now() - this.ctrlAt < CTRL_TAP_MS && this.active) {
+          this.walkLock = !this.walkLock;
+          this.onWalkToggle(this.walkLock);
+        }
+        this.ctrlDown = this.keys.has('ControlLeft') || this.keys.has('ControlRight');
+      }
+    });
+    // While Ctrl is held for walking, a stray W would close the tab (browsers reserve Ctrl+W).
+    // Ask before leaving in that case only, so normal reloads stay silent.
+    window.addEventListener('beforeunload', (e) => {
+      if (this.ctrlDown && this.active) e.preventDefault();
+    });
+    // In fullscreen, Chromium lets a page keep W/T/N even with Ctrl held.
+    document.addEventListener('fullscreenchange', () => {
+      const keyboard = (navigator as Navigator & { keyboard?: { lock?: (codes: string[]) => Promise<void>; unlock?: () => void } }).keyboard;
+      if (document.fullscreenElement) keyboard?.lock?.(['KeyW', 'KeyT', 'KeyN', 'KeyA', 'KeyS', 'KeyD'])?.catch?.(() => {});
+      else keyboard?.unlock?.();
+    });
     window.addEventListener('blur', () => {
       this.active = false;
       this.reset();
@@ -91,12 +148,16 @@ export class Input {
     this.stickId = -1;
     this.stickX = this.stickY = 0;
     this.lookPointers.clear();
+    this.taps.clear();
+    this.ctrlDown = false;
+    this.stickRun = false;
     this.pinch = 0;
     this.rebaseLook = false;
     this.padJump = this.padReady = false;
     this.moveX = this.moveY = 0;
     this.run = this.boost = false;
     this.base.style.display = 'none';
+    this.base.className = 'stick-base';
   }
 
   private addLook(dx: number, dy: number): void {
@@ -133,7 +194,7 @@ export class Input {
     }
     this.touch = true;
     this.canvas.setPointerCapture(e.pointerId);
-    if (e.clientX < window.innerWidth * 0.45 && e.clientY > window.innerHeight * 0.25) {
+    if (e.clientX < window.innerWidth * 0.5 && e.clientY > window.innerHeight * 0.1) {
       // A second finger in the stick region must not become a look finger.
       if (this.stickId >= 0) return;
       this.stickId = e.pointerId;
@@ -144,8 +205,12 @@ export class Input {
       this.base.style.left = `${e.clientX}px`;
       this.base.style.top = `${e.clientY}px`;
       this.knob.style.transform = 'translate(-50%, -50%)';
+      this.stickRun = false;
+      this.base.className = 'stick-base';
     } else {
       this.lookPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      this.taps.set(e.pointerId, { t: performance.now(), travel: 0, pinched: this.lookPointers.size > 1 });
+      if (this.lookPointers.size > 1) for (const tap of this.taps.values()) tap.pinched = true;
       this.pinch = this.pinchDistance();
       this.rebaseLook = false;
     }
@@ -180,6 +245,12 @@ export class Input {
       this.stickX = dx / max;
       this.stickY = -dy / max;
       this.knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+      const push = Math.min(1, d / max);
+      const run = this.stickRun ? push > RUN_PUSH - 0.06 : push > RUN_PUSH;
+      if (run !== this.stickRun) {
+        this.stickRun = run;
+        this.base.className = run ? 'stick-base run' : 'stick-base';
+      }
       return;
     }
     const p = this.lookPointers.get(e.pointerId);
@@ -188,6 +259,8 @@ export class Input {
     const dy = e.clientY - p.y;
     p.x = e.clientX;
     p.y = e.clientY;
+    const tap = this.taps.get(e.pointerId);
+    if (tap && Number.isFinite(dx) && Number.isFinite(dy)) tap.travel += Math.hypot(dx, dy);
     if (this.lookPointers.size >= 2) {
       // Keep every pointer's baseline current; extra fingers never rotate the view.
       const d = this.pinchDistance();
@@ -210,8 +283,16 @@ export class Input {
     if (e.pointerId === this.stickId) {
       this.stickId = -1;
       this.stickX = this.stickY = 0;
+      this.stickRun = false;
       this.base.style.display = 'none';
+      this.base.className = 'stick-base';
     }
+    const tap = this.taps.get(e.pointerId);
+    this.taps.delete(e.pointerId);
+    // A quick, still touch on the right is a tap: jump, or open the cloths in the air.
+    // Only a real lift-off counts; cancelled or captured-away pointers never jump.
+    if (tap && e.type === 'pointerup' && this.active && !tap.pinched && tap.travel < TAP_TRAVEL
+      && performance.now() - tap.t < TAP_MS) this.jumpQueued = true;
     if (this.lookPointers.delete(e.pointerId)) {
       this.pinch = this.pinchDistance();
       this.rebaseLook = this.lookPointers.size === 1;
@@ -222,9 +303,13 @@ export class Input {
     this.jumpQueued = true;
   }
 
-  toggleRun(): boolean {
-    this.runToggle = !this.runToggle;
-    return this.runToggle;
+  /** Keyboard walking gait, toggled by a Ctrl tap; also set from the title-screen preference. */
+  get walking(): boolean {
+    return this.walkLock;
+  }
+
+  set walking(on: boolean) {
+    this.walkLock = on;
   }
 
   /** Call once per frame before reading the controls. */
@@ -238,13 +323,25 @@ export class Input {
     let x = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
     let y = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
     let boost = k.has('ShiftLeft') || k.has('ShiftRight');
-    let run = boost || this.runToggle;
+    // Running is the default; Ctrl (held, or locked by a tap) walks. Shift always runs.
+    let run = boost || !(this.ctrlDown || this.walkLock);
 
     if (this.stickId >= 0) {
-      x = this.stickX;
-      y = this.stickY;
-      // Pushing the stick to its edge runs.
-      if (Math.hypot(x, y) > 0.92) run = true;
+      // A short push walks at a speed that follows the push; past the threshold it runs.
+      const push = Math.hypot(this.stickX, this.stickY);
+      if (push < 0.08) {
+        x = y = 0;
+        run = false;
+      } else if (this.stickRun) {
+        x = this.stickX / push;
+        y = this.stickY / push;
+        run = true;
+      } else {
+        const scale = Math.min(1, push / RUN_PUSH) / push;
+        x = this.stickX * scale;
+        y = this.stickY * scale;
+        run = false;
+      }
     }
 
     const pad = Array.from(navigator.getGamepads?.() ?? []).find((p) => p?.connected && p.mapping === 'standard');
@@ -256,6 +353,8 @@ export class Input {
       if (ax || ay) {
         x = ax;
         y = -ay;
+        // Same as touch: a light push walks, a full push runs.
+        run = Math.hypot(ax, ay) > 0.75;
       }
       this.lookX += dead(pad.axes[2] ?? 0) * dt * 2.6;
       this.lookY += dead(pad.axes[3] ?? 0) * dt * 1.8;
@@ -289,7 +388,8 @@ export class Input {
     // Bound a whole frame too: many individually valid events can arrive after a stall.
     const length = Math.hypot(this.lookX, this.lookY);
     const scale = length > 0.35 ? 0.35 / length : 1;
-    const out: [number, number] = [this.lookX * scale, this.lookY * scale];
+    const speed = Number.isFinite(this.lookSpeed) ? Math.max(0.3, Math.min(2.5, this.lookSpeed)) : 1;
+    const out: [number, number] = [this.lookX * scale * speed, this.lookY * scale * speed];
     this.lookX = this.lookY = 0;
     return out;
   }
