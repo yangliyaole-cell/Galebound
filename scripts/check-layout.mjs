@@ -485,7 +485,8 @@ try {
     const wind = { gust: 1, dir, velocity: new THREE.Vector3(dir.x * 8, 0, dir.y * 8) };
     let started = false;
     for (let frame = 0; frame < 300; frame++) {
-      p.update(1 / 60, frame / 60, { moveX: 0, moveY: 1, run: true, takeJump: () => frame === 90 },
+      // Jump, then press Space again in the air: only that opens the cloths (W alone never does).
+      p.update(1 / 60, frame / 60, { moveX: 0, moveY: 1, run: true, takeJump: () => frame === 90 || frame === 110 },
         -Math.atan2(dir.x, -dir.y), wind);
       if (p.mode === 'glide') { started = true; break; }
     }

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ClothStrip } from './cloth';
 import { capePreviewAt, type CapePreviewMotion, type CapeTier } from './cape-sim';
-import { HERO_STYLE, REST, applyPose, blendPose, buildRig, type Pose, type Rig } from './rig';
+import { HERO_STYLE, POSE_KEYS, REST, applyPose, buildRig, type Pose, type Rig } from './rig';
 import { disposeProceduralHero, loadHeroRig } from './hero-model';
 
 export type Motion = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'glide' | 'land' | 'swim';
@@ -18,6 +18,33 @@ export interface CharacterState {
   tuck?: number;
   velocity: THREE.Vector3;
   wind: THREE.Vector3;
+  // Optional motion feed from the controller. Staged previews and checks may omit all of these.
+  /** Smoothed heading turn rate, rad/s (positive turns toward +X). */
+  yawRate?: number;
+  /** Forward acceleration along the ground, m/s^2 (negative while braking). */
+  accel?: number;
+  /** 1 while skidding round a sharp reversal. */
+  skid?: number;
+  /** Vertical velocity, m/s. */
+  vy?: number;
+  grounded?: boolean;
+  /** Downward speed at touchdown, m/s, on the landing frame only. */
+  impact?: number;
+  /** Glide airspeed (or ground speed elsewhere), m/s. */
+  airspeed?: number;
+  /** Height above the ground while airborne, m. */
+  clearance?: number;
+  /** Seconds since the cloths opened. */
+  glideTime?: number;
+}
+
+const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+const smooth = (a: number, b: number, x: number): number => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+function mixPose(a: Pose, b: Pose, t: number): Pose {
+  if (t <= 0) return a;
+  const out = { ...a };
+  for (const key of POSE_KEYS) out[key] = a[key] + (b[key] - a[key]) * t;
+  return out;
 }
 
 const CLOTH = 0x17181d;
@@ -190,7 +217,27 @@ export class Character {
   private readonly stripR = new ClothStrip(0.22, 0.105, 12, stripColor, 2.1);
   private readonly scarf = new ClothStrip(0.085, 0.07, 8, (t) => (t > 0.85 ? 0x6f2421 : 0x8f2f2b), 4.4);
   private readonly pose: Pose = { ...REST };
+  /** Per-channel velocity of the pose spring: transitions ease in and out instead of snapping. */
+  private readonly poseVel: Pose = Object.fromEntries(POSE_KEYS.map((k) => [k, 0])) as unknown as Pose;
   private phase = 0;
+  /** Landing/launch compression spring (metres of hip drop) and its velocity. */
+  private crouch = 0;
+  private crouchVel = 0;
+  private skid = 0;
+  private wasGrounded = true;
+  /** Foot planting: blend weight, smoothed hip drop and the ground slope along the facing. */
+  private plant = 0;
+  private hipDrop = 0;
+  private slope = 0;
+  private readonly footPos = new THREE.Vector3();
+  /** Idle life: glances and weight shifts on a seeded schedule (deterministic for checks). */
+  private idleClock = 0;
+  private nextGlance = 2.5;
+  private nextShift = 6;
+  private glanceYaw = 0;
+  private glancePitch = 0;
+  private stance = 1;
+  private seed = 20231;
   private blink = 2;
   private capeGlide = 0;
   capeTier: CapeTier = 'medium';
@@ -268,15 +315,37 @@ export class Character {
       camera: camera.position.toArray(), target: target.toArray() };
   }
 
-  update(dt: number, time: number, state: CharacterState, groundAt: (x: number, z: number) => number): void {
-    // Stride follows distance covered, so the feet do not slide.
-    const stride = 1.45 + (3.5 - 1.45) * Math.min(1, Math.max(0, (state.speed - 2.6) / 4.4));
-    if (state.motion === 'walk' || state.motion === 'run') {
-      this.phase += (dt * Math.PI * 2 * Math.max(state.speed, 0.8)) / stride;
-    }
+  /** Idle stance, tuned for the imported anatomy when it is loaded. */
+  private random(): number {
+    this.seed = (this.seed * 16807) % 2147483647;
+    return (this.seed - 1) / 2147483646;
+  }
 
-    const target = poseFor(state.motion, this.phase, time, state.turn, state.dive, state.tuck ?? 0);
-    if (state.motion === 'idle' && this.rig.setMaskVisible) {
+  private idlePose(dt: number, time: number): Pose {
+    const target = poseFor('idle', this.phase, time, 0, 0);
+    // A person standing still glances about and now and then moves their weight to the other
+    // leg, rather than sweeping the head on a sine. The pose spring turns each new target into
+    // a quick, eased glance.
+    this.idleClock += dt;
+    if (this.idleClock > this.nextGlance) {
+      const look = this.random();
+      this.glanceYaw = look < 0.35 ? 0 : (this.random() * 2 - 1) * 0.6;
+      this.glancePitch = (this.random() - 0.62) * 0.26;
+      this.nextGlance = this.idleClock + 1.6 + this.random() * 3.6;
+    }
+    if (this.idleClock > this.nextShift) {
+      this.stance = -this.stance;
+      this.nextShift = this.idleClock + 5 + this.random() * 6;
+    }
+    target.headY = this.glanceYaw + 0.035 * Math.sin(time * 0.6);
+    target.headX = this.glancePitch + 0.02 * Math.sin(time * 0.37 + 1);
+    target.chestY += this.glanceYaw * 0.14;
+    // Contrapposto: the standing leg's hip rides up, the free knee softens.
+    target.bodyRoll += 0.022 * this.stance;
+    target.spineZ -= 0.028 * this.stance;
+    if (this.stance > 0) { target.kneeR += 0.15; target.footR -= 0.08; target.legRZ -= 0.02; }
+    else { target.kneeL += 0.15; target.footL -= 0.08; target.legLZ += 0.02; }
+    if (this.rig.setMaskVisible) {
       // Relax the new anatomy into a small weight shift, with shoulders back
       // and unequal elbow flexion, rather than a symmetric mannequin stance.
       target.bodyRoll += 0.015;
@@ -287,9 +356,205 @@ export class Character {
       target.elbowL = -0.08;
       target.elbowR = -0.16;
     }
-    const rate = state.motion === 'land' ? 22 : state.motion === 'glide' ? 7 : 12;
-    blendPose(this.pose, target, 1 - Math.exp(-dt * rate));
+    return target;
+  }
+
+  /**
+   * One blended target pose. Locomotion is parametric: idle, walk and run are mixed by speed
+   * on one shared step phase (so blends never cross-step), then lean, bank, skid and the landing
+   * spring are layered on top. Air and glide poses follow vertical speed, airspeed and height.
+   */
+  private targetPose(dt: number, time: number, state: CharacterState): Pose {
+    const speed = state.speed;
+    const ground = state.motion === 'idle' || state.motion === 'walk' || state.motion === 'run' || state.motion === 'land';
+    let target: Pose;
+    if (ground) {
+      // Walk and run share one phase; stride lengthens with speed, so feet stay planted.
+      const gait = smooth(3.0, 5.8, speed);
+      const stride = 1.5 + (3.55 - 1.5) * gait;
+      if (speed > 0.05) this.phase += (dt * Math.PI * 2 * Math.max(speed, 0.45)) / stride;
+      const loco = mixPose(poseFor('walk', this.phase, time, 0, 0), poseFor('run', this.phase, time, 0, 0), gait);
+      // A slow shuffle swings the limbs less rather than stepping in place.
+      const move = smooth(0.08, 1.4, speed);
+      target = mixPose(this.idlePose(dt, time), loco, move);
+      // Lean into acceleration, back against braking; bank into turns like a runner.
+      const accel = state.accel ?? 0;
+      target.bodyPitch += Math.max(-0.2, Math.min(0.16, accel * 0.011)) * move;
+      const bank = Math.max(-0.3, Math.min(0.3, -(state.yawRate ?? 0) * speed * 0.02));
+      target.bodyRoll += bank;
+      target.spineZ -= bank * 0.35;
+      // The head leads into the turn and steadies against the stride.
+      target.headY += Math.max(-0.3, Math.min(0.3, (state.yawRate ?? 0) * 0.07));
+      // Lean into a climb, sit back a little going downhill.
+      target.bodyPitch += this.slope * (0.18 + 0.3 * move);
+      target.chestX += this.slope * 0.1 * move;
+      target.headX -= target.bodyPitch * 0.4;
+      // Skid: brace, lean back, arms out for balance.
+      this.skid += ((state.skid ?? 0) - this.skid) * (1 - Math.exp(-dt * 12));
+      if (this.skid > 0.01) {
+        const k = this.skid;
+        target = mixPose(target, { ...target, bodyPitch: -0.22, bodyY: -0.09, legLX: -0.65, kneeL: 0.35, footL: 0.2,
+          legRX: 0.45, kneeR: 0.75, footR: -0.35, armLZ: 0.75, armRZ: -0.75, armLX: -0.3, armRX: -0.3,
+          elbowL: -0.5, elbowR: -0.5, chestX: -0.05, headX: 0.05 }, k * 0.85);
+      }
+      if (state.motion === 'land') this.crouchVel = Math.min(this.crouchVel, -0.6);
+    } else if (state.motion === 'jump' || state.motion === 'fall') {
+      // Rising tuck eases into the open-armed fall as vertical speed turns negative.
+      const vy = state.vy ?? (state.motion === 'jump' ? 4 : -4);
+      target = mixPose(poseFor('jump', this.phase, time, 0, 0), poseFor('fall', this.phase, time, 0, 0), smooth(2.5, -5, vy));
+      // A long drop pedals the legs and reaches with the arms a little more.
+      const drop = smooth(-6, -20, vy);
+      if (drop > 0) {
+        const pedal = Math.sin(time * 9);
+        target.legLX += 0.25 * pedal * drop;
+        target.legRX -= 0.25 * pedal * drop;
+        target.armLZ += 0.2 * drop;
+        target.armRZ -= 0.2 * drop;
+        target.headX += 0.15 * drop;
+      }
+    } else if (state.motion === 'glide') {
+      target = this.glidePose(time, state);
+    } else {
+      target = poseFor(state.motion, this.phase, time, state.turn, state.dive, state.tuck ?? 0);
+    }
+
+    // Landing compression and take-off extension, as a damped spring on the hips.
+    const grounded = state.grounded ?? ground;
+    const impact = state.impact ?? 0;
+    if (impact > 2) this.crouchVel -= Math.min(3.2, impact * 0.2);
+    if (this.wasGrounded && !grounded && (state.vy ?? 0) > 4) this.crouchVel += 0.55;
+    this.wasGrounded = grounded;
+    const w = 11, zeta = 0.6;
+    for (let left = Math.min(dt, 0.1); left > 1e-6; left -= 1 / 120) {
+      const h = Math.min(left, 1 / 120);
+      this.crouchVel += (-w * w * this.crouch - 2 * zeta * w * this.crouchVel) * h;
+      this.crouch = Math.max(-0.28, Math.min(0.1, this.crouch + this.crouchVel * h));
+    }
+    const c = this.crouch;
+    if (Math.abs(c) > 1e-4) {
+      // Hips drop, thighs fold forward, knees bend; feet stay flat, chest leans over the knees.
+      const down = Math.min(0, c);
+      target.bodyY += c;
+      target.legLX += 1.6 * down;
+      target.legRX += 1.6 * down;
+      target.kneeL -= 3.2 * down;
+      target.kneeR -= 3.2 * down;
+      target.footL += 1.6 * down;
+      target.footR += 1.6 * down;
+      target.bodyPitch -= 0.9 * down;
+      target.headX += 0.6 * down;
+      target.armLZ -= 0.8 * down;
+      target.armRZ += 0.8 * down;
+      target.armLX += 0.6 * down;
+      target.armRX += 0.6 * down;
+    }
+    return target;
+  }
+
+  /**
+   * Flight pose: prone with arms spread; banks and dips the inner arm in turns, flares upright
+   * when slow or about to touch down, and sweeps the arms open over the first moments of flight.
+   */
+  private glidePose(time: number, state: CharacterState): Pose {
+    const turn = state.turn, tuck = state.tuck ?? 0;
+    const target = poseFor('glide', this.phase, time, turn, state.dive, tuck);
+    // Turning: the inner wing drops, the outer lifts, and the head looks into the turn.
+    target.armLZ -= turn * 0.22;
+    target.armRZ -= turn * 0.22;
+    target.armLX += turn * 0.12;
+    target.armRX -= turn * 0.12;
+    target.headY -= turn * 0.12;
+    // Slow flight or the last couple of metres: pitch up, legs swing down to meet the ground.
+    const slow = smooth(10.5, 6.5, state.airspeed ?? 14) * 0.75;
+    const nearGround = smooth(2.8, 0.7, state.clearance ?? 10) * smooth(1, -1, state.vy ?? -1);
+    const flare = Math.max(slow, nearGround);
+    if (flare > 0.01) {
+      const kick = Math.sin(time * 5.5) * 0.12;
+      Object.assign(target, mixPose(target, {
+        ...target, bodyPitch: 0.42, bodyY: -0.25, bodyYaw: target.bodyYaw * 0.5, spineX: 0.05, chestX: -0.12, headX: -0.2,
+        armLZ: 1.35, armRZ: -1.35, armLX: -0.55, armRX: -0.55, armLY: 0.1, armRY: -0.1, elbowL: -0.35, elbowR: -0.35,
+        legLX: -0.55 + kick, legRX: -0.35 - kick, kneeL: 0.55, kneeR: 0.7, footL: 0.15, footR: 0.15, legLZ: 0.05, legRZ: -0.05,
+      }, flare));
+    }
+    // Opening: arms sweep up past the shoulders and stroke down into the spread.
+    const opening = clamp01((state.glideTime ?? 1) / 0.5);
+    if (opening < 1) {
+      const stroke = Math.sin(Math.PI * opening);
+      target.armLZ += 0.75 * stroke;
+      target.armRZ -= 0.75 * stroke;
+      target.armLX -= 0.35 * stroke;
+      target.armRX -= 0.35 * stroke;
+      target.kneeL += 0.5 * stroke;
+      target.kneeR += 0.35 * stroke;
+      target.chestX -= 0.12 * stroke;
+    }
+    return target;
+  }
+
+  /**
+   * Feet on uneven ground. The cycle is authored for flat ground under the body's centre, so on a
+   * slope the uphill foot sank and the downhill one floated. Each foot reads the terrain under it;
+   * the hips drop to the lower one and the other leg is shortened with an analytic two-bone solve
+   * (knee from the law of cosines, thigh swung to keep the ankle on the same hip-ankle line, foot
+   * counter-rotated to stay level). Large steps (stairs, bridges over terrain) are left alone.
+   */
+  private plantFeet(dt: number, state: CharacterState, groundAt: (x: number, z: number) => number): Pose | null {
+    const grounded = (state.grounded ?? true) && (state.motion === 'idle' || state.motion === 'walk'
+      || state.motion === 'run' || state.motion === 'land');
+    this.plant += ((grounded ? 1 : 0) - this.plant) * (1 - Math.exp(-dt * 10));
+    if (this.plant < 0.01) {
+      this.hipDrop = 0;
+      return null;
+    }
+    const rig = this.rig, base = this.root.position.y;
+    this.root.updateMatrixWorld(true);
+    const offset = [rig.footL, rig.footR].map((foot) => {
+      foot.getWorldPosition(this.footPos);
+      const o = groundAt(this.footPos.x, this.footPos.z) - base;
+      return Number.isFinite(o) && Math.abs(o) < 0.4 ? o : 0;
+    });
+    const drop = Math.max(-0.3, Math.min(0, offset[0], offset[1]));
+    this.hipDrop += (drop - this.hipDrop) * (1 - Math.exp(-dt * 14));
+    const w = this.plant, p = { ...this.pose };
+    p.bodyY += this.hipDrop * w;
+    const legs = [['legLX', 'kneeL', 'footL', rig.shinL, rig.footL], ['legRX', 'kneeR', 'footR', rig.shinR, rig.footR]] as const;
+    legs.forEach(([hipKey, kneeKey, footKey, shin, foot], i) => {
+      const shorten = Math.max(0, offset[i] - this.hipDrop) * w;
+      if (shorten < 1e-4) return;
+      const a = shin.position.length(), b = foot.position.length();
+      const k0 = p[kneeKey], c0 = Math.sqrt(a * a + b * b + 2 * a * b * Math.cos(k0));
+      const c1 = Math.max(0.55 * (a + b), c0 - shorten);
+      const k1 = Math.acos(Math.max(-1, Math.min(1, (c1 * c1 - a * a - b * b) / (2 * a * b))));
+      const angle = (k: number, c: number): number => Math.asin(Math.max(-1, Math.min(1, b * Math.sin(k) / c)));
+      const swing = -(angle(k1, c1) - angle(k0, c0));
+      p[hipKey] += swing;
+      p[kneeKey] = k1;
+      p[footKey] -= swing + (k1 - k0);
+    });
+    return p;
+  }
+
+  update(dt: number, time: number, state: CharacterState, groundAt: (x: number, z: number) => number): void {
+    // Ground slope along the facing (rise over run), ignoring steps the terrain does not know about.
+    const yaw = this.root.rotation.y, fx = Math.sin(yaw) * 0.6, fz = Math.cos(yaw) * 0.6, at = this.root.position;
+    const rise = (groundAt(at.x + fx, at.z + fz) - groundAt(at.x - fx, at.z - fz)) / 1.2;
+    const slope = Number.isFinite(rise) && Math.abs(rise) < 1.2 ? Math.max(-0.5, Math.min(0.5, rise)) : 0;
+    this.slope += (slope - this.slope) * (1 - Math.exp(-dt * 6));
+    const target = this.targetPose(dt, time, state);
+    // Critically damped spring per channel. Stiffer for footwork and landings, softer for flight.
+    const omega = state.motion === 'glide' ? 8 : state.motion === 'jump' || state.motion === 'fall' ? 12
+      : state.motion === 'swim' ? 7 : state.motion === 'land' ? 22 : 17;
+    const pose = this.pose, vel = this.poseVel;
+    for (let left = Math.max(0, Math.min(dt, 0.1)); left > 1e-6; left -= 1 / 90) {
+      const h = Math.min(left, 1 / 90);
+      for (const key of POSE_KEYS) {
+        vel[key] += (omega * omega * (target[key] - pose[key]) - 2 * omega * vel[key]) * h;
+        pose[key] += vel[key] * h;
+      }
+    }
     applyPose(this.rig, this.pose);
+    const planted = this.plantFeet(dt, state, groundAt);
+    if (planted) applyPose(this.rig, planted);
     this.capeGlide += ((state.motion === 'glide' ? 1 : 0) - this.capeGlide) * (1 - Math.exp(-dt * 6));
 
     this.blink -= dt;
@@ -301,6 +566,7 @@ export class Character {
     if (this.blink < 0) this.blink = 2.5 + Math.random() * 3;
 
     this.root.updateMatrixWorld(true);
+    this.rig.updateHair?.(dt, time, state.wind);
     if (this.rig.setCapeState) {
       this.rig.setCapeState(this.capeGlide, dt, time, state.wind, state.velocity, groundAt);
       return;
