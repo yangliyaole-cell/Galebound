@@ -281,6 +281,107 @@ try {
       }
     }
   });
+  // Time is stubbed so tap/hold thresholds are exact rather than timing-dependent.
+  let fakeNow = 1000;
+  const realNow = performance.now.bind(performance);
+  Object.defineProperty(performance, 'now', { value: () => fakeNow, configurable: true });
+  const key = (type, code, extra = {}) => {
+    let prevented = false;
+    emit(win, type, { code, repeat: false, ctrlKey: false, preventDefault() { prevented = true; }, ...extra });
+    return prevented;
+  };
+  check('keyboard: WASD runs by default; Ctrl held walks; Ctrl tap toggles walking', () => {
+    const { input } = fresh();
+    key('keydown', 'KeyW');
+    input.poll(1 / 60);
+    assert.equal(input.run, true, 'running is the default gait');
+    key('keydown', 'ControlLeft', { ctrlKey: true });
+    const blocked = key('keydown', 'KeyS', { ctrlKey: true });
+    assert.ok(blocked, 'Ctrl + a game key must not reach the browser shortcut');
+    input.poll(1 / 60);
+    assert.equal(input.run, false, 'holding Ctrl walks');
+    fakeNow += 900;
+    key('keyup', 'KeyS');
+    key('keyup', 'ControlLeft');
+    input.poll(1 / 60);
+    assert.equal(input.run, true, 'a long Ctrl hold used with movement is not a toggle');
+    let toggled = null;
+    input.onWalkToggle = (on) => { toggled = on; };
+    key('keydown', 'ControlLeft', { ctrlKey: true });
+    fakeNow += 120;
+    key('keyup', 'ControlLeft');
+    input.poll(1 / 60);
+    assert.equal(toggled, true);
+    assert.equal(input.run, false, 'a Ctrl tap locks walking');
+    key('keydown', 'ShiftLeft');
+    input.poll(1 / 60);
+    assert.equal(input.run, true, 'Shift still runs');
+    key('keyup', 'ShiftLeft');
+    key('keydown', 'ControlRight', { ctrlKey: true });
+    fakeNow += 100;
+    key('keyup', 'ControlRight');
+    input.poll(1 / 60);
+    assert.equal(input.run, true, 'a second tap returns to running');
+    key('keyup', 'KeyW');
+  });
+  check('touch, no buttons: right tap jumps; swipe, slow hold, pinch and cancel do not', () => {
+    const { input, canvas } = fresh();
+    const tap = (id, x, travel = 0, hold = 80, type = 'pointerup') => {
+      pointer(canvas, 'pointerdown', { pointerId: id, clientX: x, clientY: 400 });
+      if (travel) pointer(win, 'pointermove', { pointerId: id, clientX: x + travel, clientY: 400 });
+      fakeNow += hold;
+      pointer(win, type, { pointerId: id, clientX: x + travel, clientY: 400 });
+    };
+    tap(40, 800);
+    assert.equal(input.takeJump(), true, 'a quick still tap on the right jumps');
+    input.takeLook();
+    tap(41, 800, 60);
+    assert.equal(input.takeJump(), false, 'a swipe turns the view instead');
+    tap(42, 800, 0, 600);
+    assert.equal(input.takeJump(), false, 'a long press is not a tap');
+    tap(43, 800, 0, 80, 'pointercancel');
+    assert.equal(input.takeJump(), false, 'a cancelled touch is not a tap');
+    pointer(canvas, 'pointerdown', { pointerId: 44, clientX: 700, clientY: 400 });
+    pointer(canvas, 'pointerdown', { pointerId: 45, clientX: 900, clientY: 400 });
+    fakeNow += 60;
+    pointer(win, 'pointerup', { pointerId: 44, clientX: 700, clientY: 400 });
+    pointer(win, 'pointerup', { pointerId: 45, clientX: 900, clientY: 400 });
+    assert.equal(input.takeJump(), false, 'lifting a pinch is not a tap');
+    tap(46, 300);
+    assert.equal(input.takeJump(), false, 'the left half is the stick, never a jump');
+  });
+  check('touch stick: a short push walks with proportional speed, a long push runs', () => {
+    const { input, canvas } = fresh();
+    pointer(canvas, 'pointerdown', { pointerId: 50, clientX: 200, clientY: 500 });
+    pointer(win, 'pointermove', { pointerId: 50, clientX: 200, clientY: 483 });
+    input.poll(1 / 60);
+    const slow = Math.hypot(input.moveX, input.moveY);
+    assert.equal(input.run, false);
+    assert.ok(slow > 0.3 && slow < 0.6, `short push walks slowly (${slow.toFixed(2)})`);
+    pointer(win, 'pointermove', { pointerId: 50, clientX: 200, clientY: 466 });
+    input.poll(1 / 60);
+    assert.equal(input.run, false);
+    assert.ok(Math.hypot(input.moveX, input.moveY) > 0.9, 'just short of the threshold is a full walk');
+    pointer(win, 'pointermove', { pointerId: 50, clientX: 200, clientY: 450 });
+    input.poll(1 / 60);
+    assert.equal(input.run, true, 'a long push runs');
+    assert.ok(input.moveY > 0.99);
+    pointer(win, 'pointermove', { pointerId: 50, clientX: 200, clientY: 497 });
+    input.poll(1 / 60);
+    assert.equal(input.run, false);
+    assert.equal(input.moveX, 0, 'tiny pushes are a dead zone');
+    assert.equal(input.moveY, 0);
+    pointer(win, 'pointerup', { pointerId: 50 });
+  });
+  check('look speed preference scales mouse and touch look', () => {
+    const { input, canvas } = fresh();
+    input.lookSpeed = 1.4;
+    pointer(canvas, 'pointerdown', { pointerId: 60, clientX: 700, clientY: 400 });
+    pointer(win, 'pointermove', { pointerId: 60, clientX: 710, clientY: 400 });
+    assert.ok(Math.abs(input.takeLook()[0] - 10 * 0.0052 * 1.4) < 1e-8);
+    pointer(win, 'pointerup', { pointerId: 60, clientX: 710, clientY: 400 });
+  });
+  Object.defineProperty(performance, 'now', { value: realNow, configurable: true });
   check('WASD movement follows camera forward/right in each quadrant', () => {
     for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
       for (const [moveX, moveY] of [[0, 1], [1, 0]]) {
